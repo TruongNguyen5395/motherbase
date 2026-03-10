@@ -33,18 +33,26 @@ Don't create or overwrite workflows without asking unless explicitly told to.
 
 ---
 
-## Connected Integrations (MCP)
+## Connected Integrations
 
 | Integration | Available | Notes |
 |-------------|-----------|-------|
-| Gmail | Yes | Email access (built-in) |
-| Google Calendar | Yes | Calendar management (built-in) |
-| Google Drive | Yes | File management — via `workspace-mcp` |
-| Google Docs | Yes | Document editing — via `workspace-mcp` |
-| Google Sheets | Yes | Spreadsheets — via `workspace-mcp` |
-| Canva | Yes | Design and presentations (built-in) |
-| Lark Bitable | Yes | Team task management (3TSolution) — via `@larksuiteoapi/lark-mcp` |
-| Directus | Yes | Central brain UI (app.hidave.co) — via `@directus/content-mcp` |
+| Google Workspace (Drive, Docs, Sheets, Gmail, Calendar, Chat, + more) | Yes | Via `gws` CLI (`@googleworkspace/cli`) — wrapper at `tools/gws.sh` |
+| Canva | Yes | Design and presentations (built-in MCP) |
+| Lark Bitable | Yes | Team task management (3TSolution) — via `@larksuiteoapi/lark-mcp` MCP |
+| Directus | Yes | Central brain UI (app.hidave.co) — via `@directus/content-mcp` MCP |
+
+### Using `gws` CLI
+
+Run Google Workspace commands via the wrapper script:
+```bash
+tools/gws.sh drive files list --params '{"pageSize": 10}'
+tools/gws.sh gmail users messages list --params '{"userId": "me"}'
+tools/gws.sh calendar events list --params '{"calendarId": "primary"}'
+tools/gws.sh sheets spreadsheets get --params '{"spreadsheetId": "..."}'
+tools/gws.sh docs documents get --params '{"documentId": "..."}'
+```
+Auth is persistent (refresh token at `~/.config/gws/`) — no re-auth needed.
 
 ---
 

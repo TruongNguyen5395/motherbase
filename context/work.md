@@ -32,16 +32,12 @@ I regularly do: feature list creation, workflow analysis, wireframe building, BR
 | Directus (app.hidave.co) | Personal management portal (future: central work hub) |
 | Claude Code | AI assistant (this workspace) |
 
-## Connected Integrations (MCP)
+## Connected Integrations
 
-- Gmail (built-in)
-- Google Calendar (built-in)
-- Google Drive (via `workspace-mcp`)
-- Google Docs (via `workspace-mcp`)
-- Google Sheets (via `workspace-mcp`)
-- Canva (built-in)
-- Lark Bitable (team task management, via official `@larksuiteoapi/lark-mcp`)
-- Directus (central brain UI at app.hidave.co, via official `@directus/content-mcp`)
+- Google Workspace (Drive, Docs, Sheets, Gmail, Calendar, Chat, + more) — via `gws` CLI (`@googleworkspace/cli`, wrapper at `tools/gws.sh`)
+- Canva (built-in MCP)
+- Lark Bitable (team task management, via `@larksuiteoapi/lark-mcp` MCP)
+- Directus (central brain UI at app.hidave.co, via `@directus/content-mcp` MCP)
 
 ## Directus (app.hidave.co) — Central Brain UI
 
