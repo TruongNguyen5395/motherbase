@@ -52,7 +52,13 @@ Don't create or overwrite workflows without asking unless explicitly told to.
 
 Skills live in `.claude/skills/`. Each skill gets a folder: `.claude/skills/skill-name/SKILL.md`
 
-Skills are built organically as recurring workflows emerge. No skills exist yet.
+Skills are built organically as recurring workflows emerge.
+
+### Active Skills
+
+| Skill | Trigger | Description |
+|-------|---------|-------------|
+| 3tsolution-timeline | `/3tsolution-timeline` | Manage 3TSolution project timelines in Lark Base — create projects, tasks, phase-based structures |
 
 ### Skills to Build (Backlog)
 
@@ -61,7 +67,6 @@ Skills are built organically as recurring workflows emerge. No skills exist yet.
 | weekly-report | Generate weekly progress reports |
 | meeting-notes | Prepare and format meeting notes/minutes |
 | slide-builder | Create presentation slides (via Canva) |
-| lark-scheduler | Schedule and track tasks/deadlines in Lark |
 | deadline-checker | Review and flag upcoming deadlines across projects |
 | daily-schedule | Build and manage daily schedule |
 | facebook-content | Daily Facebook page content management |
