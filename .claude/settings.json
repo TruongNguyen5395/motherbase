@@ -1,1 +1,24 @@
-{}
+{
+  "mcpServers": {
+    "lark-bitable": {
+      "command": "/config/.nvm/versions/node/v24.14.0/bin/npx",
+      "args": ["-y", "@larksuiteoapi/lark-mcp", "mcp", "-a", "$LARK_APP_ID", "-s", "$LARK_APP_SECRET", "-t", "preset.bitable.default"]
+    },
+    "google-workspace": {
+      "command": "/config/.local/bin/uvx",
+      "args": ["workspace-mcp", "--tools", "drive", "docs", "sheets"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "$GOOGLE_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "$GOOGLE_OAUTH_CLIENT_SECRET"
+      }
+    },
+    "directus": {
+      "command": "/config/.nvm/versions/node/v24.14.0/bin/npx",
+      "args": ["-y", "@directus/content-mcp"],
+      "env": {
+        "DIRECTUS_URL": "https://app.hidave.co",
+        "DIRECTUS_TOKEN": "$DIRECTUS_TOKEN"
+      }
+    }
+  }
+}

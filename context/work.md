@@ -34,6 +34,32 @@ I regularly do: feature list creation, workflow analysis, wireframe building, BR
 
 ## Connected Integrations (MCP)
 
-- Gmail
-- Google Calendar
-- Canva
+- Gmail (built-in)
+- Google Calendar (built-in)
+- Google Drive (via `workspace-mcp`)
+- Google Docs (via `workspace-mcp`)
+- Google Sheets (via `workspace-mcp`)
+- Canva (built-in)
+- Lark Bitable (team task management, via official `@larksuiteoapi/lark-mcp`)
+- Directus (central brain UI at app.hidave.co, via official `@directus/content-mcp`)
+
+## Directus (app.hidave.co) — Central Brain UI
+
+Directus is the visual dashboard. Claude Code is the execution terminal. They work together.
+
+### Collections
+
+| Collection | Purpose |
+|------------|---------|
+| `projects` | Active projects and workstreams across all contexts |
+| `tasks` | Central task hub — syncs from Lark, manual, Claude Code |
+| `goals` | Revenue targets and milestones |
+| `knowledge` | Second brain — notes, learnings, insights |
+| `documents` | Document registry — links to GDocs, Lark Docs, etc. |
+| `decisions` | Decision log (append-only) |
+| `daily_journal` | Daily thoughts, reflections, and notes |
+
+## Lark Suite Usage
+
+Lark features actively used: Calendar, Docs, Lark Base, Lark Sheet, Chat, Email, Approval, Tasks.
+Team task management is done in **Lark Base (Bitable)**.

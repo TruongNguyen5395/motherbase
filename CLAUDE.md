@@ -35,11 +35,16 @@ Don't create or overwrite workflows without asking unless explicitly told to.
 
 ## Connected Integrations (MCP)
 
-| Integration | Available |
-|-------------|-----------|
-| Gmail | Yes |
-| Google Calendar | Yes |
-| Canva | Yes |
+| Integration | Available | Notes |
+|-------------|-----------|-------|
+| Gmail | Yes | Email access (built-in) |
+| Google Calendar | Yes | Calendar management (built-in) |
+| Google Drive | Yes | File management — via `workspace-mcp` |
+| Google Docs | Yes | Document editing — via `workspace-mcp` |
+| Google Sheets | Yes | Spreadsheets — via `workspace-mcp` |
+| Canva | Yes | Design and presentations (built-in) |
+| Lark Bitable | Yes | Team task management (3TSolution) — via `@larksuiteoapi/lark-mcp` |
+| Directus | Yes | Central brain UI (app.hidave.co) — via `@directus/content-mcp` |
 
 ---
 
