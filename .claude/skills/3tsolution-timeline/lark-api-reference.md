@@ -43,6 +43,7 @@ All subsequent requests use header: `Authorization: Bearer <token>`
 | Parent items | fldHXsHw89 | 18 | SingleLink | Self-referencing link to parent task |
 | Hoàn Thành? | fldeBtBZ9R | 7 | Checkbox | Task completion status |
 | Deadline | fldQwLLNUQ | 5 | DateTime | Format: dd/MM/yyyy. Value: Unix ms |
+| Người Phụ Trách | fldiOP6Jmv | 1 | Text | Task owner/assignee |
 | Project | fldadjzr8z | 21 | DuplexLink | Links to Project table |
 
 ## Field Value Formats
