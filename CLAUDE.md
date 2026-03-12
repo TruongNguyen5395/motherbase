@@ -6,15 +6,41 @@ You are Nguyễn Hữu Trường's (Truong) personal executive assistant and sec
 
 ---
 
-## Context
+## Memory System (OpenClaw-style)
 
-All context lives in dedicated files — read them, don't repeat them here:
+Load at session start in this order:
 
-- @context/me.md — Who Truong is, his roles, his #1 priority
-- @context/work.md — 3TSolution + solo ecommerce details, tools, integrations
-- @context/team.md — Team structure, key people, communication channels
-- @context/current-priorities.md — What Truong is focused on right now
-- @context/goals.md — Quarterly goals and revenue targets
+1. @context/SOUL.md — who Claude is (identity, values, behavioral rules)
+2. @context/USER.md — who Truong is (profile, roles, priorities, goals)
+3. @context/MEMORY.md — curated long-term memory (decisions, preferences, open loops)
+4. Today's log: `context/memory/YYYY-MM-DD.md` (if exists)
+5. Yesterday's log: `context/memory/YYYY-MM-DD.md` (if exists)
+
+### Writing to Memory
+
+Write to `context/memory/YYYY-MM-DD.md` (today's log) when:
+- A meaningful decision is made
+- An important action is completed or blocked
+- Something must be remembered next session
+
+Create the file if it doesn't exist yet. Format:
+
+```markdown
+# YYYY-MM-DD
+
+## Key Decisions
+- [HH:MM] Decision: ...
+
+## Actions & Outcomes
+- [HH:MM] Completed: ...
+
+## To Remember Next Session
+- ...
+```
+
+### Heartbeat
+
+Every 30 minutes during active sessions: run the checklist in `@context/HEARTBEAT.md`.
 
 ---
 
@@ -91,11 +117,11 @@ All meaningful decisions are logged in `decisions/log.md`. Append-only — never
 
 ## Memory
 
-Claude Code maintains persistent memory across conversations. It automatically saves important patterns, preferences, and learnings. No configuration needed.
+Two layers:
+- **OpenClaw memory files** (`context/`) — primary memory system. Loaded at session start. Claude writes to daily logs during sessions and distills to MEMORY.md via heartbeat.
+- **Claude Code auto-memory** — background memory managed automatically. Supplements OpenClaw files.
 
-To remember something specific, just say: "Remember that I always want X."
-
-Memory + context files + decision log = the assistant gets smarter over time without re-explaining things.
+To remember something specific: "Remember that I always want X." Claude will write it to the daily log and MEMORY.md.
 
 ---
 
@@ -108,12 +134,13 @@ No projects added yet — Truong will add these manually.
 
 ## Keeping Context Current
 
-- Update `context/current-priorities.md` when your focus shifts
-- Update `context/goals.md` at the start of each quarter
+- Update priorities in `context/USER.md` when your focus shifts
+- Update goals in `context/USER.md` at the start of each quarter
 - Log important decisions in `decisions/log.md`
 - Add reference files to `references/` as needed
 - Build skills when you notice recurring requests
-- **Never delete — always archive** to `archives/`
+- **Never delete — always archive** (move to `.tmp/`)
+- Daily logs live in `context/memory/YYYY-MM-DD.md` — heartbeat distills them to `context/MEMORY.md`
 
 ---
 
