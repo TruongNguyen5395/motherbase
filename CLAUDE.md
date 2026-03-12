@@ -68,6 +68,30 @@ Don't create or overwrite workflows without asking unless explicitly told to.
 | Lark Bitable | Yes | Team task management (3TSolution) — via `@larksuiteoapi/lark-mcp` MCP |
 | Directus | Yes | Cloud database layer (app.hidave.co) — stores tasks, goals, projects, knowledge, decisions. Via `@directus/content-mcp` MCP |
 
+### Directus Sync Workflow
+
+Directus is the persistent cloud layer. Claude Code works locally — Directus makes it durable and accessible anywhere.
+
+**When to sync — trigger table:**
+
+| Trigger | What to push | Collection |
+|---------|-------------|------------|
+| Meaningful decision made | Log entry | `decisions` |
+| Task created or completed | Task record | `tasks` |
+| Project status changes | Project update | `projects` |
+| Deliverable created (spec, plan, feature list) | Document link + metadata | `documents` |
+| Key learning or insight | Note | `knowledge` |
+| End of session | Daily summary | `daily_journal` |
+| Goals updated | Goal record | `goals` |
+
+**Rule:** If something matters beyond this session and is too large, too structured, or too important for a Markdown file — it goes to Directus.
+
+**Never sync:** Raw drafts, `.tmp/` files, in-progress work. Only push when something is finalized or decision is made.
+
+**How to sync:** Use the `@directus/content-mcp` MCP tools directly. No scripts needed.
+
+---
+
 ### Using `gws` CLI
 
 Run Google Workspace commands via the wrapper script:
