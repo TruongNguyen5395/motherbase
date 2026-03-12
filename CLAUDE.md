@@ -66,7 +66,7 @@ Don't create or overwrite workflows without asking unless explicitly told to.
 | Google Workspace (Drive, Docs, Sheets, Gmail, Calendar, Chat, + more) | Yes | Via `gws` CLI (`@googleworkspace/cli`) — wrapper at `tools/gws.sh` |
 | Canva | Yes | Design and presentations (built-in MCP) |
 | Lark Bitable | Yes | Team task management (3TSolution) — via `@larksuiteoapi/lark-mcp` MCP |
-| Directus | Yes | Central brain UI (app.hidave.co) — via `@directus/content-mcp` MCP |
+| Directus | Yes | Cloud database layer (app.hidave.co) — stores tasks, goals, projects, knowledge, decisions. Via `@directus/content-mcp` MCP |
 
 ### Using `gws` CLI
 
@@ -128,7 +128,22 @@ To remember something specific: "Remember that I always want X." Claude will wri
 ## Projects
 
 Active workstreams live in `projects/`. Each project gets a folder with a `README.md`.
-No projects added yet — Truong will add these manually.
+
+| Project | Context | Status | Notes |
+|---------|---------|--------|-------|
+| OMS — Operation Management System | 3TSolution | In Progress | Multi-module ERP layer for Kingston factory |
+| Solo Ecommerce Company | Personal | Early stage | No project folder yet — building structure |
+
+### OMS Module Tracker
+
+| Module | Vietnamese | Status |
+|--------|-----------|--------|
+| Sale System (PKD) | Phòng Kinh Doanh | Done |
+| Planning System (KHSX) | Phòng Kế Hoạch Sản Xuất | In Progress — feature list drafting |
+| Purchasing System | Phòng Mua Hàng | Not Started |
+| Document Management | Quản Lý Tài Liệu | Not Started |
+| Business Analytics & AI | Báo Cáo và AI | Not Started |
+| Workflow & Process Management | Quản Lý Luồng Công Việc | Not Started |
 
 ---
 
@@ -147,10 +162,24 @@ No projects added yet — Truong will add these manually.
 ## File Structure
 
 ```
-.tmp/           # Temporary files. Regenerated as needed.
-tools/          # Python scripts for deterministic execution
-workflows/      # Markdown SOPs defining what to do and how
-.env            # API keys (NEVER store secrets anywhere else)
+context/            # Memory system (OpenClaw-style)
+  SOUL.md           # Agent identity, personality, values
+  USER.md           # Truong's consolidated profile
+  MEMORY.md         # Curated long-term memory
+  HEARTBEAT.md      # Session closeout checklist
+  memory/           # Daily working logs (YYYY-MM-DD.md)
+projects/           # Active workstreams (one folder per project)
+docs/               # Specs and implementation plans
+decisions/          # Decision log (append-only)
+tools/              # Python scripts for deterministic execution
+workflows/          # Markdown SOPs defining what to do and how
+templates/          # Reusable templates
+references/         # SOPs and examples
+archives/           # Completed/outdated material — never delete, archive here
+.tmp/               # Temporary files. Disposable — not committed to git.
+.env                # API keys (NEVER store secrets anywhere else)
 ```
 
-Core principle: Local files are for processing. Deliverables go to cloud services. Everything in `.tmp/` is disposable.
+**Core principle:** Local files are for processing. Deliverables and important data go to cloud services (Directus, Google Drive). Everything in `.tmp/` is disposable.
+
+**Directus as cloud database:** When data is too large for git, too important to lose, or needs to be accessible outside this server — push it to Directus. Claude Code executes, Directus stores.
