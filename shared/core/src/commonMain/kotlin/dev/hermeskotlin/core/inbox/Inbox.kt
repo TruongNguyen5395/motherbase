@@ -373,7 +373,7 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         val output = push.mbInbox("list {}") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
         val reply = runCatching { HermesJson.decodeFromString(ActionInboxListReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
-        if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể tải danh sách Action Inbox.")
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't load Action Inbox.")
         return reply.items
     }
 
@@ -387,7 +387,7 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         val output = push.mbInbox("resolve $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
         val reply = runCatching { HermesJson.decodeFromString(ActionInboxMutationReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
-        if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể xóa mục này trên máy chủ.")
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't dismiss this item on the server.")
     }
 
     /** Claims option A/B/C/FOLLOWUP for an Action Inbox item and triggers background execution on Miller. */
@@ -408,7 +408,7 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         val output = push.mbInbox("act $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
         val reply = runCatching { HermesJson.decodeFromString(ActionInboxMutationReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
-        if (!reply.ok) throw RpcException(0, reply.error ?: "Thực thi phương án thất bại.")
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't execute this action.")
         return reply.prompt
     }
 
@@ -417,7 +417,7 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         val output = push.mbInbox("channels") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
         val reply = runCatching { HermesJson.decodeFromString(InboxChannelsReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
-        if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể tải phiên xử lý từng kênh.")
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't load channel sessions.")
         return reply.channels
     }
 
@@ -427,7 +427,7 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         val output = push.mbInbox("reset_channel $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
         val reply = runCatching { HermesJson.decodeFromString(InboxChannelsReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
-        if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể làm mới session kênh $channel.")
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't reset the $channel session.")
         return reply.channels
     }
 

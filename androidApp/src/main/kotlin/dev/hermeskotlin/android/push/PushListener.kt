@@ -112,7 +112,7 @@ class PushListener(
         inbox.notifyActionInboxUpdate(itemId)
         if (visibility.visible.value && connection.state.value is ConnectionState.Connected) return
         val title = message.label?.trim()?.takeIf { it.isNotEmpty() } ?: "Action Inbox"
-        val body = message.text?.trim()?.takeIf { it.isNotEmpty() } ?: "Miller đã xử lý xong"
+        val body = message.text?.trim()?.takeIf { it.isNotEmpty() } ?: notifications.finished
         notifications.postActionInbox(
             itemId = itemId,
             title = title,

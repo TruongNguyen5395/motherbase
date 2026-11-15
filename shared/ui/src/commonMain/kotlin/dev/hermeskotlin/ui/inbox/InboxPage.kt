@@ -301,8 +301,8 @@ internal fun InboxView(
         onBack = if (inFolder) ({ viewModel.setFilter(InboxFilter.All) }) else onBack,
         subtitle = when {
             !inFolder && actionCount > 0 -> buildString {
-                append("$actionCount việc cần quyết định")
-                if (unread > 0) append(" · $unread báo cáo chưa đọc")
+                append(if (actionCount == 1) "1 item needs action" else "$actionCount items need action")
+                if (unread > 0) append(" · $unread unread")
             }
             state.runs.isEmpty() -> null
             state.shownFilter is InboxFilter.Job ->
@@ -315,7 +315,7 @@ internal fun InboxView(
             else -> stringResource(Res.string.inbox_from_jobs)
         },
     ) {
-        IconButton(Lucide.RefreshCw, contentDescription = "Làm mới Action Inbox", onClick = { viewModel.loadActionItems(quiet = false) })
+        IconButton(Lucide.RefreshCw, contentDescription = "Refresh Action Inbox", onClick = { viewModel.loadActionItems(quiet = false) })
         if (unread > 0) IconButton(Lucide.CheckCheck, contentDescription = stringResource(Res.string.inbox_mark_all_read), onClick = viewModel::markAllRead)
         IconButton(Lucide.FolderTree, contentDescription = stringResource(Res.string.inbox_folders_and_groups), onClick = viewModel::openGroups)
         IconButton(Lucide.Settings2, contentDescription = stringResource(Res.string.inbox_choose_jobs), onClick = viewModel::chooseJobs)
@@ -359,7 +359,7 @@ internal fun InboxView(
         ) {
             if (hasActionSection) {
                 item(key = "action-inbox-header") {
-                    DayLabel("CẦN QUYẾT ĐỊNH (${actionShown.size})")
+                    DayLabel("NEEDS ACTION (${actionShown.size})")
                 }
                 if (state.actionError != null && actionShown.isEmpty()) {
                     item(key = "action-inbox-error") {
@@ -367,7 +367,7 @@ internal fun InboxView(
                     }
                 }
                 items(actionShown, key = { "act-${it.id}" }) { item ->
-                    val dismissSwipe = SwipeAction("Xong · Xóa", Lucide.Check, SwipeKind.Archive) {
+                    val dismissSwipe = SwipeAction("Done · Dismiss", Lucide.Check, SwipeKind.Archive) {
                         viewModel.dismissActionItem(item)
                     }
                     SwipeRow(
@@ -385,7 +385,7 @@ internal fun InboxView(
                 }
                 if (state.folders.isNotEmpty() || state.failed > 0) {
                     item(key = "folders-section-header") {
-                        DayLabel("BÁO CÁO ĐỊNH KỲ")
+                        DayLabel("SCHEDULED REPORTS")
                     }
                 }
             }
@@ -411,7 +411,7 @@ internal fun InboxView(
         ) {
             if (hasActionSection) {
                 item(key = "action-inbox-header") {
-                    DayLabel("CẦN QUYẾT ĐỊNH (${actionShown.size})")
+                    DayLabel("NEEDS ACTION (${actionShown.size})")
                 }
                 if (state.actionError != null && actionShown.isEmpty()) {
                     item(key = "action-inbox-error") {
@@ -419,7 +419,7 @@ internal fun InboxView(
                     }
                 }
                 items(actionShown, key = { "act-${it.id}" }) { item ->
-                    val dismissSwipe = SwipeAction("Xong · Xóa", Lucide.Check, SwipeKind.Archive) {
+                    val dismissSwipe = SwipeAction("Done · Dismiss", Lucide.Check, SwipeKind.Archive) {
                         viewModel.dismissActionItem(item)
                     }
                     SwipeRow(
@@ -1208,9 +1208,9 @@ internal fun FollowView(state: InboxUiState, viewModel: InboxActions) {
         if (channelSessions.isNotEmpty() || state.channelSessionsLoading || inboxChannels.isNotEmpty()) {
             item(key = "inbox-channels-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    DayLabel("KÊNH & PHIÊN XỬ LÝ ACTION INBOX")
+                    DayLabel("ACTION INBOX CHANNELS & SESSIONS")
                     Text(
-                        "Mỗi kênh dùng một phiên ẩn riêng để tránh trôi ngữ cảnh. Xem lịch sử khi cần hoặc làm mới phiên sạch.",
+                        "Each channel keeps a dedicated hidden session to prevent context drift. View history anytime or reset to a clean session.",
                         style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp),
                         color = Theme[colors][textTertiary],
                         modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
@@ -1225,7 +1225,7 @@ internal fun FollowView(state: InboxUiState, viewModel: InboxActions) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Spinner(Modifier.size(14.dp), color = Theme[colors][accentText])
-                        Text("Đang tải trạng thái phiên các kênh...", style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
+                        Text("Loading channel sessions...", style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
                     }
                 }
             }
@@ -1445,7 +1445,7 @@ private fun ActionChannelChips(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Chip(
-            text = "Tất cả",
+            text = "All",
             selected = selectedChannel == null,
             onClick = { onSelect(null) },
             count = totalCount.takeIf { it > 0 },
@@ -1477,7 +1477,7 @@ private fun ActionErrorBanner(error: String, onRetry: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(error, style = Theme[typography][bodySmall], color = Theme[colors][danger])
-        Text("Chạm để thử lại", style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold), color = Theme[colors][accentText])
+        Text("Tap to try again", style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold), color = Theme[colors][accentText])
     }
 }
 
@@ -1557,7 +1557,7 @@ private fun ActionIssueCard(
                     )
                     if (item.mergedCount > 1) {
                         Text(
-                            "Gộp ${item.mergedCount} tin",
+                            "${item.mergedCount} merged",
                             style = Theme[typography][code].copy(fontSize = 10.5.sp, fontWeight = FontWeight.Medium),
                             color = Theme[colors][onAccent],
                             modifier = Modifier
@@ -1580,17 +1580,17 @@ private fun ActionIssueCard(
                     }
                     when {
                         item.isRunning -> Text(
-                            "Đang chạy nền...",
+                            "Running in background...",
                             style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                             color = Theme[colors][accentText],
                         )
                         item.isReplied -> Text(
-                            "Miller đã trả lời",
+                            "Miller replied",
                             style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                             color = Theme[colors][accentText],
                         )
                         item.isError -> Text(
-                            "Lỗi xử lý",
+                            "Execution failed",
                             style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                             color = Theme[colors][danger],
                         )
@@ -1599,7 +1599,7 @@ private fun ActionIssueCard(
             }
             if (!item.isRunning && (item.isReplied || item.isError)) {
                 Button(
-                    text = "Xong",
+                    text = "Done",
                     onClick = onDismiss,
                     variant = ButtonVariant.Ghost,
                     size = ButtonSize.Small,
@@ -1619,7 +1619,7 @@ private fun ActionIssueCard(
             ) {
                 UnstyledIcon(Lucide.TriangleAlert, contentDescription = null, tint = Theme[colors][danger], modifier = Modifier.size(14.dp))
                 Text(
-                    "Lỗi thực thi: ${item.bounceError}",
+                    "Execution error: ${item.bounceError}",
                     style = Theme[typography][bodySmall].copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
                     color = Theme[colors][danger],
                     maxLines = 2,
@@ -1646,9 +1646,9 @@ private fun ActionIssueCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Spinner(Modifier.size(13.dp), color = Theme[colors][accentText])
-                val cmdDesc = item.lastDraft.takeIf { it.isNotBlank() } ?: "Phương án ${item.selectedOption.ifBlank { "A" }}"
+                val cmdDesc = item.lastDraft.takeIf { it.isNotBlank() } ?: "Option ${item.selectedOption.ifBlank { "A" }}"
                 Text(
-                    "Đang chạy trên phiên ${item.channel}: $cmdDesc",
+                    "Running in ${item.channel} session: $cmdDesc",
                     style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
                     color = Theme[colors][accentText],
                     maxLines = 2,
@@ -1669,7 +1669,7 @@ private fun ActionIssueCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (item.isError) "Chi tiết lỗi từ Miller" else "Phản hồi từ Miller",
+                        if (item.isError) "Error from Miller" else "Reply from Miller",
                         style = Theme[typography][code].copy(fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold),
                         color = if (item.isError) Theme[colors][danger] else Theme[colors][accentText],
                     )
@@ -1700,7 +1700,7 @@ private fun ActionIssueCard(
             ) {
                 UnstyledIcon(Lucide.Sparkles, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(14.dp))
                 Text(
-                    "Đề xuất (${recommended.key}): ${recommended.label}",
+                    "Recommended (${recommended.key}): ${recommended.label}",
                     style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
                     color = Theme[colors][text],
                     maxLines = 1,
@@ -1727,9 +1727,9 @@ private fun ActionSolutionSheet(
         val current = shown ?: return@BottomSheet
         val options = current.options.ifEmpty {
             listOf(
-                ActionOption(key = "A", label = "Xử lý ngay theo đề xuất", recommended = true, draft = "Đã tiếp nhận và xử lý yêu cầu này."),
-                ActionOption(key = "B", label = "Lên lịch nhắc lại sau", recommended = false, draft = "Tạo lịch nhắc việc sau 2 giờ."),
-                ActionOption(key = "C", label = "Lưu trữ / Bỏ qua", recommended = false, draft = "Đánh dấu đã xem, không cần phản hồi."),
+                ActionOption(key = "A", label = "Handle as recommended", recommended = true, draft = "Accepted and processing this request."),
+                ActionOption(key = "B", label = "Remind me later", recommended = false, draft = "Set a reminder for 2 hours later."),
+                ActionOption(key = "C", label = "Archive / Dismiss", recommended = false, draft = "Marked as reviewed; no reply needed."),
             )
         }
         val initialOption = remember(current.id) {
@@ -1751,7 +1751,7 @@ private fun ActionSolutionSheet(
         val subtitle = buildString {
             append(current.channel)
             if (current.timeLabel.isNotBlank()) append(" · ${current.timeLabel}")
-            if (current.mergedCount > 1) append(" · Gộp ${current.mergedCount} tin")
+            if (current.mergedCount > 1) append(" · ${current.mergedCount} merged")
         }
         SheetHeader(title = current.sender, subtitle = subtitle)
 
@@ -1777,7 +1777,7 @@ private fun ActionSolutionSheet(
                 )
                 if (current.rawText.isNotBlank() && current.rawText != current.summary) {
                     Text(
-                        if (showRaw) "Ẩn nội dung chi tiết" else "Xem toàn bộ ngữ cảnh (${current.mergedCount} tin)",
+                        if (showRaw) "Hide full context" else "View full context (${current.mergedCount} messages)",
                         style = Theme[typography][bodySmall].copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                         color = Theme[colors][accentText],
                         modifier = Modifier.clickable { showRaw = !showRaw }.padding(vertical = 2.dp),
@@ -1804,7 +1804,7 @@ private fun ActionSolutionSheet(
                     Spinner(Modifier.size(16.dp), color = Theme[colors][accentText])
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            "Miller đang xử lý ngầm trong phiên ${current.channel}...",
+                            "Miller is processing in the ${current.channel} session...",
                             style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold),
                             color = Theme[colors][accentText],
                         )
@@ -1836,7 +1836,7 @@ private fun ActionSolutionSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            if (current.isError) "LỖI THỰC THI" else "PHẢN HỒI TỪ MILLER (${current.channel.uppercase()})",
+                            if (current.isError) "EXECUTION ERROR" else "REPLY FROM MILLER (${current.channel.uppercase()})",
                             style = Theme[typography][eyebrow],
                             color = if (current.isError) Theme[colors][danger] else Theme[colors][accentText],
                         )
@@ -1857,13 +1857,13 @@ private fun ActionSolutionSheet(
                 if (!current.isRunning) {
                     TextField(
                         state = followupState,
-                        label = "Nhắn tiếp cho Miller (VD: Gửi luôn giúp anh / Sửa giờ thành 14h)",
-                        placeholder = "Nhập chỉ dẫn tiếp theo...",
+                        label = "Reply to Miller (e.g. Send now / Change time to 2 PM)",
+                        placeholder = "Enter follow-up instructions...",
                         singleLine = false,
                         maxLines = 4,
                     )
                     Button(
-                        text = "Gửi tiếp cho Miller",
+                        text = "Send follow-up",
                         onClick = {
                             val txt = followupState.text.toString().trim()
                             if (txt.isNotEmpty()) onSubmit(current, "FOLLOWUP", txt)
@@ -1875,7 +1875,7 @@ private fun ActionSolutionSheet(
                         leadingIcon = Lucide.Send,
                     )
                     Button(
-                        text = "Đã xong · Xóa khỏi Inbox",
+                        text = "Done · Remove from Inbox",
                         onClick = { onDismissItem(current) },
                         modifier = Modifier.fillMaxWidth(),
                         variant = ButtonVariant.Secondary,
@@ -1883,7 +1883,7 @@ private fun ActionSolutionSheet(
                         leadingIcon = Lucide.Check,
                     )
                     Text(
-                        if (showOptions) "Ẩn phương án A/B/C" else "Hoặc chọn lại phương án A/B/C",
+                        if (showOptions) "Hide A/B/C options" else "Or choose option A/B/C",
                         style = Theme[typography][bodySmall].copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                         color = Theme[colors][accentText],
                         modifier = Modifier.clickable { showOptions = !showOptions }.padding(vertical = 2.dp),
@@ -1893,7 +1893,7 @@ private fun ActionSolutionSheet(
 
             if (!current.isRunning && showOptions) {
                 Text(
-                    "CHỌN PHƯƠNG ÁN XỬ LÝ",
+                    "CHOOSE AN ACTION",
                     style = Theme[typography][eyebrow],
                     color = Theme[colors][textTertiary],
                 )
@@ -1943,7 +1943,7 @@ private fun ActionSolutionSheet(
                                 )
                                 if (opt.recommended) {
                                     Text(
-                                        "Đề xuất",
+                                        "Recommended",
                                         style = Theme[typography][code].copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
                                         color = Theme[colors][accentText],
                                     )
@@ -1955,14 +1955,14 @@ private fun ActionSolutionSheet(
 
                 TextField(
                     state = draftState,
-                    label = "Nội dung phản hồi / lệnh giao cho Miller (có thể sửa trước khi gửi)",
-                    placeholder = "Nhập nội dung phản hồi hoặc hướng dẫn...",
+                    label = "Response or instructions for Miller (editable before sending)",
+                    placeholder = "Enter a reply or instructions...",
                     singleLine = false,
                     maxLines = 4,
                 )
 
                 Button(
-                    text = "Gửi Miller xử lý (${selectedKey})",
+                    text = "Send to Miller (${selectedKey})",
                     onClick = { onSubmit(current, selectedKey, draftState.text.toString()) },
                     modifier = Modifier.fillMaxWidth(),
                     variant = ButtonVariant.Primary,
@@ -1977,7 +1977,7 @@ private fun ActionSolutionSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(
-                    text = "Tách chat mới",
+                    text = "Open in Chat",
                     onClick = { onEscalateToChat(current) },
                     modifier = Modifier.weight(1f),
                     variant = ButtonVariant.Secondary,
@@ -1986,7 +1986,7 @@ private fun ActionSolutionSheet(
                 )
                 if (!current.hasReply && !current.isRunning) {
                     Button(
-                        text = "Bỏ qua / Xóa",
+                        text = "Dismiss",
                         onClick = { onDismissItem(current) },
                         variant = ButtonVariant.Ghost,
                         size = ButtonSize.Small,
@@ -2006,8 +2006,8 @@ private fun UndoActionBanner(
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
     val actionDesc = when (undo.kind) {
-        PendingUndoKind.Act -> "Đang thực thi (${undo.option ?: "A"}) cho ${undo.item.sender}..."
-        PendingUndoKind.Dismiss -> "Đã ẩn ${undo.item.sender}"
+        PendingUndoKind.Act -> "Executing (${undo.option ?: "A"}) for ${undo.item.sender}..."
+        PendingUndoKind.Dismiss -> "Dismissed ${undo.item.sender}"
     }
     Row(
         modifier
@@ -2027,7 +2027,7 @@ private fun UndoActionBanner(
             modifier = Modifier.weight(1f),
         )
         Button(
-            text = "Hoàn tác",
+            text = "Undo",
             onClick = onUndo,
             variant = ButtonVariant.Secondary,
             size = ButtonSize.Small,
@@ -2092,7 +2092,7 @@ private fun InboxChannelSessionCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val statusLabel = if (isActive) "Thu thập đang bật" else "Thu thập tạm dừng"
+                val statusLabel = if (isActive) "Collector active" else "Collector paused"
                 val sched = job?.scheduleDisplay?.takeIf { it.isNotBlank() && it != "?" }
                 Text(
                     if (sched != null) "$statusLabel · $sched" else statusLabel,
@@ -2137,7 +2137,7 @@ private fun InboxChannelSessionCard(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    if (channel.exists && channel.sessionId.isNotBlank()) "Phiên ẩn" else "Chờ lượt đầu",
+                    if (channel.exists && channel.sessionId.isNotBlank()) "Hidden session" else "Ready",
                     style = Theme[typography][code].copy(fontSize = 10.5.sp, fontWeight = FontWeight.Medium),
                     color = if (channel.exists) Theme[colors][accentText] else Theme[colors][textMuted],
                 )
@@ -2148,8 +2148,9 @@ private fun InboxChannelSessionCard(
                 val whole = milli / 1000
                 val frac = (milli % 1000).toString().padStart(3, '0')
                 val lastAt = if (channel.lastActivityAt > 0) " · ${timeLabel(channel.lastActivityAt)}" else ""
+                val msgLabel = if (channel.messageCount == 1) "1 msg" else "${channel.messageCount} msgs"
                 Text(
-                    "${channel.messageCount} tin · ID $shortSid · $$whole.$frac$lastAt",
+                    "$msgLabel · ID $shortSid · $$whole.$frac$lastAt",
                     style = Theme[typography][code].copy(fontSize = 11.sp),
                     color = Theme[colors][textSecondary],
                     maxLines = 1,
@@ -2157,7 +2158,7 @@ private fun InboxChannelSessionCard(
                 )
             } else {
                 Text(
-                    "Chưa có hội thoại — sẽ tự khởi tạo phiên ẩn khi chạy tác vụ đầu tiên.",
+                    "No conversation yet — a hidden session will start on the first action.",
                     style = Theme[typography][bodySmall].copy(fontSize = 11.5.sp),
                     color = Theme[colors][textTertiary],
                 )
@@ -2182,7 +2183,7 @@ private fun InboxChannelSessionCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Button(
-                text = "Xem session",
+                text = "View session",
                 onClick = onOpenSession,
                 enabled = channel.sessionId.isNotBlank(),
                 modifier = Modifier.weight(1f),
@@ -2191,7 +2192,7 @@ private fun InboxChannelSessionCard(
                 leadingIcon = Lucide.MessageSquare,
             )
             Button(
-                text = if (resetting) "Đang làm mới..." else "Làm mới session",
+                text = if (resetting) "Resetting..." else "Reset session",
                 onClick = onResetSession,
                 enabled = !resetting && (channel.exists || channel.sessionId.isNotBlank()),
                 loading = resetting,
@@ -2253,7 +2254,7 @@ private fun InboxChannelSwitchRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val statusLabel = if (isActive) "Đang bật" else "Đã tạm dừng"
+            val statusLabel = if (isActive) "Enabled" else "Paused"
             val sched = job.scheduleDisplay.takeIf { it.isNotBlank() && it != "?" }
             Text(
                 if (sched != null) "$statusLabel · $sched" else statusLabel,

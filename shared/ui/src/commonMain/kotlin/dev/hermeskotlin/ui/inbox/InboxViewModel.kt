@@ -627,7 +627,7 @@ class InboxViewModel(
                 _state.update { prev ->
                     prev.copy(
                         actionLoading = false,
-                        actionError = if (prev.actionItems.isEmpty() && !quiet) (e.message ?: "Không thể tải Action Inbox") else prev.actionError,
+                        actionError = if (prev.actionItems.isEmpty() && !quiet) (e.message ?: "Couldn't load Action Inbox") else prev.actionError,
                     )
                 }
             }
@@ -714,12 +714,12 @@ class InboxViewModel(
             outcome.onSuccess {
                 ensureActionPolling()
             }.onFailure { e ->
-                val reason = e.message?.takeIf { it.isNotBlank() } ?: "Thực thi thất bại trên máy chủ"
+                val reason = e.message?.takeIf { it.isNotBlank() } ?: "Execution failed on the server"
                 val bounced = previous.copy(bounceError = reason)
                 _state.update { state ->
                     state.copy(
                         actionItems = state.actionItems.map { x -> if (x.id == item.id) bounced else x },
-                        message = Words.Raw("Lỗi mục ${item.sender}: $reason"),
+                        message = Words.Raw("Error for ${item.sender}: $reason"),
                     )
                 }
             }
@@ -778,12 +778,12 @@ class InboxViewModel(
         if (gen != generation) return
         outcome.onFailure { e ->
             // Auto-Bounce back to the top of the Inbox with an error badge
-            val reason = e.message?.takeIf { it.isNotBlank() } ?: "Thực thi thất bại trên máy chủ"
+            val reason = e.message?.takeIf { it.isNotBlank() } ?: "Execution failed on the server"
             val bounced = item.copy(bounceError = reason)
             _state.update { state ->
                 state.copy(
                     actionItems = listOf(bounced) + state.actionItems.filter { x -> x.id != item.id },
-                    message = Words.Raw("Đã hoàn lại mục ${item.sender}: $reason"),
+                    message = Words.Raw("Restored ${item.sender}: $reason"),
                 )
             }
         }
@@ -802,19 +802,19 @@ class InboxViewModel(
             runCatching { api.resolveActionItem(item.id, item.mergedIds, reason = "escalated_to_chat") }
             if (gen != generation) return@launch
             val optionsText = item.options.joinToString("\n") { opt ->
-                val rec = if (opt.recommended) " (đề xuất)" else ""
+                val rec = if (opt.recommended) " (recommended)" else ""
                 "${opt.key}) ${opt.label}$rec"
             }
             val contextPrompt = buildString {
-                append("Việc tách từ Action Inbox (${item.channel} · ${item.sender}")
+                append("From Action Inbox (${item.channel} · ${item.sender}")
                 if (item.timeLabel.isNotBlank()) append(" · ${item.timeLabel}")
                 append("):\n\n")
                 append(item.summary.trim())
                 if (optionsText.isNotBlank()) {
-                    append("\n\nCác phương án gợi ý ban đầu:\n")
+                    append("\n\nSuggested options:\n")
                     append(optionsText)
                 }
-                append("\n\nHãy đọc kỹ ngữ cảnh gốc của việc này và trao đổi trực tiếp với tôi để xử lý:")
+                append("\n\nPlease review the full attached context and help me handle this:")
             }
             val attachment = OutgoingAttachment(
                 id = "ibx-${item.id.hashCode().toUInt().toString(16)}",
@@ -854,14 +854,14 @@ class InboxViewModel(
                     state.copy(
                         togglingJobIds = state.togglingJobIds - job.id,
                         jobs = state.jobs.map { j -> if (j.id == job.id) updated else j },
-                        message = Words.Raw("${job.displayName}: ${if (updated.enabled && !updated.paused) "Đã bật" else "Đã tạm dừng"}"),
+                        message = Words.Raw("${job.displayName}: ${if (updated.enabled && !updated.paused) "Enabled" else "Paused"}"),
                     )
                 }
             } else {
                 _state.update { state ->
                     state.copy(
                         togglingJobIds = state.togglingJobIds - job.id,
-                        message = Words.Raw("Không thể đổi trạng thái kênh ${job.displayName}"),
+                        message = Words.Raw("Couldn't update channel ${job.displayName}"),
                     )
                 }
             }
@@ -893,7 +893,7 @@ class InboxViewModel(
         val url = gateway?.gatewayUrl?.value ?: return
         val sid = channel.sessionId.trim()
         if (sid.isEmpty()) {
-            _state.update { it.copy(message = Words.Raw("${channel.label} chưa có phiên chạy (sẽ tạo ở lượt xử lý đầu tiên)")) }
+            _state.update { it.copy(message = Words.Raw("${channel.label} has no active session yet (created on first task)")) }
             return
         }
         val gen = generation
@@ -921,19 +921,19 @@ class InboxViewModel(
             if (gen != generation) return@launch
             res.onSuccess { list ->
                 val updated = list.firstOrNull { it.key == channel.key }
-                val label = updated?.sessionTitle ?: "${channel.label} mới"
+                val label = updated?.sessionTitle ?: "new ${channel.label} session"
                 _state.update { state ->
                     state.copy(
                         channelSessions = list,
                         resettingChannels = state.resettingChannels - channel.key,
-                        message = Words.Raw("Đã chuyển ${channel.label} sang phiên sạch: $label"),
+                        message = Words.Raw("Switched ${channel.label} to a clean session: $label"),
                     )
                 }
             }.onFailure { e ->
                 _state.update { state ->
                     state.copy(
                         resettingChannels = state.resettingChannels - channel.key,
-                        message = Words.Raw(e.message ?: "Không thể làm mới session ${channel.label}"),
+                        message = Words.Raw(e.message ?: "Couldn't reset ${channel.label} session"),
                     )
                 }
             }

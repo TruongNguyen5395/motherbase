@@ -757,10 +757,10 @@ class ChatNotifications(
 
     /** Background execution update from Miller on an Action Inbox card. */
     fun postActionInbox(itemId: String, title: String, text: String, failed: Boolean) {
-        val clean = text.toPlainText().take(MAX_PREVIEW).ifBlank { if (failed) "Xử lý thất bại" else finished }
+        val clean = text.toPlainText().take(MAX_PREVIEW).ifBlank { if (failed) str(R.string.notification_run_failed_text) else finished }
         val openKey = if (itemId.isNotBlank()) "action_inbox:$itemId" else "action_inbox"
         val notification = base(if (failed) CHANNEL_INBOX_FAILED else CHANNEL_INBOX)
-            .setContentTitle(if (failed) "Lỗi · $title" else title)
+            .setContentTitle(if (failed) str(R.string.notification_job_failed, title) else title)
             .setContentText(clean.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: clean)
             .setStyle(NotificationCompat.BigTextStyle().bigText(clean))
             .setCategory(if (failed) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_MESSAGE)

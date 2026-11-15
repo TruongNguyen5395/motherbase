@@ -669,7 +669,7 @@ class InboxViewModelTest {
         val socket = PluginGateway(CoroutineScope(dispatcher)) { arg ->
             when {
                 arg.startsWith("inbox") -> """{"ok":true,"runs":[]}"""
-                arg.startsWith("mb_inbox list") -> """{"ok":true,"items":[{"id":"s1:1","short_id":"s1","item_num":"1","channel":"Zalo","channel_key":"zalo","sender":"Viễn Dương","time_label":"10:15","summary":"Gửi bản vẽ mới","raw_text":"Chi tiết bản vẽ","dedup_key":"zalo:vien duong","merged_count":3,"merged_ids":["s0:1","s0:2","s1:1"],"created":1700000000,"status":"$itemStatus","agent_reply":"$agentReply","session_id":"sess_zalo_1","options":[{"key":"A","label":"Duyệt bản vẽ","draft":"Đã duyệt bản vẽ mới.","recommended":true}]}]}"""
+                arg.startsWith("mb_inbox list") -> """{"ok":true,"items":[{"id":"s1:1","short_id":"s1","item_num":"1","channel":"Zalo","channel_key":"zalo","sender":"Alex","time_label":"10:15","summary":"Send new drawing","raw_text":"Drawing details","dedup_key":"zalo:alex","merged_count":3,"merged_ids":["s0:1","s0:2","s1:1"],"created":1700000000,"status":"$itemStatus","agent_reply":"$agentReply","session_id":"sess_zalo_1","options":[{"key":"A","label":"Approve drawing","draft":"Approved the new drawing.","recommended":true}]}]}"""
                 arg.startsWith("mb_inbox act") -> if (failAct) """{"ok":false,"error":"gateway offline"}""" else {
                     itemStatus = "running"
                     """{"ok":true,"id":"s1:1","status":"running"}"""
@@ -685,12 +685,12 @@ class InboxViewModelTest {
         vm.loadActionItems()
         assertEquals(1, vm.state.value.actionItems.size)
         val item = vm.state.value.actionItems.single()
-        assertEquals("Viễn Dương", item.sender)
+        assertEquals("Alex", item.sender)
         assertEquals(3, item.mergedCount)
 
         // 1. Submit action when server fails -> keeps card visible, reverts status and sets bounceError
         failAct = true
-        vm.submitActionItem(item, "A", "Đã duyệt bản vẽ mới.")
+        vm.submitActionItem(item, "A", "Approved the new drawing.")
         runCurrent()
         assertNull(vm.state.value.pendingUndo)
         assertEquals(1, vm.state.value.actionItems.size)
@@ -699,17 +699,17 @@ class InboxViewModelTest {
 
         // 2. Submit action succeeds -> stays visible as 'running', push updates to 'replied', duplicate submit locked
         failAct = false
-        vm.submitActionItem(vm.state.value.actionItems.single(), "A", "Đã duyệt bản vẽ mới.")
+        vm.submitActionItem(vm.state.value.actionItems.single(), "A", "Approved the new drawing.")
         assertTrue(vm.state.value.actionItems.single().isRunning)
         assertEquals(1, vm.state.value.visibleActionItems.size)
         vm.submitActionItem(vm.state.value.actionItems.single(), "B", "Spam")
         runCurrent()
         itemStatus = "replied"
-        agentReply = "Đã gửi Zalo cho Viễn Dương."
+        agentReply = "Sent Zalo message to Alex."
         store.notifyActionInboxUpdate("s1:1")
         runCurrent()
         assertTrue(vm.state.value.actionItems.single().isReplied)
-        assertEquals("Đã gửi Zalo cho Viễn Dương.", vm.state.value.actionItems.single().agentReply)
+        assertEquals("Sent Zalo message to Alex.", vm.state.value.actionItems.single().agentReply)
 
         // 3. Dismiss uses pendingUndo and supports undo before 3s
         vm.dismissActionItem(vm.state.value.actionItems.single())
@@ -738,8 +738,8 @@ class InboxViewModelTest {
         // 5. Escalate to chat -> resolves item and emits OpenChat with context prompt & attachment
         vm.escalateActionItemToChat(vm.state.value.actionItems.single())
         val openChat = (vm.events.first() as InboxEvent.OpenChat).chat
-        assertEquals("Zalo · Viễn Dương", openChat.title)
-        assertTrue(openChat.draft!!.text!!.contains("Gửi bản vẽ mới"))
-        assertEquals("Chi tiết bản vẽ", openChat.draft!!.attachments.single().bytes.decodeToString())
+        assertEquals("Zalo · Alex", openChat.title)
+        assertTrue(openChat.draft!!.text!!.contains("Send new drawing"))
+        assertEquals("Drawing details", openChat.draft!!.attachments.single().bytes.decodeToString())
     }
 }
