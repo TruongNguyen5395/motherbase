@@ -1524,12 +1524,14 @@ private fun ActionIssueCard(
                         )
                     }
                 }
-                val timePart = item.timeLabel.ifBlank { timeLabel(item.ts) }
-                Text(
-                    timePart,
-                    style = Theme[typography][code].copy(fontSize = 11.5.sp),
-                    color = Theme[colors][textMuted],
-                )
+                val timePart = item.timeLabel.ifBlank { if (item.created > 0) timeLabel(item.created) else "" }
+                if (timePart.isNotBlank()) {
+                    Text(
+                        timePart,
+                        style = Theme[typography][code].copy(fontSize = 11.5.sp),
+                        color = Theme[colors][textMuted],
+                    )
+                }
             }
         }
 
@@ -1599,9 +1601,9 @@ private fun ActionSolutionSheet(
         val current = shown ?: return@BottomSheet
         val options = current.options.ifEmpty {
             listOf(
-                ActionOption("A", "Xử lý ngay theo đề xuất", "Đã tiếp nhận và xử lý yêu cầu này.", recommended = true),
-                ActionOption("B", "Lên lịch nhắc lại sau", "Tạo lịch nhắc việc sau 2 giờ."),
-                ActionOption("C", "Lưu trữ / Bỏ qua", "Đánh dấu đã xem, không cần phản hồi."),
+                ActionOption(key = "A", label = "Xử lý ngay theo đề xuất", recommended = true, draft = "Đã tiếp nhận và xử lý yêu cầu này."),
+                ActionOption(key = "B", label = "Lên lịch nhắc lại sau", recommended = false, draft = "Tạo lịch nhắc việc sau 2 giờ."),
+                ActionOption(key = "C", label = "Lưu trữ / Bỏ qua", recommended = false, draft = "Đánh dấu đã xem, không cần phản hồi."),
             )
         }
         val initialOption = remember(current.id) {
