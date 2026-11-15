@@ -103,7 +103,22 @@ class PushListener(
             // backlog read after a restart) is past its time and doesn't ring.
             PushMessage.PHONE_CALL -> phoneTools.ring(message)
             PushMessage.CRON_RUN -> showCronRun(message, gatewayUrl ?: return)
+            PushMessage.ACTION_INBOX -> showActionInbox(message)
         }
+    }
+
+    private fun showActionInbox(message: PushMessage) {
+        val itemId = message.run?.trim().orEmpty()
+        inbox.notifyActionInboxUpdate(itemId)
+        if (visibility.visible.value && connection.state.value is ConnectionState.Connected) return
+        val title = message.label?.trim()?.takeIf { it.isNotEmpty() } ?: "Action Inbox"
+        val body = message.text?.trim()?.takeIf { it.isNotEmpty() } ?: "Miller đã xử lý xong"
+        notifications.postActionInbox(
+            itemId = itemId,
+            title = title,
+            text = body,
+            failed = message.status == "error",
+        )
     }
 
     /**

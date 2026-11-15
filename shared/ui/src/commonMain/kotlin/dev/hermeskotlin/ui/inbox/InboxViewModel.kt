@@ -15,6 +15,7 @@ import dev.hermeskotlin.core.inbox.ChipMode
 import dev.hermeskotlin.core.inbox.Follow
 import dev.hermeskotlin.core.inbox.Following
 import dev.hermeskotlin.core.inbox.InboxApi
+import dev.hermeskotlin.core.inbox.InboxChannelSession
 import dev.hermeskotlin.core.inbox.InboxGroups
 import dev.hermeskotlin.core.inbox.InboxLayout
 import dev.hermeskotlin.core.inbox.InboxNotices
@@ -275,6 +276,9 @@ interface InboxActions {
     fun undoPendingAction() {}
     fun escalateActionItemToChat(item: ActionInboxItem) {}
     fun toggleInboxChannel(job: CronJob, enabled: Boolean) {}
+    fun loadChannelSessions() {}
+    fun openChannelSession(channel: InboxChannelSession) {}
+    fun resetChannelSession(channel: InboxChannelSession) {}
 }
 
 enum class PendingUndoKind { Act, Dismiss }
@@ -350,6 +354,9 @@ data class InboxUiState(
     val selectedActionItem: ActionInboxItem? = null,
     val pendingUndo: PendingInboxUndo? = null,
     val togglingJobIds: Set<String> = emptySet(),
+    val channelSessions: List<InboxChannelSession> = emptyList(),
+    val channelSessionsLoading: Boolean = false,
+    val resettingChannels: Set<String> = emptySet(),
 ) {
     val visibleActionItems: List<ActionInboxItem>
         get() = actionItems.filter { it.id != pendingUndo?.item?.id }
@@ -459,6 +466,8 @@ class InboxViewModel(
     private var moreJob: Job? = null
     private var fetchJob: Job? = null
     private var actionLoadJob: Job? = null
+    private var actionPollJob: Job? = null
+    private var channelsJob: Job? = null
     private var undoJob: Job? = null
     private var actionInboxActive = false
 
@@ -471,6 +480,14 @@ class InboxViewModel(
                 // Another gateway's Inbox (the store is shared, and moves first) is not this one's.
                 if (store.bound != gateway?.gatewayUrl?.value) return@collect
                 _state.update { it.copy(runs = withOlder(kept.runs), read = kept.read, since = kept.since, groups = kept.groups) }
+            }
+        }
+        viewModelScope.launch {
+            store.actionInboxUpdates.collect {
+                if (actionInboxActive && connection.state.value is ConnectionState.Connected) {
+                    loadActionItems(quiet = true)
+                    if (_state.value.choosing) loadChannelSessions()
+                }
             }
         }
         // A run finished on the gateway: cron output arrives without an event of its own, so a sessions change
@@ -517,7 +534,7 @@ class InboxViewModel(
         val first = this.gateway == null
         this.gateway = gateway
         generation++
-        listOf(bindJob, loadJob, openJob, followJob, saveJob, moreJob, fetchJob).forEach { it?.cancel() }
+        listOf(bindJob, loadJob, openJob, followJob, saveJob, moreJob, fetchJob, actionLoadJob, actionPollJob, channelsJob).forEach { it?.cancel() }
         older = emptyList()
         places.clear()
         if (!first) {
@@ -543,9 +560,15 @@ class InboxViewModel(
         if (!visible) {
             // A chat asked for out of sight would open by itself later, the next time the Inbox shows.
             fetchJob?.cancel()
+            actionPollJob?.cancel()
             while (_events.tryReceive().isSuccess) Unit
         }
-        if (visible && !was && gateway != null) lookAgain()
+        if (visible && !was && gateway != null) {
+            lookAgain()
+            if (actionInboxActive && _state.value.actionItems.any { it.isRunning }) {
+                ensureActionPolling()
+            }
+        }
     }
 
     /**
@@ -597,6 +620,9 @@ class InboxViewModel(
                         selectedActionItem = openSheet,
                     )
                 }
+                if (fetched.any { it.isRunning }) {
+                    ensureActionPolling()
+                }
             }.onFailure { e ->
                 _state.update { prev ->
                     prev.copy(
@@ -610,6 +636,33 @@ class InboxViewModel(
                 if (gen == generation && jobsRes is ApiResult.Success) {
                     _state.update { it.copy(jobs = jobsRes.value.sortedBy { j -> j.displayName.lowercase() }) }
                 }
+            }
+        }
+    }
+
+    private fun ensureActionPolling() {
+        if (!visible || !actionInboxActive) return
+        if (actionPollJob?.isActive == true) return
+        val gen = generation
+        actionPollJob = viewModelScope.launch {
+            var ticks = 0
+            while (gen == generation && visible && actionInboxActive && ticks < 80) {
+                if (!_state.value.actionItems.any { it.isRunning }) break
+                delay(2_500)
+                if (gen != generation || !visible || !actionInboxActive) break
+                if (connection.state.value is ConnectionState.Connected) {
+                    val result = runCatching { api.actionItems() }
+                    if (gen != generation) break
+                    result.onSuccess { fetched ->
+                        _state.update { prev ->
+                            val bounceById = prev.actionItems.mapNotNull { x -> x.bounceError?.let { x.id to it } }.toMap()
+                            val merged = fetched.map { x -> bounceById[x.id]?.let { err -> x.copy(bounceError = err) } ?: x }
+                            val openSheet = prev.selectedActionItem?.let { sel -> merged.firstOrNull { it.id == sel.id } }
+                            prev.copy(actionItems = merged, actionLoading = false, selectedActionItem = openSheet)
+                        }
+                    }
+                }
+                ticks++
             }
         }
     }
@@ -632,7 +685,45 @@ class InboxViewModel(
     }
 
     override fun submitActionItem(item: ActionInboxItem, option: String, draft: String) {
-        startPendingUndo(PendingInboxUndo(item = item.copy(bounceError = null), kind = PendingUndoKind.Act, option = option, draft = draft))
+        if (item.isRunning) return
+        actionLoadJob?.cancel()
+        val gen = generation
+        val previous = item
+        val optimistic = item.copy(
+            status = "running",
+            selectedOption = option,
+            lastDraft = draft,
+            bounceError = null,
+        )
+        _state.update { state ->
+            state.copy(
+                selectedActionItem = null,
+                actionItems = state.actionItems.map { x -> if (x.id == item.id) optimistic else x },
+            )
+        }
+        viewModelScope.launch {
+            val outcome = runCatching {
+                api.actActionItem(
+                    id = item.id,
+                    option = option,
+                    draft = draft,
+                    mergedIds = item.mergedIds,
+                )
+            }
+            if (gen != generation) return@launch
+            outcome.onSuccess {
+                ensureActionPolling()
+            }.onFailure { e ->
+                val reason = e.message?.takeIf { it.isNotBlank() } ?: "Thực thi thất bại trên máy chủ"
+                val bounced = previous.copy(bounceError = reason)
+                _state.update { state ->
+                    state.copy(
+                        actionItems = state.actionItems.map { x -> if (x.id == item.id) bounced else x },
+                        message = Words.Raw("Lỗi mục ${item.sender}: $reason"),
+                    )
+                }
+            }
+        }
     }
 
     override fun dismissActionItem(item: ActionInboxItem) {
@@ -771,6 +862,78 @@ class InboxViewModel(
                     state.copy(
                         togglingJobIds = state.togglingJobIds - job.id,
                         message = Words.Raw("Không thể đổi trạng thái kênh ${job.displayName}"),
+                    )
+                }
+            }
+        }
+    }
+
+    override fun loadChannelSessions() {
+        val gen = generation
+        _state.update { it.copy(channelSessionsLoading = it.channelSessions.isEmpty()) }
+        channelsJob?.cancel()
+        channelsJob = viewModelScope.launch {
+            if (connection.state.value !is ConnectionState.Connected) {
+                _state.update { it.copy(channelSessionsLoading = false) }
+                return@launch
+            }
+            runCatching { api.channelSessions() }
+                .onSuccess { list ->
+                    if (gen != generation) return@onSuccess
+                    _state.update { it.copy(channelSessions = list, channelSessionsLoading = false) }
+                }
+                .onFailure {
+                    if (gen != generation) return@onFailure
+                    _state.update { it.copy(channelSessionsLoading = false) }
+                }
+        }
+    }
+
+    override fun openChannelSession(channel: InboxChannelSession) {
+        val url = gateway?.gatewayUrl?.value ?: return
+        val sid = channel.sessionId.trim()
+        if (sid.isEmpty()) {
+            _state.update { it.copy(message = Words.Raw("${channel.label} chưa có phiên chạy (sẽ tạo ở lượt xử lý đầu tiên)")) }
+            return
+        }
+        val gen = generation
+        viewModelScope.launch {
+            if (gen != generation) return@launch
+            _events.send(
+                InboxEvent.OpenChat(
+                    ReportChat(
+                        gatewayUrl = url,
+                        profile = "default",
+                        title = channel.sessionTitle.ifBlank { "Inbox · ${channel.label}" },
+                        storedSessionId = sid,
+                    ),
+                ),
+            )
+        }
+    }
+
+    override fun resetChannelSession(channel: InboxChannelSession) {
+        if (channel.key in _state.value.resettingChannels) return
+        val gen = generation
+        _state.update { it.copy(resettingChannels = it.resettingChannels + channel.key) }
+        viewModelScope.launch {
+            val res = runCatching { api.resetChannelSession(channel.key) }
+            if (gen != generation) return@launch
+            res.onSuccess { list ->
+                val updated = list.firstOrNull { it.key == channel.key }
+                val label = updated?.sessionTitle ?: "${channel.label} mới"
+                _state.update { state ->
+                    state.copy(
+                        channelSessions = list,
+                        resettingChannels = state.resettingChannels - channel.key,
+                        message = Words.Raw("Đã chuyển ${channel.label} sang phiên sạch: $label"),
+                    )
+                }
+            }.onFailure { e ->
+                _state.update { state ->
+                    state.copy(
+                        resettingChannels = state.resettingChannels - channel.key,
+                        message = Words.Raw(e.message ?: "Không thể làm mới session ${channel.label}"),
                     )
                 }
             }
@@ -938,10 +1101,30 @@ class InboxViewModel(
         }
     }
 
-    /** Opens the run [key] names ([InboxRun.key]), from a notification; it came by push, so it's kept. */
+    /** Opens the run [key] names ([InboxRun.key]), or Action Inbox card (`action_inbox:<id>`). */
     fun openKey(key: String) {
         val gen = generation
         openJob?.cancel()
+        if (key == "action_inbox" || key.startsWith("action_inbox:")) {
+            val targetId = key.removePrefix("action_inbox:").takeIf { it.isNotBlank() }
+            _state.update { it.copy(choosing = false, grouping = false, open = null) }
+            loadActionItems(quiet = false)
+            if (targetId != null) {
+                openJob = viewModelScope.launch {
+                    val existing = _state.value.actionItems.firstOrNull { it.id == targetId }
+                    if (existing != null) {
+                        openActionSheet(existing)
+                        return@launch
+                    }
+                    withTimeoutOrNull(OPEN_KEY_WAIT_MS) {
+                        state.first { s -> s.actionItems.any { it.id == targetId } }
+                    }?.actionItems?.firstOrNull { it.id == targetId }?.let { item ->
+                        if (gen == generation) openActionSheet(item)
+                    }
+                }
+            }
+            return
+        }
         openJob = viewModelScope.launch {
             // The push that brought it may still be on its way into the store.
             val run = withTimeoutOrNull(OPEN_KEY_WAIT_MS) {
@@ -1094,11 +1277,12 @@ class InboxViewModel(
         RunNote.Failed -> Res.string.inbox_copied_start_failed
     }
 
-    /** Opens the follow page: every job, and how each reaches the Inbox now. */
+    /** Opens the follow & channel-sessions settings page. */
     override fun chooseJobs() {
         val url = gateway?.gatewayUrl ?: return
         val gen = generation
         _state.update { it.copy(choosing = true, jobsLoading = it.jobs.isEmpty(), followingError = null) }
+        loadChannelSessions()
         followJob?.cancel()
         followJob = viewModelScope.launch {
             val jobs = cron.jobs(url)

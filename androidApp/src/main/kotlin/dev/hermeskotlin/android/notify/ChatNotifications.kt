@@ -755,6 +755,20 @@ class ChatNotifications(
         synchronized(inboxNotices) { post(InboxNotices.tag(bot, job), INBOX_ID, notification) }
     }
 
+    /** Background execution update from Miller on an Action Inbox card. */
+    fun postActionInbox(itemId: String, title: String, text: String, failed: Boolean) {
+        val clean = text.toPlainText().take(MAX_PREVIEW).ifBlank { if (failed) "Xử lý thất bại" else finished }
+        val openKey = if (itemId.isNotBlank()) "action_inbox:$itemId" else "action_inbox"
+        val notification = base(if (failed) CHANNEL_INBOX_FAILED else CHANNEL_INBOX)
+            .setContentTitle(if (failed) "Lỗi · $title" else title)
+            .setContentText(clean.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: clean)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(clean))
+            .setCategory(if (failed) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(openInbox(openKey))
+            .build()
+        post("action_inbox:$itemId", INBOX_ID, notification)
+    }
+
     /**
      * Held while an Inbox notification is posted or read back to be taken down: else a job's next run, posted under
      * the same tag between the read and the cancel, would be taken down with its last.

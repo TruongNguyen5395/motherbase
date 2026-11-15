@@ -660,15 +660,23 @@ class InboxViewModelTest {
     }
 
     @Test
-    fun actionInboxSupportsLoadUndoAutoBounceAndEscalateToChat() = runTest(dispatcher) {
+    fun actionInboxClosedLoopAndChannelSessionsWorkCorrectly() = runTest(dispatcher) {
         var failAct = false
-        val itemsPayload = """{"ok":true,"items":[{"id":"s1:1","short_id":"s1","num":"1","channel":"Zalo","sender":"Viễn Dương","time_label":"10:15","summary":"Gửi bản vẽ mới","raw_text":"Chi tiết bản vẽ","dedup_key":"zalo:vien duong","merged_count":3,"merged_ids":["s0:1","s0:2","s1:1"],"ts":1700000000,"options":[{"key":"A","label":"Duyệt bản vẽ","draft":"Đã duyệt bản vẽ mới.","recommended":true}]}]}"""
+        var itemStatus = "open"
+        var agentReply = ""
+        val channelsJson = """[{"key":"zalo","label":"Zalo","cron_job_id":"82232df60902","cron_job_name":"Zalo Inbox","cron_enabled":true,"session_id":"sess_zalo_1","session_title":"Inbox · Zalo #1","epoch":1,"source":"tool","message_count":14,"total_tokens":500,"cost_usd":0.012,"started_at":1000,"last_activity_at":1020,"exists":true,"warning":""}]"""
+        val channelsResetJson = """[{"key":"zalo","label":"Zalo","cron_job_id":"82232df60902","cron_job_name":"Zalo Inbox","cron_enabled":true,"session_id":"","session_title":"Inbox · Zalo #2","epoch":2,"source":"tool","message_count":0,"total_tokens":0,"cost_usd":0.0,"started_at":0,"last_activity_at":0,"exists":false,"warning":""}]"""
         val socket = PluginGateway(CoroutineScope(dispatcher)) { arg ->
             when {
                 arg.startsWith("inbox") -> """{"ok":true,"runs":[]}"""
-                arg.startsWith("mb_inbox list") -> itemsPayload
-                arg.startsWith("mb_inbox act") -> if (failAct) """{"ok":false,"error":"gateway offline"}""" else """{"ok":true,"status":"dispatched"}"""
-                arg.startsWith("mb_inbox resolve") -> """{"ok":true,"resolved":["s1:1"]}"""
+                arg.startsWith("mb_inbox list") -> """{"ok":true,"items":[{"id":"s1:1","short_id":"s1","item_num":"1","channel":"Zalo","channel_key":"zalo","sender":"Viễn Dương","time_label":"10:15","summary":"Gửi bản vẽ mới","raw_text":"Chi tiết bản vẽ","dedup_key":"zalo:vien duong","merged_count":3,"merged_ids":["s0:1","s0:2","s1:1"],"created":1700000000,"status":"$itemStatus","agent_reply":"$agentReply","session_id":"sess_zalo_1","options":[{"key":"A","label":"Duyệt bản vẽ","draft":"Đã duyệt bản vẽ mới.","recommended":true}]}]}"""
+                arg.startsWith("mb_inbox act") -> if (failAct) """{"ok":false,"error":"gateway offline"}""" else {
+                    itemStatus = "running"
+                    """{"ok":true,"id":"s1:1","status":"running"}"""
+                }
+                arg.startsWith("mb_inbox resolve") -> """{"ok":true,"id":"s1:1","resolved_count":1}"""
+                arg.startsWith("mb_inbox channels") -> """{"ok":true,"channels":$channelsJson}"""
+                arg.startsWith("mb_inbox reset_channel") -> """{"ok":true,"channels":$channelsResetJson}"""
                 else -> """{"ok":true,"jobs":{},"failures":false,"default":"quiet"}"""
             }
         }
@@ -680,25 +688,54 @@ class InboxViewModelTest {
         assertEquals("Viễn Dương", item.sender)
         assertEquals(3, item.mergedCount)
 
-        // 1. Submit action -> hidden optimistically with 3-second undo, then undone before 3s
+        // 1. Submit action when server fails -> keeps card visible, reverts status and sets bounceError
+        failAct = true
         vm.submitActionItem(item, "A", "Đã duyệt bản vẽ mới.")
+        runCurrent()
+        assertNull(vm.state.value.pendingUndo)
+        assertEquals(1, vm.state.value.actionItems.size)
+        assertEquals("gateway offline", vm.state.value.actionItems.single().bounceError)
+        assertFalse(vm.state.value.actionItems.single().isRunning)
+
+        // 2. Submit action succeeds -> stays visible as 'running', push updates to 'replied', duplicate submit locked
+        failAct = false
+        vm.submitActionItem(vm.state.value.actionItems.single(), "A", "Đã duyệt bản vẽ mới.")
+        assertTrue(vm.state.value.actionItems.single().isRunning)
+        assertEquals(1, vm.state.value.visibleActionItems.size)
+        vm.submitActionItem(vm.state.value.actionItems.single(), "B", "Spam")
+        runCurrent()
+        itemStatus = "replied"
+        agentReply = "Đã gửi Zalo cho Viễn Dương."
+        store.notifyActionInboxUpdate("s1:1")
+        runCurrent()
+        assertTrue(vm.state.value.actionItems.single().isReplied)
+        assertEquals("Đã gửi Zalo cho Viễn Dương.", vm.state.value.actionItems.single().agentReply)
+
+        // 3. Dismiss uses pendingUndo and supports undo before 3s
+        vm.dismissActionItem(vm.state.value.actionItems.single())
         assertNotNull(vm.state.value.pendingUndo)
         assertTrue(vm.state.value.visibleActionItems.isEmpty())
         vm.undoPendingAction()
         assertNull(vm.state.value.pendingUndo)
         assertEquals(1, vm.state.value.visibleActionItems.size)
-        assertEquals(0, socket.sent("mb_inbox act").size)
 
-        // 2. Submit action when server fails -> auto-bounces back to top with bounceError
-        failAct = true
-        vm.submitActionItem(item, "A", "Đã duyệt bản vẽ mới.")
-        advanceTimeBy(3_100)
+        // 4. Channel sessions load, open hidden session in chat, and reset cleanly
+        vm.loadChannelSessions()
         runCurrent()
-        assertNull(vm.state.value.pendingUndo)
-        assertEquals(1, vm.state.value.actionItems.size)
-        assertEquals("gateway offline", vm.state.value.actionItems.single().bounceError)
+        val ch = vm.state.value.channelSessions.single()
+        assertEquals("sess_zalo_1", ch.sessionId)
+        vm.openChannelSession(ch)
+        val openSessionChat = (vm.events.first() as InboxEvent.OpenChat).chat
+        assertEquals("sess_zalo_1", openSessionChat.storedSessionId)
+        assertEquals("Inbox · Zalo #1", openSessionChat.title)
 
-        // 3. Escalate to chat -> resolves item and emits OpenChat with context prompt & attachment
+        vm.resetChannelSession(ch)
+        runCurrent()
+        val rotated = vm.state.value.channelSessions.single()
+        assertEquals(2, rotated.epoch)
+        assertEquals("", rotated.sessionId)
+
+        // 5. Escalate to chat -> resolves item and emits OpenChat with context prompt & attachment
         vm.escalateActionItemToChat(vm.state.value.actionItems.single())
         val openChat = (vm.events.first() as InboxEvent.OpenChat).chat
         assertEquals("Zalo · Viễn Dương", openChat.title)

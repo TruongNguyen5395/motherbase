@@ -52,6 +52,9 @@ data class PushMessage(
         /** A cron job the user follows finished a run ([job], [run], [status], [text] its start). */
         const val CRON_RUN = "cron_run"
 
+        /** Background execution completed for an Action Inbox item ([job] channel, [run] item_id, [status], [text]). */
+        const val ACTION_INBOX = "action_inbox"
+
         /** Gateway → phone messages are news; older than a day they're dropped. */
         const val MAX_AGE_G2P_SECONDS = 24 * 3600L
 

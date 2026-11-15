@@ -9,8 +9,11 @@ import dev.hermeskotlin.core.rpc.RpcException
 import dev.hermeskotlin.core.storage.KeyValueStore
 import io.ktor.util.date.getTimeMillis
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
@@ -230,6 +233,7 @@ data class ActionInboxItem(
     @SerialName("short_id") val shortId: String = "",
     @SerialName("item_num") val itemNum: String = "1",
     val channel: String = "Inbox",
+    @SerialName("channel_key") val channelKey: String = "",
     val sender: String = "",
     @SerialName("time_label") val timeLabel: String = "",
     val summary: String = "",
@@ -239,7 +243,39 @@ data class ActionInboxItem(
     val created: Long = 0,
     @SerialName("merged_count") val mergedCount: Int = 1,
     @SerialName("merged_ids") val mergedIds: List<String> = emptyList(),
+    val status: String = "open",
+    @SerialName("agent_reply") val agentReply: String = "",
+    @SerialName("reply_at") val replyAt: Long = 0,
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("selected_option") val selectedOption: String = "",
+    @SerialName("last_draft") val lastDraft: String = "",
     @Transient val bounceError: String? = null,
+) {
+    val isRunning: Boolean get() = status == "running"
+    val isReplied: Boolean get() = status == "replied"
+    val isError: Boolean get() = status == "error"
+    val hasReply: Boolean get() = agentReply.isNotBlank()
+}
+
+/** Dedicated hidden (`source='tool'`) session binding and usage stats for an Action Inbox channel. */
+@Serializable
+data class InboxChannelSession(
+    val key: String,
+    val label: String = "",
+    @SerialName("cron_job_id") val cronJobId: String = "",
+    @SerialName("cron_job_name") val cronJobName: String = "",
+    @SerialName("cron_enabled") val cronEnabled: Boolean = true,
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("session_title") val sessionTitle: String = "",
+    val epoch: Int = 1,
+    val source: String = "tool",
+    @SerialName("message_count") val messageCount: Int = 0,
+    @SerialName("total_tokens") val totalTokens: Long = 0,
+    @SerialName("cost_usd") val costUsd: Double = 0.0,
+    @SerialName("started_at") val startedAt: Long = 0,
+    @SerialName("last_activity_at") val lastActivityAt: Long = 0,
+    val exists: Boolean = false,
+    val warning: String = "",
 )
 
 @Serializable
@@ -254,7 +290,16 @@ private data class ActionInboxMutationReply(
     val ok: Boolean = false,
     val error: String? = null,
     val id: String? = null,
+    val status: String? = null,
     val prompt: String? = null,
+)
+
+@Serializable
+private data class InboxChannelsReply(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val channel: InboxChannelSession? = null,
+    val channels: List<InboxChannelSession> = emptyList(),
 )
 
 /**
@@ -345,7 +390,7 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể xóa mục này trên máy chủ.")
     }
 
-    /** Claims option A/B/C for an Action Inbox item and triggers background execution on Miller. */
+    /** Claims option A/B/C/FOLLOWUP for an Action Inbox item and triggers background execution on Miller. */
     suspend fun actActionItem(
         id: String,
         option: String,
@@ -365,6 +410,25 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
             .getOrElse { throw RpcException(0, UNREADABLE) }
         if (!reply.ok) throw RpcException(0, reply.error ?: "Thực thi phương án thất bại.")
         return reply.prompt
+    }
+
+    /** Lists Action Inbox channels and their bound dedicated session stats (`/herald-push mb_inbox channels`). */
+    suspend fun channelSessions(): List<InboxChannelSession> {
+        val output = push.mbInbox("channels") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val reply = runCatching { HermesJson.decodeFromString(InboxChannelsReply.serializer(), output) }
+            .getOrElse { throw RpcException(0, UNREADABLE) }
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể tải phiên xử lý từng kênh.")
+        return reply.channels
+    }
+
+    /** Rotates a channel to a fresh hidden session (`/herald-push mb_inbox reset_channel`). */
+    suspend fun resetChannelSession(channel: String): List<InboxChannelSession> {
+        val body = buildJsonObject { put("channel", channel) }
+        val output = push.mbInbox("reset_channel $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val reply = runCatching { HermesJson.decodeFromString(InboxChannelsReply.serializer(), output) }
+            .getOrElse { throw RpcException(0, UNREADABLE) }
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể làm mới session kênh $channel.")
+        return reply.channels
     }
 
     /** A run as the plugin wrote it, with what it said of its chat ([InboxRun.sessionSaid]) and whether it cut its text. */
@@ -455,6 +519,15 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
     private var gateway: String? = null
     private val _state = MutableStateFlow(Snapshot())
     val state: StateFlow<Snapshot> = _state.asStateFlow()
+
+    private val _actionInboxUpdates = MutableSharedFlow<String>(extraBufferCapacity = 16)
+
+    /** Notifies open UI views whenever an `action_inbox` push arrives for the active gateway. */
+    val actionInboxUpdates: SharedFlow<String> = _actionInboxUpdates.asSharedFlow()
+
+    fun notifyActionInboxUpdate(itemId: String) {
+        _actionInboxUpdates.tryEmit(itemId)
+    }
 
     /** The gateway whose Inbox this is now, or null before the first [bind]. */
     val bound: String? get() = gateway

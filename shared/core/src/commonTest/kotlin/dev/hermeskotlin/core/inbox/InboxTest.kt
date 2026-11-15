@@ -592,4 +592,28 @@ class InboxTest {
         assertEquals(listOf("cron:default/brief", "cron:work/old"), InboxNotices.toCancel(shown, GW, read))
         assertEquals(emptyList(), InboxNotices.toCancel(shown, GW, emptyList()))
     }
+
+    @Test
+    fun actionInboxAndChannelSessionDecodeCleanly() {
+        val rawItem = """{"id":"a1:1","short_id":"a1","item_num":"1","channel":"Zalo","channel_key":"zalo","sender":"An","summary":"Test","status":"replied","agent_reply":"Đã gửi","reply_at":1700000100,"session_id":"s_1","selected_option":"A","last_draft":"OK"}"""
+        val item = HermesJson.decodeFromString(ActionInboxItem.serializer(), rawItem)
+        assertEquals("zalo", item.channelKey)
+        assertTrue(item.isReplied)
+        assertTrue(item.hasReply)
+        assertFalse(item.isRunning)
+        assertEquals("Đã gửi", item.agentReply)
+        assertEquals("s_1", item.sessionId)
+
+        val legacyItem = HermesJson.decodeFromString(ActionInboxItem.serializer(), """{"id":"b1:1"}""")
+        assertEquals("open", legacyItem.status)
+        assertFalse(legacyItem.hasReply)
+
+        val rawCh = """{"key":"zalo","label":"Zalo","cron_job_id":"82232df60902","cron_enabled":true,"session_id":"s_1","session_title":"Inbox · Zalo #1","epoch":2,"source":"tool","message_count":105,"total_tokens":900,"cost_usd":0.1234,"exists":true,"warning":"Session đã dài"}"""
+        val ch = HermesJson.decodeFromString(InboxChannelSession.serializer(), rawCh)
+        assertEquals("zalo", ch.key)
+        assertEquals(2, ch.epoch)
+        assertEquals(105, ch.messageCount)
+        assertTrue(ch.exists)
+        assertEquals("Session đã dài", ch.warning)
+    }
 }

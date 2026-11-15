@@ -104,7 +104,9 @@ import dev.hermeskotlin.core.gateway.SavedGateway
 import dev.hermeskotlin.core.inbox.ActionInboxItem
 import dev.hermeskotlin.core.inbox.ActionOption
 import dev.hermeskotlin.core.inbox.Follow
+import dev.hermeskotlin.core.inbox.InboxChannelSession
 import dev.hermeskotlin.core.inbox.InboxRun
+import kotlin.math.roundToInt
 import dev.hermeskotlin.designsystem.accentSoft
 import dev.hermeskotlin.designsystem.accentText
 import dev.hermeskotlin.designsystem.body
@@ -365,7 +367,7 @@ internal fun InboxView(
                     }
                 }
                 items(actionShown, key = { "act-${it.id}" }) { item ->
-                    val dismissSwipe = SwipeAction("Bỏ qua", Lucide.Check, SwipeKind.Archive) {
+                    val dismissSwipe = SwipeAction("Xong · Xóa", Lucide.Check, SwipeKind.Archive) {
                         viewModel.dismissActionItem(item)
                     }
                     SwipeRow(
@@ -376,6 +378,7 @@ internal fun InboxView(
                         ActionIssueCard(
                             item = item,
                             onClick = { viewModel.openActionSheet(item) },
+                            onDismiss = { viewModel.dismissActionItem(item) },
                             modifier = swipeMod,
                         )
                     }
@@ -416,7 +419,7 @@ internal fun InboxView(
                     }
                 }
                 items(actionShown, key = { "act-${it.id}" }) { item ->
-                    val dismissSwipe = SwipeAction("Bỏ qua", Lucide.Check, SwipeKind.Archive) {
+                    val dismissSwipe = SwipeAction("Xong · Xóa", Lucide.Check, SwipeKind.Archive) {
                         viewModel.dismissActionItem(item)
                     }
                     SwipeRow(
@@ -427,6 +430,7 @@ internal fun InboxView(
                         ActionIssueCard(
                             item = item,
                             onClick = { viewModel.openActionSheet(item) },
+                            onDismiss = { viewModel.dismissActionItem(item) },
                             modifier = swipeMod,
                         )
                     }
@@ -1193,24 +1197,53 @@ internal fun FollowView(state: InboxUiState, viewModel: InboxActions) {
     // A save replaces all this phone follows on the gateway, so nothing changes until that has been read.
     val enabled = state.canEditFollowing
     val inboxChannels = state.inboxChannelJobs
+    val channelSessions = state.channelSessions
+    val matchedJobIds = remember(channelSessions) { channelSessions.mapNotNull { it.cronJobId.takeIf(String::isNotBlank) }.toSet() }
+    val unmatchedChannelJobs = remember(inboxChannels, matchedJobIds) { inboxChannels.filterNot { it.id in matchedJobIds } }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (inboxChannels.isNotEmpty()) {
+        if (channelSessions.isNotEmpty() || state.channelSessionsLoading || inboxChannels.isNotEmpty()) {
             item(key = "inbox-channels-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    DayLabel("KÊNH THU THẬP ACTION INBOX (MILLER)")
+                    DayLabel("KÊNH & PHIÊN XỬ LÝ ACTION INBOX")
                     Text(
-                        "Bật hoặc tạm dừng trực tiếp các kênh quét tin nhắn đổ về Action Inbox trên máy chủ Miller.",
+                        "Mỗi kênh dùng một phiên ẩn riêng để tránh trôi ngữ cảnh. Xem lịch sử khi cần hoặc làm mới phiên sạch.",
                         style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp),
                         color = Theme[colors][textTertiary],
                         modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
                     )
                 }
             }
-            items(inboxChannels, key = { "ch-${it.profile ?: "default"}/${it.id}" }) { job ->
+            if (state.channelSessionsLoading && channelSessions.isEmpty()) {
+                item(key = "inbox-channels-loading") {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spinner(Modifier.size(14.dp), color = Theme[colors][accentText])
+                        Text("Đang tải trạng thái phiên các kênh...", style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
+                    }
+                }
+            }
+            items(channelSessions, key = { "cs-${it.key}" }) { channel ->
+                val cronJob = inboxChannels.firstOrNull { it.id == channel.cronJobId }
+                InboxChannelSessionCard(
+                    channel = channel,
+                    job = cronJob,
+                    toggling = cronJob != null && cronJob.id in state.togglingJobIds,
+                    resetting = channel.key in state.resettingChannels,
+                    onToggleCron = { enabledNext ->
+                        if (cronJob != null) viewModel.toggleInboxChannel(cronJob, enabledNext)
+                    },
+                    onOpenSession = { viewModel.openChannelSession(channel) },
+                    onResetSession = { viewModel.resetChannelSession(channel) },
+                )
+            }
+            items(unmatchedChannelJobs, key = { "ch-${it.profile ?: "default"}/${it.id}" }) { job ->
                 InboxChannelSwitchRow(
                     job = job,
                     toggling = job.id in state.togglingJobIds,
@@ -1452,11 +1485,16 @@ private fun ActionErrorBanner(error: String, onRetry: () -> Unit) {
 private fun ActionIssueCard(
     item: ActionInboxItem,
     onClick: () -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
-    val hasBounce = !item.bounceError.isNullOrBlank()
-    val borderColor = if (hasBounce) Theme[colors][danger] else Theme[colors][stroke]
+    val hasBounce = !item.bounceError.isNullOrBlank() || item.isError
+    val borderColor = when {
+        hasBounce -> Theme[colors][danger]
+        item.isRunning || item.isReplied -> Theme[colors][accentText].copy(alpha = 0.65f)
+        else -> Theme[colors][stroke]
+    }
     val (tileBg, tileTint) = when {
         hasBounce -> Theme[colors][dangerSoft] to Theme[colors][danger]
         item.channel.contains("mail", ignoreCase = true) -> Theme[colors][accentSoft] to Theme[colors][accentText]
@@ -1490,7 +1528,11 @@ private fun ActionIssueCard(
                     .background(tileBg, RoundedCornerShape(Theme[radii][radiusSmall])),
                 contentAlignment = Alignment.Center,
             ) {
-                UnstyledIcon(channelIcon, contentDescription = null, tint = tileTint, modifier = Modifier.size(16.dp))
+                if (item.isRunning) {
+                    Spinner(Modifier.size(16.dp), color = Theme[colors][accentText])
+                } else {
+                    UnstyledIcon(channelIcon, contentDescription = null, tint = tileTint, modifier = Modifier.size(16.dp))
+                }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(
@@ -1524,18 +1566,49 @@ private fun ActionIssueCard(
                         )
                     }
                 }
-                val timePart = item.timeLabel.ifBlank { if (item.created > 0) timeLabel(item.created) else "" }
-                if (timePart.isNotBlank()) {
-                    Text(
-                        timePart,
-                        style = Theme[typography][code].copy(fontSize = 11.5.sp),
-                        color = Theme[colors][textMuted],
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val timePart = item.timeLabel.ifBlank { if (item.created > 0) timeLabel(item.created) else "" }
+                    if (timePart.isNotBlank()) {
+                        Text(
+                            timePart,
+                            style = Theme[typography][code].copy(fontSize = 11.5.sp),
+                            color = Theme[colors][textMuted],
+                        )
+                    }
+                    when {
+                        item.isRunning -> Text(
+                            "Đang chạy nền...",
+                            style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                            color = Theme[colors][accentText],
+                        )
+                        item.isReplied -> Text(
+                            "Miller đã trả lời",
+                            style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                            color = Theme[colors][accentText],
+                        )
+                        item.isError -> Text(
+                            "Lỗi xử lý",
+                            style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                            color = Theme[colors][danger],
+                        )
+                    }
                 }
+            }
+            if (!item.isRunning && (item.isReplied || item.isError)) {
+                Button(
+                    text = "Xong",
+                    onClick = onDismiss,
+                    variant = ButtonVariant.Ghost,
+                    size = ButtonSize.Small,
+                    leadingIcon = Lucide.Check,
+                )
             }
         }
 
-        if (hasBounce) {
+        if (!item.bounceError.isNullOrBlank()) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1563,7 +1636,60 @@ private fun ActionIssueCard(
             overflow = TextOverflow.Ellipsis,
         )
 
-        if (recommended != null) {
+        if (item.isRunning) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Theme[colors][accentSoft], RoundedCornerShape(Theme[radii][radiusSmall]))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spinner(Modifier.size(13.dp), color = Theme[colors][accentText])
+                val cmdDesc = item.lastDraft.takeIf { it.isNotBlank() } ?: "Phương án ${item.selectedOption.ifBlank { "A" }}"
+                Text(
+                    "Đang chạy trên phiên ${item.channel}: $cmdDesc",
+                    style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
+                    color = Theme[colors][accentText],
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else if (item.hasReply) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (item.isError) Theme[colors][dangerSoft] else Theme[colors][surface2], RoundedCornerShape(Theme[radii][radiusSmall]))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (item.isError) "Chi tiết lỗi từ Miller" else "Phản hồi từ Miller",
+                        style = Theme[typography][code].copy(fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold),
+                        color = if (item.isError) Theme[colors][danger] else Theme[colors][accentText],
+                    )
+                    if (item.replyAt > 0) {
+                        Text(
+                            timeLabel(item.replyAt),
+                            style = Theme[typography][code].copy(fontSize = 10.5.sp),
+                            color = Theme[colors][textMuted],
+                        )
+                    }
+                }
+                Text(
+                    item.agentReply,
+                    style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp, lineHeight = 18.sp),
+                    color = Theme[colors][text],
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else if (recommended != null) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1611,12 +1737,15 @@ private fun ActionSolutionSheet(
         }
         var selectedKey by remember(current.id) { mutableStateOf(initialOption.key) }
         var showRaw by remember(current.id) { mutableStateOf(false) }
+        var showOptions by remember(current.id, current.hasReply) { mutableStateOf(!current.hasReply) }
         val draftState = rememberTextFieldState(initialOption.draft)
+        val followupState = rememberTextFieldState("")
 
         LaunchedEffect(current.id) {
             val def = options.firstOrNull { it.recommended } ?: options.first()
             selectedKey = def.key
             draftState.edit { replace(0, length, def.draft) }
+            followupState.edit { replace(0, length, "") }
         }
 
         val subtitle = buildString {
@@ -1629,7 +1758,7 @@ private fun ActionSolutionSheet(
         Column(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = 520.dp)
+                .heightIn(max = 560.dp)
                 .verticalScrollWithBar()
                 .padding(horizontal = 18.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1663,83 +1792,184 @@ private fun ActionSolutionSheet(
                 }
             }
 
-            Text(
-                "CHỌN PHƯƠNG ÁN XỬ LÝ",
-                style = Theme[typography][eyebrow],
-                color = Theme[colors][textTertiary],
-            )
-
-            options.forEach { opt ->
-                val isSelected = selectedKey == opt.key
-                val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+            if (current.isRunning) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(shape)
-                        .background(if (isSelected) Theme[colors][accentSoft] else Theme[colors][surface])
-                        .border(if (isSelected) 1.5.dp else 1.dp, if (isSelected) Theme[colors][accentText] else Theme[colors][stroke], shape)
-                        .clickable {
-                            selectedKey = opt.key
-                            draftState.edit { replace(0, length, opt.draft) }
-                        }
+                        .background(Theme[colors][accentSoft], RoundedCornerShape(Theme[radii][radiusLarge]))
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        Modifier
-                            .size(26.dp)
-                            .background(if (isSelected) Theme[colors][accent] else Theme[colors][surface2], CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            opt.key,
-                            style = Theme[typography][code].copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
-                            color = if (isSelected) Theme[colors][onAccent] else Theme[colors][textSecondary],
-                        )
-                    }
+                    Spinner(Modifier.size(16.dp), color = Theme[colors][accentText])
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
+                        Text(
+                            "Miller đang xử lý ngầm trong phiên ${current.channel}...",
+                            style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold),
+                            color = Theme[colors][accentText],
+                        )
+                        if (current.lastDraft.isNotBlank()) {
                             Text(
-                                opt.label,
-                                style = Theme[typography][bodySmall].copy(
-                                    fontSize = 13.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                                ),
-                                color = Theme[colors][text],
-                                modifier = Modifier.weight(1f, fill = false),
+                                current.lastDraft,
+                                style = Theme[typography][bodySmall].copy(fontSize = 12.sp),
+                                color = Theme[colors][textSecondary],
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
                             )
-                            if (opt.recommended) {
-                                Text(
-                                    "Đề xuất",
-                                    style = Theme[typography][code].copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                                    color = Theme[colors][accentText],
-                                )
-                            }
                         }
                     }
                 }
             }
 
-            TextField(
-                state = draftState,
-                label = "Nội dung phản hồi / lệnh giao cho Miller (có thể sửa trước khi gửi)",
-                placeholder = "Nhập nội dung phản hồi hoặc hướng dẫn...",
-                singleLine = false,
-                maxLines = 4,
-            )
+            if (current.hasReply) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(if (current.isError) Theme[colors][dangerSoft] else Theme[colors][accentSoft], RoundedCornerShape(Theme[radii][radiusLarge]))
+                        .border(1.dp, if (current.isError) Theme[colors][danger] else Theme[colors][accentText].copy(alpha = 0.45f), RoundedCornerShape(Theme[radii][radiusLarge]))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (current.isError) "LỖI THỰC THI" else "PHẢN HỒI TỪ MILLER (${current.channel.uppercase()})",
+                            style = Theme[typography][eyebrow],
+                            color = if (current.isError) Theme[colors][danger] else Theme[colors][accentText],
+                        )
+                        if (current.replyAt > 0) {
+                            Text(
+                                timeLabel(current.replyAt),
+                                style = Theme[typography][code].copy(fontSize = 11.sp),
+                                color = Theme[colors][textMuted],
+                            )
+                        }
+                    }
+                    MarkdownText(
+                        current.agentReply,
+                        textStyle = Theme[typography][bodySmall].copy(fontSize = 13.5.sp, lineHeight = 20.sp),
+                    )
+                }
 
-            Button(
-                text = "Thực thi & Xóa (${selectedKey})",
-                onClick = { onSubmit(current, selectedKey, draftState.text.toString()) },
-                modifier = Modifier.fillMaxWidth(),
-                variant = ButtonVariant.Primary,
-                size = ButtonSize.Medium,
-                leadingIcon = Lucide.Send,
-            )
+                if (!current.isRunning) {
+                    TextField(
+                        state = followupState,
+                        label = "Nhắn tiếp cho Miller (VD: Gửi luôn giúp anh / Sửa giờ thành 14h)",
+                        placeholder = "Nhập chỉ dẫn tiếp theo...",
+                        singleLine = false,
+                        maxLines = 4,
+                    )
+                    Button(
+                        text = "Gửi tiếp cho Miller",
+                        onClick = {
+                            val txt = followupState.text.toString().trim()
+                            if (txt.isNotEmpty()) onSubmit(current, "FOLLOWUP", txt)
+                        },
+                        enabled = followupState.text.toString().isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        variant = ButtonVariant.Primary,
+                        size = ButtonSize.Medium,
+                        leadingIcon = Lucide.Send,
+                    )
+                    Button(
+                        text = "Đã xong · Xóa khỏi Inbox",
+                        onClick = { onDismissItem(current) },
+                        modifier = Modifier.fillMaxWidth(),
+                        variant = ButtonVariant.Secondary,
+                        size = ButtonSize.Medium,
+                        leadingIcon = Lucide.Check,
+                    )
+                    Text(
+                        if (showOptions) "Ẩn phương án A/B/C" else "Hoặc chọn lại phương án A/B/C",
+                        style = Theme[typography][bodySmall].copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                        color = Theme[colors][accentText],
+                        modifier = Modifier.clickable { showOptions = !showOptions }.padding(vertical = 2.dp),
+                    )
+                }
+            }
+
+            if (!current.isRunning && showOptions) {
+                Text(
+                    "CHỌN PHƯƠNG ÁN XỬ LÝ",
+                    style = Theme[typography][eyebrow],
+                    color = Theme[colors][textTertiary],
+                )
+
+                options.forEach { opt ->
+                    val isSelected = selectedKey == opt.key
+                    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(if (isSelected) Theme[colors][accentSoft] else Theme[colors][surface])
+                            .border(if (isSelected) 1.5.dp else 1.dp, if (isSelected) Theme[colors][accentText] else Theme[colors][stroke], shape)
+                            .clickable {
+                                selectedKey = opt.key
+                                draftState.edit { replace(0, length, opt.draft) }
+                            }
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(26.dp)
+                                .background(if (isSelected) Theme[colors][accent] else Theme[colors][surface2], CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                opt.key,
+                                style = Theme[typography][code].copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                                color = if (isSelected) Theme[colors][onAccent] else Theme[colors][textSecondary],
+                            )
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    opt.label,
+                                    style = Theme[typography][bodySmall].copy(
+                                        fontSize = 13.5.sp,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                    ),
+                                    color = Theme[colors][text],
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (opt.recommended) {
+                                    Text(
+                                        "Đề xuất",
+                                        style = Theme[typography][code].copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                                        color = Theme[colors][accentText],
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                TextField(
+                    state = draftState,
+                    label = "Nội dung phản hồi / lệnh giao cho Miller (có thể sửa trước khi gửi)",
+                    placeholder = "Nhập nội dung phản hồi hoặc hướng dẫn...",
+                    singleLine = false,
+                    maxLines = 4,
+                )
+
+                Button(
+                    text = "Gửi Miller xử lý (${selectedKey})",
+                    onClick = { onSubmit(current, selectedKey, draftState.text.toString()) },
+                    modifier = Modifier.fillMaxWidth(),
+                    variant = ButtonVariant.Primary,
+                    size = ButtonSize.Medium,
+                    leadingIcon = Lucide.Send,
+                )
+            }
 
             FlowRow(
                 Modifier.fillMaxWidth(),
@@ -1747,20 +1977,22 @@ private fun ActionSolutionSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(
-                    text = "Đi sâu cùng Agent",
+                    text = "Tách chat mới",
                     onClick = { onEscalateToChat(current) },
                     modifier = Modifier.weight(1f),
                     variant = ButtonVariant.Secondary,
                     size = ButtonSize.Small,
                     leadingIcon = Lucide.MessageSquarePlus,
                 )
-                Button(
-                    text = "Bỏ qua / Xóa",
-                    onClick = { onDismissItem(current) },
-                    variant = ButtonVariant.Ghost,
-                    size = ButtonSize.Small,
-                    leadingIcon = Lucide.Check,
-                )
+                if (!current.hasReply && !current.isRunning) {
+                    Button(
+                        text = "Bỏ qua / Xóa",
+                        onClick = { onDismissItem(current) },
+                        variant = ButtonVariant.Ghost,
+                        size = ButtonSize.Small,
+                        leadingIcon = Lucide.Check,
+                    )
+                }
             }
         }
     }
@@ -1801,6 +2033,174 @@ private fun UndoActionBanner(
             size = ButtonSize.Small,
             leadingIcon = Lucide.RotateCcw,
         )
+    }
+}
+
+@Composable
+private fun InboxChannelSessionCard(
+    channel: InboxChannelSession,
+    job: CronJob?,
+    toggling: Boolean,
+    resetting: Boolean,
+    onToggleCron: (Boolean) -> Unit,
+    onOpenSession: () -> Unit,
+    onResetSession: () -> Unit,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    val isActive = job?.let { it.enabled && !it.paused } ?: channel.cronEnabled
+    val channelIcon = when {
+        channel.key.contains("mail", ignoreCase = true) -> Lucide.Mail
+        channel.key.contains("lark", ignoreCase = true) -> Lucide.MessageSquare
+        else -> Lucide.Zap
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Theme[colors][surface])
+            .border(1.dp, Theme[colors][stroke], shape)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .background(if (isActive) Theme[colors][accentSoft] else Theme[colors][surface2], RoundedCornerShape(Theme[radii][radiusSmall])),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (toggling) {
+                    Spinner(Modifier.size(16.dp), color = Theme[colors][accentText])
+                } else {
+                    UnstyledIcon(
+                        channelIcon,
+                        contentDescription = null,
+                        tint = if (isActive) Theme[colors][accentText] else Theme[colors][textTertiary],
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    channel.label.ifBlank { channel.key.uppercase() },
+                    style = Theme[typography][body].copy(fontWeight = FontWeight.SemiBold),
+                    color = Theme[colors][text],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val statusLabel = if (isActive) "Thu thập đang bật" else "Thu thập tạm dừng"
+                val sched = job?.scheduleDisplay?.takeIf { it.isNotBlank() && it != "?" }
+                Text(
+                    if (sched != null) "$statusLabel · $sched" else statusLabel,
+                    style = Theme[typography][bodySmall].copy(fontSize = 12.sp),
+                    color = if (isActive) Theme[colors][accentText] else Theme[colors][textTertiary],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (job != null) {
+                Box(
+                    Modifier.toggleable(
+                        value = isActive,
+                        enabled = !toggling,
+                        role = Role.Switch,
+                        onValueChange = onToggleCron,
+                    ),
+                ) {
+                    Switch(isActive)
+                }
+            }
+        }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(Theme[colors][surface2], RoundedCornerShape(Theme[radii][radiusSmall]))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    channel.sessionTitle.ifBlank { "Inbox · ${channel.label}" },
+                    style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold),
+                    color = Theme[colors][text],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    if (channel.exists && channel.sessionId.isNotBlank()) "Phiên ẩn" else "Chờ lượt đầu",
+                    style = Theme[typography][code].copy(fontSize = 10.5.sp, fontWeight = FontWeight.Medium),
+                    color = if (channel.exists) Theme[colors][accentText] else Theme[colors][textMuted],
+                )
+            }
+            if (channel.exists && channel.sessionId.isNotBlank()) {
+                val shortSid = channel.sessionId.take(12)
+                val milli = (channel.costUsd * 1000.0).roundToInt()
+                val whole = milli / 1000
+                val frac = (milli % 1000).toString().padStart(3, '0')
+                val lastAt = if (channel.lastActivityAt > 0) " · ${timeLabel(channel.lastActivityAt)}" else ""
+                Text(
+                    "${channel.messageCount} tin · ID $shortSid · $$whole.$frac$lastAt",
+                    style = Theme[typography][code].copy(fontSize = 11.sp),
+                    color = Theme[colors][textSecondary],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Text(
+                    "Chưa có hội thoại — sẽ tự khởi tạo phiên ẩn khi chạy tác vụ đầu tiên.",
+                    style = Theme[typography][bodySmall].copy(fontSize = 11.5.sp),
+                    color = Theme[colors][textTertiary],
+                )
+            }
+            if (channel.warning.isNotBlank()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UnstyledIcon(Lucide.TriangleAlert, contentDescription = null, tint = Theme[colors][danger], modifier = Modifier.size(13.dp))
+                    Text(
+                        channel.warning,
+                        style = Theme[typography][bodySmall].copy(fontSize = 11.5.sp, fontWeight = FontWeight.Medium),
+                        color = Theme[colors][danger],
+                    )
+                }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                text = "Xem session",
+                onClick = onOpenSession,
+                enabled = channel.sessionId.isNotBlank(),
+                modifier = Modifier.weight(1f),
+                variant = ButtonVariant.Secondary,
+                size = ButtonSize.Small,
+                leadingIcon = Lucide.MessageSquare,
+            )
+            Button(
+                text = if (resetting) "Đang làm mới..." else "Làm mới session",
+                onClick = onResetSession,
+                enabled = !resetting && (channel.exists || channel.sessionId.isNotBlank()),
+                loading = resetting,
+                modifier = Modifier.weight(1f),
+                variant = ButtonVariant.Ghost,
+                size = ButtonSize.Small,
+                leadingIcon = Lucide.RotateCcw,
+            )
+        }
     }
 }
 
