@@ -368,7 +368,7 @@ private fun Header(status: BarStatus?, onCircle: (() -> Unit)?, onOpenHerald: ()
         AppMark(28.dp, glow = false)
         Column(Modifier.weight(1f)) {
             Text(
-                "Kyllene",
+                "MotherBase",
                 style = Theme[typography][body].copy(fontWeight = FontWeight.SemiBold, lineHeight = 19.sp),
                 color = Theme[colors][textColor],
                 maxLines = 1,

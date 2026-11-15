@@ -233,7 +233,7 @@
     <string name="gateways_change">Change…</string>
     <string name="gateways_clear">Clear</string>
 
-    <string name="connect_welcome">Welcome to Kyllene</string>
+    <string name="connect_welcome">Welcome to MotherBase</string>
     <string name="connect_welcome_detail">Connect to your Hermes Agent gateway. Nothing is sent until you sign in.</string>
     <string name="connect_add_gateway">Add a gateway</string>
     <string name="connect_add_gateway_detail">Connect to another Hermes Agent gateway. You stay signed in to the ones you saved.</string>

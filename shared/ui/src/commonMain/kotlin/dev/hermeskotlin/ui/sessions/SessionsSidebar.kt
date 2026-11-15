@@ -1443,7 +1443,7 @@ internal fun MainHeader(
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Text(
-                        "Kyllene",
+                        "MotherBase",
                         // The name alone, without the mark beside it, so it carries the header.
                         style = Theme[typography][heading].copy(fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.02).em),
                         color = Theme[colors][text],

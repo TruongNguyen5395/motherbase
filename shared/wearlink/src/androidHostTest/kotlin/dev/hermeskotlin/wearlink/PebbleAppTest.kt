@@ -36,7 +36,7 @@ class PebbleAppTest {
     fun bothHeraldBuildsMayTalkToTheWatchapp() {
         val packages = pebble.getValue("companionApp").jsonObject.getValue("android").jsonObject.getValue("apps").jsonArray
             .map { it.jsonObject.getValue("package").jsonPrimitive.content }
-        assertTrue("dev.herald.android" in packages)
-        assertTrue("dev.herald.android.dev" in packages)
+        assertTrue("co.hidave.motherbase" in packages)
+        assertTrue("co.hidave.motherbase.dev" in packages)
     }
 }

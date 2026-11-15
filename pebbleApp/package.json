@@ -49,8 +49,8 @@
       "android": {
         "url": "https://github.com/Giton22/kyllene",
         "apps": [
-          { "package": "dev.herald.android" },
-          { "package": "dev.herald.android.dev" }
+          { "package": "co.hidave.motherbase" },
+          { "package": "co.hidave.motherbase.dev" }
         ]
       }
     },

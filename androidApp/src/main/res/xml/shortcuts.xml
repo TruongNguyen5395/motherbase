@@ -15,7 +15,7 @@
             android:action="android.intent.action.VIEW"
             android:data="hermes://new-chat"
             android:targetClass="dev.hermeskotlin.android.HeraldActivity"
-            android:targetPackage="dev.herald.android" />
+            android:targetPackage="co.hidave.motherbase" />
     </shortcut>
     <shortcut
         android:enabled="true"
@@ -27,7 +27,7 @@
             android:action="android.intent.action.VIEW"
             android:data="hermes://new-chat-voice"
             android:targetClass="dev.hermeskotlin.android.HeraldActivity"
-            android:targetPackage="dev.herald.android" />
+            android:targetPackage="co.hidave.motherbase" />
     </shortcut>
     <!--
         The old fixed Call Hermes, now the dynamic default_call (CallShortcut). Kept, disabled, so a copy pinned

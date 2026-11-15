@@ -11,7 +11,7 @@
             android:action="android.intent.action.VIEW"
             android:data="hermes://new-chat"
             android:targetClass="dev.hermeskotlin.android.HeraldActivity"
-            android:targetPackage="dev.herald.android.dev" />
+            android:targetPackage="co.hidave.motherbase.dev" />
     </shortcut>
     <shortcut
         android:enabled="true"
@@ -23,7 +23,7 @@
             android:action="android.intent.action.VIEW"
             android:data="hermes://new-chat-voice"
             android:targetClass="dev.hermeskotlin.android.HeraldActivity"
-            android:targetPackage="dev.herald.android.dev" />
+            android:targetPackage="co.hidave.motherbase.dev" />
     </shortcut>
     <shortcut
         android:enabled="false"

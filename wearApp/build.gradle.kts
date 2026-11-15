@@ -20,7 +20,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "dev.herald.android"
+        applicationId = "co.hidave.motherbase"
         minSdk = libs.versions.android.wear.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         val (major, minor, patch) = appVersion.substringBefore('-').split('.').map { it.toInt() }.plus(listOf(0, 0)).take(3)

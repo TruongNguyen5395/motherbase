@@ -65,7 +65,7 @@ class SidebarHeaderTest {
     fun withProfilesTheHeaderOpensThemAndAPickSwitches() {
         show(three)
         composeRule.onNodeWithText("· default").assertIsDisplayed()
-        composeRule.onNodeWithText("Kyllene").performClick()
+        composeRule.onNodeWithText("MotherBase").performClick()
         settle()
         assertEquals(1, menuOpened)
         assertEquals(0, accountOpened)
@@ -79,7 +79,7 @@ class SidebarHeaderTest {
     @Test
     fun theActiveProfileIsNotPickedAgain() {
         show(three, active = "research", scheme = ColorScheme.Dark)
-        composeRule.onNodeWithText("Kyllene").performClick()
+        composeRule.onNodeWithText("MotherBase").performClick()
         settle()
         composeRule.onAllNodesWithText("Research").filterToOne(hasClickAction()).performClick()
         settle()
@@ -89,7 +89,7 @@ class SidebarHeaderTest {
     @Test
     fun theMenuReachesTheAccountSheet() {
         show(three)
-        composeRule.onNodeWithText("Kyllene").performClick()
+        composeRule.onNodeWithText("MotherBase").performClick()
         settle()
         composeRule.onNodeWithText("Account and gateways").performClick()
         assertEquals(1, accountOpened)
@@ -99,7 +99,7 @@ class SidebarHeaderTest {
     fun withOneProfileTheHeaderOpensTheAccountSheet() {
         show(listOf(Profile("default", isDefault = true)))
         composeRule.onNodeWithText("· default").assertDoesNotExist()
-        composeRule.onNodeWithText("Kyllene").performClick()
+        composeRule.onNodeWithText("MotherBase").performClick()
         settle()
         assertEquals(1, accountOpened)
         assertEquals(0, menuOpened)
