@@ -23,8 +23,10 @@ import kotlinx.serialization.Transient
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.SetSerializer
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -212,6 +214,49 @@ private data class InboxReply(val ok: Boolean = false, val error: String? = null
 @Serializable
 private data class ReadReply(val ok: Boolean = false, val error: String? = null, val run: JsonObject? = null)
 
+/** A pre-computed solution option (A, B, C) for an Action Inbox issue. */
+@Serializable
+data class ActionOption(
+    val key: String,
+    val label: String,
+    val recommended: Boolean = false,
+    val draft: String = "",
+)
+
+/** One consolidated open decision item from Miller's multi-channel Action Inbox (`ibx_store.json`). */
+@Serializable
+data class ActionInboxItem(
+    val id: String,
+    @SerialName("short_id") val shortId: String = "",
+    @SerialName("item_num") val itemNum: String = "1",
+    val channel: String = "Inbox",
+    val sender: String = "",
+    @SerialName("time_label") val timeLabel: String = "",
+    val summary: String = "",
+    @SerialName("raw_text") val rawText: String = "",
+    @SerialName("dedup_key") val dedupKey: String = "",
+    val options: List<ActionOption> = emptyList(),
+    val created: Long = 0,
+    @SerialName("merged_count") val mergedCount: Int = 1,
+    @SerialName("merged_ids") val mergedIds: List<String> = emptyList(),
+    @Transient val bounceError: String? = null,
+)
+
+@Serializable
+private data class ActionInboxListReply(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val items: List<ActionInboxItem> = emptyList(),
+)
+
+@Serializable
+private data class ActionInboxMutationReply(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val id: String? = null,
+    val prompt: String? = null,
+)
+
 /**
  * The gateway's herald-push plugin is older than an Inbox call needs: [needs] is the oldest version that has it,
  * [InboxApi.MIN_PLUGIN_VERSION] for the Inbox itself, [InboxApi.ALL_JOBS_PLUGIN_VERSION] for All on and jobs
@@ -276,6 +321,50 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         if (reply.ok) return reply.run?.let(::runOf)
         if (reply.error == NO_SUCH_RUN) return null
         throw RpcException(0, reply.error ?: "The gateway couldn't read the run.")
+    }
+
+    /** Lists consolidated open decision items from Miller's Action Inbox (`/herald-push mb_inbox list`). */
+    suspend fun actionItems(): List<ActionInboxItem> {
+        val output = push.mbInbox("list {}") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val reply = runCatching { HermesJson.decodeFromString(ActionInboxListReply.serializer(), output) }
+            .getOrElse { throw RpcException(0, UNREADABLE) }
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể tải danh sách Action Inbox.")
+        return reply.items
+    }
+
+    /** Marks an Action Inbox item (and any merged older items) as resolved/dismissed on the server. */
+    suspend fun resolveActionItem(id: String, mergedIds: List<String> = emptyList(), reason: String = "dismissed") {
+        val body = buildJsonObject {
+            put("id", id)
+            put("reason", reason)
+            if (mergedIds.isNotEmpty()) put("merged_ids", JsonArray(mergedIds.map(::JsonPrimitive)))
+        }
+        val output = push.mbInbox("resolve $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val reply = runCatching { HermesJson.decodeFromString(ActionInboxMutationReply.serializer(), output) }
+            .getOrElse { throw RpcException(0, UNREADABLE) }
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Không thể xóa mục này trên máy chủ.")
+    }
+
+    /** Claims option A/B/C for an Action Inbox item and triggers background execution on Miller. */
+    suspend fun actActionItem(
+        id: String,
+        option: String,
+        draft: String,
+        mergedIds: List<String> = emptyList(),
+        spawnAgent: Boolean = true,
+    ): String? {
+        val body = buildJsonObject {
+            put("id", id)
+            put("option", option)
+            put("draft", draft)
+            put("spawn_agent", spawnAgent)
+            if (mergedIds.isNotEmpty()) put("merged_ids", JsonArray(mergedIds.map(::JsonPrimitive)))
+        }
+        val output = push.mbInbox("act $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val reply = runCatching { HermesJson.decodeFromString(ActionInboxMutationReply.serializer(), output) }
+            .getOrElse { throw RpcException(0, UNREADABLE) }
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Thực thi phương án thất bại.")
+        return reply.prompt
     }
 
     /** A run as the plugin wrote it, with what it said of its chat ([InboxRun.sessionSaid]) and whether it cut its text. */

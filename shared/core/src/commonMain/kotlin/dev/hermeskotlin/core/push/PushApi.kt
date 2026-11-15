@@ -421,6 +421,9 @@ class PushApi(private val connection: GatewayConnection) {
     /** What `/herald-push cron <arg>` printed (the Inbox's calls), or null when the plugin isn't loaded. */
     suspend fun cron(arg: String): String? = output("cron $arg")
 
+    /** What `/herald-push mb_inbox <arg>` printed (MotherBase Action Inbox calls), or null when the plugin isn't loaded. */
+    suspend fun mbInbox(arg: String): String? = output("mb_inbox $arg")
+
     private fun phoneReply(output: String): PhoneReply? =
         runCatching { HermesJson.decodeFromString(PhoneReply.serializer(), output) }.getOrNull()
 

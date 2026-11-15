@@ -69,6 +69,12 @@ data class CronJob(
 
     val paused: Boolean get() = state == "paused"
 
+    /** Whether this cron job is an Inbox Channel collector/dispatcher on Miller. */
+    val isInboxChannel: Boolean
+        get() = prompt.contains("tg_inbox_send.py") ||
+            name.contains("Inbox", ignoreCase = true) ||
+            prompt.contains("ibx_store.json")
+
     /** Whether a fire is stamped as never reaching the runner, even one stamped without a reason. */
     val missedFire: Boolean get() = when (val raw = fireError) {
         is JsonObject -> true

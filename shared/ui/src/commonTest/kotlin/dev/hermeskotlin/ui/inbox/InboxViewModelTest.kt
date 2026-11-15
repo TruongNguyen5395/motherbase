@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -656,5 +657,52 @@ class InboxViewModelTest {
         held.complete(Unit)
         vm.events.first()
         assertNull(vm.state.value.fetching)
+    }
+
+    @Test
+    fun actionInboxSupportsLoadUndoAutoBounceAndEscalateToChat() = runTest(dispatcher) {
+        var failAct = false
+        val itemsPayload = """{"ok":true,"items":[{"id":"s1:1","short_id":"s1","num":"1","channel":"Zalo","sender":"Viễn Dương","time_label":"10:15","summary":"Gửi bản vẽ mới","raw_text":"Chi tiết bản vẽ","dedup_key":"zalo:vien duong","merged_count":3,"merged_ids":["s0:1","s0:2","s1:1"],"ts":1700000000,"options":[{"key":"A","label":"Duyệt bản vẽ","draft":"Đã duyệt bản vẽ mới.","recommended":true}]}]}"""
+        val socket = PluginGateway(CoroutineScope(dispatcher)) { arg ->
+            when {
+                arg.startsWith("inbox") -> """{"ok":true,"runs":[]}"""
+                arg.startsWith("mb_inbox list") -> itemsPayload
+                arg.startsWith("mb_inbox act") -> if (failAct) """{"ok":false,"error":"gateway offline"}""" else """{"ok":true,"status":"dispatched"}"""
+                arg.startsWith("mb_inbox resolve") -> """{"ok":true,"resolved":["s1:1"]}"""
+                else -> """{"ok":true,"jobs":{},"failures":false,"default":"quiet"}"""
+            }
+        }
+        val vm = viewModel(socket)
+        vm.bind(one)
+        vm.loadActionItems()
+        assertEquals(1, vm.state.value.actionItems.size)
+        val item = vm.state.value.actionItems.single()
+        assertEquals("Viễn Dương", item.sender)
+        assertEquals(3, item.mergedCount)
+
+        // 1. Submit action -> hidden optimistically with 3-second undo, then undone before 3s
+        vm.submitActionItem(item, "A", "Đã duyệt bản vẽ mới.")
+        assertNotNull(vm.state.value.pendingUndo)
+        assertTrue(vm.state.value.visibleActionItems.isEmpty())
+        vm.undoPendingAction()
+        assertNull(vm.state.value.pendingUndo)
+        assertEquals(1, vm.state.value.visibleActionItems.size)
+        assertEquals(0, socket.sent("mb_inbox act").size)
+
+        // 2. Submit action when server fails -> auto-bounces back to top with bounceError
+        failAct = true
+        vm.submitActionItem(item, "A", "Đã duyệt bản vẽ mới.")
+        advanceTimeBy(3_100)
+        runCurrent()
+        assertNull(vm.state.value.pendingUndo)
+        assertEquals(1, vm.state.value.actionItems.size)
+        assertEquals("gateway offline", vm.state.value.actionItems.single().bounceError)
+
+        // 3. Escalate to chat -> resolves item and emits OpenChat with context prompt & attachment
+        vm.escalateActionItemToChat(vm.state.value.actionItems.single())
+        val openChat = (vm.events.first() as InboxEvent.OpenChat).chat
+        assertEquals("Zalo · Viễn Dương", openChat.title)
+        assertTrue(openChat.draft!!.text.contains("Gửi bản vẽ mới"))
+        assertEquals("Chi tiết bản vẽ", openChat.draft!!.attachments.single().bytes.decodeToString())
     }
 }

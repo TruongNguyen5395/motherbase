@@ -86,13 +86,23 @@ import com.composables.icons.lucide.BellRing
 import com.composables.icons.lucide.CheckCheck
 import com.composables.icons.lucide.Inbox
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Mail
+import com.composables.icons.lucide.MessageCircle
+import com.composables.icons.lucide.MessageSquare
+import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.RotateCcw
+import com.composables.icons.lucide.Send
 import com.composables.icons.lucide.Settings2
+import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.TriangleAlert
+import com.composables.icons.lucide.Zap
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.cron.CronJob
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.inbox.ActionInboxItem
+import dev.hermeskotlin.core.inbox.ActionOption
 import dev.hermeskotlin.core.inbox.Follow
 import dev.hermeskotlin.core.inbox.InboxRun
 import dev.hermeskotlin.designsystem.accentSoft
@@ -157,6 +167,9 @@ internal fun InboxPage(
 ) {
     val state = viewModel.state.collectAsStateWithLifecycle().value
     LaunchedEffect(gateway) { viewModel.bind(gateway) }
+    LaunchedEffect(gateway, visible) {
+        if (visible) viewModel.loadActionItems()
+    }
     @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
     val openChat by rememberUpdatedState(onOpenChat)
     LaunchedEffect(viewModel) {
@@ -214,12 +227,13 @@ internal fun InboxPage(
             viewModel.dismissMessage()
         }
     }
-    PlatformBackHandler(enabled = visible && state.open != null) { viewModel.closeRun() }
-    PlatformBackHandler(enabled = visible && state.open == null && state.choosing) { viewModel.closeJobs() }
-    PlatformBackHandler(enabled = visible && state.open == null && !state.choosing && state.grouping) { viewModel.closeGroups() }
+    PlatformBackHandler(enabled = visible && state.selectedActionItem != null) { viewModel.closeActionSheet() }
+    PlatformBackHandler(enabled = visible && state.selectedActionItem == null && state.open != null) { viewModel.closeRun() }
+    PlatformBackHandler(enabled = visible && state.selectedActionItem == null && state.open == null && state.choosing) { viewModel.closeJobs() }
+    PlatformBackHandler(enabled = visible && state.selectedActionItem == null && state.open == null && !state.choosing && state.grouping) { viewModel.closeGroups() }
     // In a folder, back goes to the folders before it leaves the Inbox.
     val inFolder = state.groups.layout == InboxLayout.Folders && state.shownFilter != InboxFilter.All
-    PlatformBackHandler(enabled = visible && state.open == null && !state.choosing && !state.grouping && inFolder) {
+    PlatformBackHandler(enabled = visible && state.selectedActionItem == null && state.open == null && !state.choosing && !state.grouping && inFolder) {
         viewModel.setFilter(InboxFilter.All)
     }
 
@@ -244,8 +258,17 @@ internal fun InboxPage(
         }
         // Over the page's foot, where the lists leave room for it: each page fills the height itself. Above the
         // sidebar's New chat button, which lies over that foot too.
-        state.message?.let {
-            MessageBanner(it.text(), onDismiss = viewModel::dismissMessage, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+        when {
+            state.pendingUndo != null -> UndoActionBanner(
+                undo = state.pendingUndo,
+                onUndo = viewModel::undoPendingAction,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 12.dp).padding(bottom = 84.dp),
+            )
+            state.message != null -> MessageBanner(
+                state.message.text(),
+                onDismiss = viewModel::dismissMessage,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp),
+            )
         }
     }
 }
@@ -270,10 +293,15 @@ internal fun InboxView(
     }
     val inbox = stringResource(Res.string.inbox_title)
     val shownCount = state.shown.size
+    val actionCount = state.visibleActionItems.size
     SubpageHeader(
         if (inFolder) folderName ?: inbox else inbox,
         onBack = if (inFolder) ({ viewModel.setFilter(InboxFilter.All) }) else onBack,
         subtitle = when {
+            !inFolder && actionCount > 0 -> buildString {
+                append("$actionCount việc cần quyết định")
+                if (unread > 0) append(" · $unread báo cáo chưa đọc")
+            }
             state.runs.isEmpty() -> null
             state.shownFilter is InboxFilter.Job ->
                 pluralStringResource(Res.plurals.inbox_reports_from, shownCount, shownCount, state.nameOf(state.shown.first()))
@@ -285,6 +313,7 @@ internal fun InboxView(
             else -> stringResource(Res.string.inbox_from_jobs)
         },
     ) {
+        IconButton(Lucide.RefreshCw, contentDescription = "Làm mới Action Inbox", onClick = { viewModel.loadActionItems(quiet = false) })
         if (unread > 0) IconButton(Lucide.CheckCheck, contentDescription = stringResource(Res.string.inbox_mark_all_read), onClick = viewModel::markAllRead)
         IconButton(Lucide.FolderTree, contentDescription = stringResource(Res.string.inbox_folders_and_groups), onClick = viewModel::openGroups)
         IconButton(Lucide.Settings2, contentDescription = stringResource(Res.string.inbox_choose_jobs), onClick = viewModel::chooseJobs)
@@ -293,6 +322,14 @@ internal fun InboxView(
     var renaming by remember { mutableStateOf<JobChip?>(null) }
     var folderMenu by remember { mutableStateOf<InboxFolder?>(null) }
     var runMenu by remember { mutableStateOf<InboxRun?>(null) }
+    if (!inFolder && (state.actionChannels.size >= 2 || state.selectedChannel != null)) {
+        ActionChannelChips(
+            channels = state.actionChannels,
+            totalCount = state.visibleActionItems.size,
+            selectedChannel = state.selectedChannel,
+            onSelect = viewModel::selectActionChannel,
+        )
+    }
     // Folders are the way in on the folder layout; the chips belong to the single list.
     if (!folders) FilterChips(state, onSelect = viewModel::setFilter, onRename = { renaming = it })
     RenameJobDialog(renaming, onDismiss = { renaming = null }) { chip, name ->
@@ -300,12 +337,14 @@ internal fun InboxView(
         renaming = null
     }
     val shown = state.shown
+    val actionShown = if (inFolder) emptyList() else state.filteredActionItems
+    val hasActionSection = !inFolder && (actionShown.isNotEmpty() || state.actionError != null)
     when {
-        state.loading && shown.isEmpty() -> ListSkeleton()
-        state.error != null && shown.isEmpty() -> EmptyState(Lucide.TriangleAlert, stringResource(Res.string.inbox_load_failed_title), state.error.text())
+        (state.loading || state.actionLoading) && shown.isEmpty() && actionShown.isEmpty() -> ListSkeleton()
+        state.error != null && shown.isEmpty() && !hasActionSection -> EmptyState(Lucide.TriangleAlert, stringResource(Res.string.inbox_load_failed_title), state.error.text())
         shown.isEmpty() && state.shownFilter == InboxFilter.Failed ->
             EmptyState(Lucide.Inbox, stringResource(Res.string.inbox_no_failed_runs), stringResource(Res.string.inbox_no_failed_runs_detail))
-        shown.isEmpty() && state.block == null -> EmptyState(
+        shown.isEmpty() && !hasActionSection && state.block == null -> EmptyState(
             Lucide.Inbox,
             stringResource(Res.string.inbox_empty),
             stringResource(Res.string.inbox_empty_detail),
@@ -316,6 +355,37 @@ internal fun InboxView(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (hasActionSection) {
+                item(key = "action-inbox-header") {
+                    DayLabel("CẦN QUYẾT ĐỊNH (${actionShown.size})")
+                }
+                if (state.actionError != null && actionShown.isEmpty()) {
+                    item(key = "action-inbox-error") {
+                        ActionErrorBanner(state.actionError, onRetry = { viewModel.loadActionItems(quiet = false) })
+                    }
+                }
+                items(actionShown, key = { "act-${it.id}" }) { item ->
+                    val dismissSwipe = SwipeAction("Bỏ qua", Lucide.Check, SwipeKind.Archive) {
+                        viewModel.dismissActionItem(item)
+                    }
+                    SwipeRow(
+                        start = dismissSwipe,
+                        end = dismissSwipe,
+                        shape = RoundedCornerShape(Theme[radii][radiusLarge]),
+                    ) { swipeMod ->
+                        ActionIssueCard(
+                            item = item,
+                            onClick = { viewModel.openActionSheet(item) },
+                            modifier = swipeMod,
+                        )
+                    }
+                }
+                if (state.folders.isNotEmpty() || state.failed > 0) {
+                    item(key = "folders-section-header") {
+                        DayLabel("BÁO CÁO ĐỊNH KỲ")
+                    }
+                }
+            }
             items(state.folders, key = { it.filter.key }) { folder ->
                 FolderCard(
                     folder,
@@ -336,6 +406,32 @@ internal fun InboxView(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (hasActionSection) {
+                item(key = "action-inbox-header") {
+                    DayLabel("CẦN QUYẾT ĐỊNH (${actionShown.size})")
+                }
+                if (state.actionError != null && actionShown.isEmpty()) {
+                    item(key = "action-inbox-error") {
+                        ActionErrorBanner(state.actionError, onRetry = { viewModel.loadActionItems(quiet = false) })
+                    }
+                }
+                items(actionShown, key = { "act-${it.id}" }) { item ->
+                    val dismissSwipe = SwipeAction("Bỏ qua", Lucide.Check, SwipeKind.Archive) {
+                        viewModel.dismissActionItem(item)
+                    }
+                    SwipeRow(
+                        start = dismissSwipe,
+                        end = dismissSwipe,
+                        shape = RoundedCornerShape(Theme[radii][radiusLarge]),
+                    ) { swipeMod ->
+                        ActionIssueCard(
+                            item = item,
+                            onClick = { viewModel.openActionSheet(item) },
+                            modifier = swipeMod,
+                        )
+                    }
+                }
+            }
             var lastDay: String? = null
             shown.forEach { run ->
                 val day = dayHeading(run.at)
@@ -370,6 +466,13 @@ internal fun InboxView(
             }
         }
     }
+    ActionSolutionSheet(
+        item = state.selectedActionItem,
+        onDismiss = viewModel::closeActionSheet,
+        onSubmit = viewModel::submitActionItem,
+        onDismissItem = viewModel::dismissActionItem,
+        onEscalateToChat = viewModel::escalateActionItemToChat,
+    )
     FolderMenu(
         folder = folderMenu,
         // Only a job's folder renames; a group is renamed on the groups page.
@@ -1089,11 +1192,32 @@ internal fun FollowView(state: InboxUiState, viewModel: InboxActions) {
     }
     // A save replaces all this phone follows on the gateway, so nothing changes until that has been read.
     val enabled = state.canEditFollowing
+    val inboxChannels = state.inboxChannelJobs
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (inboxChannels.isNotEmpty()) {
+            item(key = "inbox-channels-header") {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    DayLabel("KÊNH THU THẬP ACTION INBOX (MILLER)")
+                    Text(
+                        "Bật hoặc tạm dừng trực tiếp các kênh quét tin nhắn đổ về Action Inbox trên máy chủ Miller.",
+                        style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp),
+                        color = Theme[colors][textTertiary],
+                        modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
+                    )
+                }
+            }
+            items(inboxChannels, key = { "ch-${it.profile ?: "default"}/${it.id}" }) { job ->
+                InboxChannelSwitchRow(
+                    job = job,
+                    toggling = job.id in state.togglingJobIds,
+                    onToggle = { viewModel.toggleInboxChannel(job, it) },
+                )
+            }
+        }
         state.followingError?.let { error ->
             item(key = "following-error") { FollowingNotice(error, onRetry = viewModel::chooseJobs) }
         }
@@ -1271,4 +1395,472 @@ private enum class ShownList { Folders, Runs }
 private suspend fun LazyListState.restore(place: ListPlace) {
     if (firstVisibleItemIndex == place.index && firstVisibleItemScrollOffset == place.offset) return
     scrollToItem(place.index, place.offset)
+}
+
+@Composable
+private fun ActionChannelChips(
+    channels: List<Pair<String, Int>>,
+    totalCount: Int,
+    selectedChannel: String?,
+    onSelect: (String?) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Chip(
+            text = "Tất cả",
+            selected = selectedChannel == null,
+            onClick = { onSelect(null) },
+            count = totalCount.takeIf { it > 0 },
+            countColor = Theme[colors][accentText],
+        )
+        channels.forEach { (channel, count) ->
+            val isSelected = selectedChannel != null && selectedChannel.equals(channel, ignoreCase = true)
+            Chip(
+                text = channel,
+                selected = isSelected,
+                onClick = { onSelect(if (isSelected) null else channel) },
+                count = count.takeIf { it > 0 },
+                countColor = Theme[colors][accentText],
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionErrorBanner(error: String, onRetry: () -> Unit) {
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Theme[colors][surface], shape)
+            .border(1.dp, Theme[colors][danger], shape)
+            .clickable(onClick = onRetry)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(error, style = Theme[typography][bodySmall], color = Theme[colors][danger])
+        Text("Chạm để thử lại", style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold), color = Theme[colors][accentText])
+    }
+}
+
+@Composable
+private fun ActionIssueCard(
+    item: ActionInboxItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    val hasBounce = !item.bounceError.isNullOrBlank()
+    val borderColor = if (hasBounce) Theme[colors][danger] else Theme[colors][stroke]
+    val (tileBg, tileTint) = when {
+        hasBounce -> Theme[colors][dangerSoft] to Theme[colors][danger]
+        item.channel.contains("mail", ignoreCase = true) -> Theme[colors][accentSoft] to Theme[colors][accentText]
+        else -> Theme[colors][accentSoft] to Theme[colors][accentText]
+    }
+    val channelIcon = when {
+        hasBounce -> Lucide.TriangleAlert
+        item.channel.contains("mail", ignoreCase = true) -> Lucide.Mail
+        item.channel.contains("lark", ignoreCase = true) -> Lucide.MessageSquare
+        else -> Lucide.MessageCircle
+    }
+    val recommended = item.options.firstOrNull { it.recommended } ?: item.options.firstOrNull()
+
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Theme[colors][surface])
+            .border(1.dp, borderColor, shape)
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .background(tileBg, RoundedCornerShape(Theme[radii][radiusSmall])),
+                contentAlignment = Alignment.Center,
+            ) {
+                UnstyledIcon(channelIcon, contentDescription = null, tint = tileTint, modifier = Modifier.size(16.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        item.channel,
+                        style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                        color = Theme[colors][accentText],
+                        modifier = Modifier
+                            .background(Theme[colors][accentSoft], RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                    Text(
+                        item.sender,
+                        style = Theme[typography][body].copy(fontWeight = FontWeight.SemiBold),
+                        color = Theme[colors][text],
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (item.mergedCount > 1) {
+                        Text(
+                            "Gộp ${item.mergedCount} tin",
+                            style = Theme[typography][code].copy(fontSize = 10.5.sp, fontWeight = FontWeight.Medium),
+                            color = Theme[colors][onAccent],
+                            modifier = Modifier
+                                .background(Theme[colors][accent], CircleShape)
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+                val timePart = item.timeLabel.ifBlank { timeLabel(item.ts) }
+                Text(
+                    timePart,
+                    style = Theme[typography][code].copy(fontSize = 11.5.sp),
+                    color = Theme[colors][textMuted],
+                )
+            }
+        }
+
+        if (hasBounce) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Theme[colors][dangerSoft], RoundedCornerShape(Theme[radii][radiusSmall]))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                UnstyledIcon(Lucide.TriangleAlert, contentDescription = null, tint = Theme[colors][danger], modifier = Modifier.size(14.dp))
+                Text(
+                    "Lỗi thực thi: ${item.bounceError}",
+                    style = Theme[typography][bodySmall].copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                    color = Theme[colors][danger],
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Text(
+            item.summary,
+            style = Theme[typography][bodySmall].copy(fontSize = 13.5.sp, lineHeight = 19.sp),
+            color = Theme[colors][textSecondary],
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        if (recommended != null) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Theme[colors][surface2], RoundedCornerShape(Theme[radii][radiusSmall]))
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                UnstyledIcon(Lucide.Sparkles, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(14.dp))
+                Text(
+                    "Đề xuất (${recommended.key}): ${recommended.label}",
+                    style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
+                    color = Theme[colors][text],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ActionSolutionSheet(
+    item: ActionInboxItem?,
+    onDismiss: () -> Unit,
+    onSubmit: (ActionInboxItem, String, String) -> Unit,
+    onDismissItem: (ActionInboxItem) -> Unit,
+    onEscalateToChat: (ActionInboxItem) -> Unit,
+) {
+    var shown by remember { mutableStateOf(item) }
+    if (item != null) shown = item
+    BottomSheet(visible = item != null, onDismiss = onDismiss) {
+        val current = shown ?: return@BottomSheet
+        val options = current.options.ifEmpty {
+            listOf(
+                ActionOption("A", "Xử lý ngay theo đề xuất", "Đã tiếp nhận và xử lý yêu cầu này.", recommended = true),
+                ActionOption("B", "Lên lịch nhắc lại sau", "Tạo lịch nhắc việc sau 2 giờ."),
+                ActionOption("C", "Lưu trữ / Bỏ qua", "Đánh dấu đã xem, không cần phản hồi."),
+            )
+        }
+        val initialOption = remember(current.id) {
+            options.firstOrNull { it.recommended } ?: options.first()
+        }
+        var selectedKey by remember(current.id) { mutableStateOf(initialOption.key) }
+        var showRaw by remember(current.id) { mutableStateOf(false) }
+        val draftState = rememberTextFieldState(initialOption.draft)
+
+        LaunchedEffect(current.id) {
+            val def = options.firstOrNull { it.recommended } ?: options.first()
+            selectedKey = def.key
+            draftState.edit { replace(0, length, def.draft) }
+        }
+
+        val subtitle = buildString {
+            append(current.channel)
+            if (current.timeLabel.isNotBlank()) append(" · ${current.timeLabel}")
+            if (current.mergedCount > 1) append(" · Gộp ${current.mergedCount} tin")
+        }
+        SheetHeader(title = current.sender, subtitle = subtitle)
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 520.dp)
+                .verticalScrollWithBar()
+                .padding(horizontal = 18.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Theme[colors][surface2], RoundedCornerShape(Theme[radii][radiusLarge]))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    current.summary,
+                    style = Theme[typography][bodySmall].copy(fontSize = 13.5.sp, lineHeight = 20.sp),
+                    color = Theme[colors][text],
+                )
+                if (current.rawText.isNotBlank() && current.rawText != current.summary) {
+                    Text(
+                        if (showRaw) "Ẩn nội dung chi tiết" else "Xem toàn bộ ngữ cảnh (${current.mergedCount} tin)",
+                        style = Theme[typography][bodySmall].copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                        color = Theme[colors][accentText],
+                        modifier = Modifier.clickable { showRaw = !showRaw }.padding(vertical = 2.dp),
+                    )
+                    if (showRaw) {
+                        Text(
+                            current.rawText,
+                            style = Theme[typography][code].copy(fontSize = 11.5.sp, lineHeight = 17.sp),
+                            color = Theme[colors][textSecondary],
+                        )
+                    }
+                }
+            }
+
+            Text(
+                "CHỌN PHƯƠNG ÁN XỬ LÝ",
+                style = Theme[typography][eyebrow],
+                color = Theme[colors][textTertiary],
+            )
+
+            options.forEach { opt ->
+                val isSelected = selectedKey == opt.key
+                val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(shape)
+                        .background(if (isSelected) Theme[colors][accentSoft] else Theme[colors][surface])
+                        .border(if (isSelected) 1.5.dp else 1.dp, if (isSelected) Theme[colors][accentText] else Theme[colors][stroke], shape)
+                        .clickable {
+                            selectedKey = opt.key
+                            draftState.edit { replace(0, length, opt.draft) }
+                        }
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(26.dp)
+                            .background(if (isSelected) Theme[colors][accent] else Theme[colors][surface2], CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            opt.key,
+                            style = Theme[typography][code].copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                            color = if (isSelected) Theme[colors][onAccent] else Theme[colors][textSecondary],
+                        )
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                opt.label,
+                                style = Theme[typography][bodySmall].copy(
+                                    fontSize = 13.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                ),
+                                color = Theme[colors][text],
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (opt.recommended) {
+                                Text(
+                                    "Đề xuất",
+                                    style = Theme[typography][code].copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                                    color = Theme[colors][accentText],
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            TextField(
+                state = draftState,
+                label = "Nội dung phản hồi / lệnh giao cho Miller (có thể sửa trước khi gửi)",
+                placeholder = "Nhập nội dung phản hồi hoặc hướng dẫn...",
+                singleLine = false,
+                maxLines = 4,
+            )
+
+            Button(
+                text = "Thực thi & Xóa (${selectedKey})",
+                onClick = { onSubmit(current, selectedKey, draftState.text.toString()) },
+                modifier = Modifier.fillMaxWidth(),
+                variant = ButtonVariant.Primary,
+                size = ButtonSize.Medium,
+                leadingIcon = Lucide.Send,
+            )
+
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    text = "Đi sâu cùng Agent",
+                    onClick = { onEscalateToChat(current) },
+                    modifier = Modifier.weight(1f),
+                    variant = ButtonVariant.Secondary,
+                    size = ButtonSize.Small,
+                    leadingIcon = Lucide.MessageSquarePlus,
+                )
+                Button(
+                    text = "Bỏ qua / Xóa",
+                    onClick = { onDismissItem(current) },
+                    variant = ButtonVariant.Ghost,
+                    size = ButtonSize.Small,
+                    leadingIcon = Lucide.Check,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UndoActionBanner(
+    undo: PendingInboxUndo,
+    onUndo: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    val actionDesc = when (undo.kind) {
+        PendingUndoKind.Act -> "Đang thực thi (${undo.option ?: "A"}) cho ${undo.item.sender}..."
+        PendingUndoKind.Dismiss -> "Đã ẩn ${undo.item.sender}"
+    }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .background(Theme[colors][surface], shape)
+            .border(1.dp, Theme[colors][accentText], shape)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            actionDesc,
+            style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
+            color = Theme[colors][text],
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Button(
+            text = "Hoàn tác",
+            onClick = onUndo,
+            variant = ButtonVariant.Secondary,
+            size = ButtonSize.Small,
+            leadingIcon = Lucide.RotateCcw,
+        )
+    }
+}
+
+@Composable
+private fun InboxChannelSwitchRow(
+    job: CronJob,
+    toggling: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    val isActive = job.enabled && !job.paused
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Theme[colors][surface])
+            .border(1.dp, Theme[colors][stroke], shape)
+            .toggleable(
+                value = isActive,
+                enabled = !toggling,
+                role = Role.Switch,
+                onValueChange = onToggle,
+            )
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .background(if (isActive) Theme[colors][accentSoft] else Theme[colors][surface2], RoundedCornerShape(Theme[radii][radiusSmall])),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (toggling) {
+                Spinner(Modifier.size(16.dp), color = Theme[colors][accentText])
+            } else {
+                UnstyledIcon(
+                    Lucide.Zap,
+                    contentDescription = null,
+                    tint = if (isActive) Theme[colors][accentText] else Theme[colors][textTertiary],
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                job.displayName,
+                style = Theme[typography][body].copy(fontWeight = FontWeight.Medium),
+                color = Theme[colors][text],
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val statusLabel = if (isActive) "Đang bật" else "Đã tạm dừng"
+            val sched = job.scheduleDisplay.takeIf { it.isNotBlank() && it != "?" }
+            Text(
+                if (sched != null) "$statusLabel · $sched" else statusLabel,
+                style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp),
+                color = if (isActive) Theme[colors][accentText] else Theme[colors][textTertiary],
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Switch(isActive)
+    }
 }

@@ -10,6 +10,7 @@ import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.cron.CronApi
 import dev.hermeskotlin.core.cron.CronJob
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.inbox.ActionInboxItem
 import dev.hermeskotlin.core.inbox.ChipMode
 import dev.hermeskotlin.core.inbox.Follow
 import dev.hermeskotlin.core.inbox.Following
@@ -32,6 +33,7 @@ import dev.hermeskotlin.core.settings.SettingsStore
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -263,7 +265,26 @@ interface InboxActions {
 
     /** The runs before the oldest one shown, from the gateway. */
     fun loadMore()
+
+    fun loadActionItems(quiet: Boolean = false) {}
+    fun selectActionChannel(channel: String?) {}
+    fun openActionSheet(item: ActionInboxItem) {}
+    fun closeActionSheet() {}
+    fun submitActionItem(item: ActionInboxItem, option: String, draft: String) {}
+    fun dismissActionItem(item: ActionInboxItem) {}
+    fun undoPendingAction() {}
+    fun escalateActionItemToChat(item: ActionInboxItem) {}
+    fun toggleInboxChannel(job: CronJob, enabled: Boolean) {}
 }
+
+enum class PendingUndoKind { Act, Dismiss }
+
+data class PendingInboxUndo(
+    val item: ActionInboxItem,
+    val kind: PendingUndoKind,
+    val option: String? = null,
+    val draft: String = "",
+)
 
 /** Why a run opened shows only the start of its text. */
 enum class RunNote {
@@ -322,7 +343,33 @@ data class InboxUiState(
     val moreError: Words? = null,
     /** The run whose whole report is being fetched, to ask about or copy. */
     val fetching: ReportFetch? = null,
+    val actionItems: List<ActionInboxItem> = emptyList(),
+    val actionLoading: Boolean = false,
+    val actionError: String? = null,
+    val selectedChannel: String? = null,
+    val selectedActionItem: ActionInboxItem? = null,
+    val pendingUndo: PendingInboxUndo? = null,
+    val togglingJobIds: Set<String> = emptySet(),
 ) {
+    val visibleActionItems: List<ActionInboxItem>
+        get() = actionItems.filter { it.id != pendingUndo?.item?.id }
+
+    val actionChannels: List<Pair<String, Int>>
+        get() = visibleActionItems
+            .groupBy { it.channel }
+            .map { (ch, list) -> ch to list.size }
+            .sortedByDescending { it.second }
+
+    val filteredActionItems: List<ActionInboxItem>
+        get() {
+            val ch = selectedChannel
+            val visible = visibleActionItems
+            if (ch == null || visible.none { it.channel.equals(ch, ignoreCase = true) }) return visible
+            return visible.filter { it.channel.equals(ch, ignoreCase = true) }
+        }
+
+    val inboxChannelJobs: List<CronJob>
+        get() = jobs.filter { it.isInboxChannel }
     /** Whether the follow page's controls take a change now. */
     val canEditFollowing: Boolean get() = followingLoaded && !saving
 
@@ -411,6 +458,9 @@ class InboxViewModel(
     private var saveJob: Job? = null
     private var moreJob: Job? = null
     private var fetchJob: Job? = null
+    private var actionLoadJob: Job? = null
+    private var undoJob: Job? = null
+    private var actionInboxActive = false
 
     /** Where the Inbox's lists were left (the folders, and the run list per folder), for the page to put back. */
     val places = mutableMapOf<String, ListPlace>()
@@ -429,19 +479,28 @@ class InboxViewModel(
         viewModelScope.launch {
             connection.events.filter { it.type == "sessions.changed" || it.type == "cron.changed" }
                 .debounce(1_000)
-                .collect { if (idle()) load(quiet = true) }
+                .collect {
+                    if (idle()) {
+                        load(quiet = true)
+                        if (actionInboxActive) loadActionItems(quiet = true)
+                    }
+                }
         }
         // Opened while the socket was still coming up: look once it is there. The follow page too, which waits
         // with its controls off until what this phone follows has been read.
         viewModelScope.launch {
             connection.state.map { it is ConnectionState.Connected }.distinctUntilChanged().collect { connected ->
-                if (connected && visible && gateway != null) lookAgain()
+                if (connected && visible && gateway != null) {
+                    lookAgain()
+                    if (actionInboxActive) loadActionItems(quiet = _state.value.actionItems.isNotEmpty())
+                }
             }
         }
         viewModelScope.launch {
             combine(push.status, settings.settings) { status, prefs -> status.state to (prefs?.pushAnywhere == true) }
                 .collect { (status, on) ->
                     val block = when {
+                        actionInboxActive -> null
                         !on || status == PushStatus.State.Off -> InboxBlock.PushOff
                         status == PushStatus.State.NotInstalled -> InboxBlock.PushOff
                         else -> null
@@ -499,7 +558,224 @@ class InboxViewModel(
         if (s.choosing && !s.followingLoaded && !s.saving && followJob?.isActive != true) chooseJobs()
     }
 
-    fun refresh() = load()
+    fun refresh() {
+        load()
+        if (actionInboxActive) loadActionItems()
+    }
+
+    override fun loadActionItems(quiet: Boolean) {
+        actionInboxActive = true
+        _state.update { state ->
+            state.copy(
+                block = state.block.takeUnless { it == InboxBlock.PushOff },
+                actionLoading = !quiet && state.actionItems.isEmpty(),
+                actionError = if (quiet) state.actionError else null,
+            )
+        }
+        val gw = gateway ?: return
+        actionLoadJob?.cancel()
+        val gen = generation
+        actionLoadJob = viewModelScope.launch {
+            if (connection.state.value !is ConnectionState.Connected) {
+                _state.update { it.copy(actionLoading = false) }
+                return@launch
+            }
+            val result = runCatching { api.actionItems() }
+            if (gen != generation) return@launch
+            result.onSuccess { fetched ->
+                _state.update { prev ->
+                    val bounceById = prev.actionItems.mapNotNull { item -> item.bounceError?.let { item.id to it } }.toMap()
+                    val merged = fetched.map { item ->
+                        val bounce = bounceById[item.id]
+                        if (bounce != null) item.copy(bounceError = bounce) else item
+                    }
+                    val openSheet = prev.selectedActionItem?.let { sel -> merged.firstOrNull { it.id == sel.id } }
+                    prev.copy(
+                        actionItems = merged,
+                        actionLoading = false,
+                        actionError = null,
+                        selectedActionItem = openSheet,
+                    )
+                }
+            }.onFailure { e ->
+                _state.update { prev ->
+                    prev.copy(
+                        actionLoading = false,
+                        actionError = if (prev.actionItems.isEmpty() && !quiet) (e.message ?: "Không thể tải Action Inbox") else prev.actionError,
+                    )
+                }
+            }
+            if (_state.value.jobs.isEmpty()) {
+                val jobsRes = cron.jobs(gw.gatewayUrl)
+                if (gen == generation && jobsRes is ApiResult.Success) {
+                    _state.update { it.copy(jobs = jobsRes.value.sortedBy { j -> j.displayName.lowercase() }) }
+                }
+            }
+        }
+    }
+
+    override fun selectActionChannel(channel: String?) {
+        _state.update { it.copy(selectedChannel = channel) }
+    }
+
+    override fun openActionSheet(item: ActionInboxItem) {
+        _state.update {
+            it.copy(
+                selectedActionItem = item.copy(bounceError = null),
+                actionItems = it.actionItems.map { x -> if (x.id == item.id) x.copy(bounceError = null) else x },
+            )
+        }
+    }
+
+    override fun closeActionSheet() {
+        _state.update { it.copy(selectedActionItem = null) }
+    }
+
+    override fun submitActionItem(item: ActionInboxItem, option: String, draft: String) {
+        startPendingUndo(PendingInboxUndo(item = item.copy(bounceError = null), kind = PendingUndoKind.Act, option = option, draft = draft))
+    }
+
+    override fun dismissActionItem(item: ActionInboxItem) {
+        startPendingUndo(PendingInboxUndo(item = item.copy(bounceError = null), kind = PendingUndoKind.Dismiss))
+    }
+
+    override fun undoPendingAction() {
+        undoJob?.cancel()
+        undoJob = null
+        _state.update { it.copy(pendingUndo = null) }
+    }
+
+    private fun startPendingUndo(nextUndo: PendingInboxUndo) {
+        val existing = _state.value.pendingUndo
+        undoJob?.cancel()
+        if (existing != null && existing.item.id != nextUndo.item.id) {
+            val gen = generation
+            viewModelScope.launch { commitUndoNow(existing, gen) }
+        }
+        _state.update { it.copy(selectedActionItem = null, pendingUndo = nextUndo) }
+        val gen = generation
+        undoJob = viewModelScope.launch {
+            delay(UNDO_DELAY_MS)
+            if (gen != generation) return@launch
+            val current = _state.value.pendingUndo
+            if (current?.item?.id == nextUndo.item.id) {
+                _state.update { it.copy(pendingUndo = null) }
+                commitUndoNow(current, gen)
+            }
+        }
+    }
+
+    private suspend fun commitUndoNow(undo: PendingInboxUndo, gen: Int) {
+        val item = undo.item
+        // Optimistically remove from actionItems while committing
+        _state.update { it.copy(actionItems = it.actionItems.filter { x -> x.id != item.id }) }
+        val outcome = runCatching {
+            when (undo.kind) {
+                PendingUndoKind.Act -> api.actActionItem(
+                    id = item.id,
+                    option = undo.option ?: "A",
+                    draft = undo.draft,
+                    mergedIds = item.mergedIds,
+                )
+                PendingUndoKind.Dismiss -> api.resolveActionItem(
+                    id = item.id,
+                    mergedIds = item.mergedIds,
+                    reason = "dismissed",
+                )
+            }
+        }
+        if (gen != generation) return
+        outcome.onFailure { e ->
+            // Auto-Bounce back to the top of the Inbox with an error badge
+            val reason = e.message?.takeIf { it.isNotBlank() } ?: "Thực thi thất bại trên máy chủ"
+            val bounced = item.copy(bounceError = reason)
+            _state.update { state ->
+                state.copy(
+                    actionItems = listOf(bounced) + state.actionItems.filter { x -> x.id != item.id },
+                    message = Words.Raw("Đã hoàn lại mục ${item.sender}: $reason"),
+                )
+            }
+        }
+    }
+
+    override fun escalateActionItemToChat(item: ActionInboxItem) {
+        val url = gateway?.gatewayUrl?.value ?: return
+        val gen = generation
+        _state.update {
+            it.copy(
+                selectedActionItem = null,
+                actionItems = it.actionItems.filter { x -> x.id != item.id },
+            )
+        }
+        viewModelScope.launch {
+            runCatching { api.resolveActionItem(item.id, item.mergedIds, reason = "escalated_to_chat") }
+            if (gen != generation) return@launch
+            val optionsText = item.options.joinToString("\n") { opt ->
+                val rec = if (opt.recommended) " (đề xuất)" else ""
+                "${opt.key}) ${opt.label}$rec"
+            }
+            val contextPrompt = buildString {
+                append("Việc tách từ Action Inbox (${item.channel} · ${item.sender}")
+                if (item.timeLabel.isNotBlank()) append(" · ${item.timeLabel}")
+                append("):\n\n")
+                append(item.summary.trim())
+                if (optionsText.isNotBlank()) {
+                    append("\n\nCác phương án gợi ý ban đầu:\n")
+                    append(optionsText)
+                }
+                append("\n\nHãy đọc kỹ ngữ cảnh gốc của việc này và trao đổi trực tiếp với tôi để xử lý:")
+            }
+            val attachment = OutgoingAttachment(
+                id = "ibx-${item.id.hashCode().toUInt().toString(16)}",
+                name = "${item.channel}-${item.sender.take(30)}.md".replace(Regex("[/\\\\:*?\"<>|]"), "_"),
+                mimeType = "text/markdown",
+                bytes = item.rawText.encodeToByteArray(),
+            )
+            val draft = ComposeDraft(
+                text = contextPrompt,
+                attachments = listOf(attachment),
+                start = DraftStart.Typing,
+            )
+            _events.send(
+                InboxEvent.OpenChat(
+                    ReportChat(
+                        gatewayUrl = url,
+                        profile = "default",
+                        title = "${item.channel} · ${item.sender}",
+                        draft = draft,
+                    ),
+                ),
+            )
+        }
+    }
+
+    override fun toggleInboxChannel(job: CronJob, enabled: Boolean) {
+        val url = gateway?.gatewayUrl ?: return
+        if (job.id in _state.value.togglingJobIds) return
+        val gen = generation
+        _state.update { it.copy(togglingJobIds = it.togglingJobIds + job.id) }
+        viewModelScope.launch {
+            val res = if (enabled) cron.resume(url, job.id, job.profile) else cron.pause(url, job.id, job.profile)
+            if (gen != generation) return@launch
+            if (res is ApiResult.Success) {
+                val updated = res.value
+                _state.update { state ->
+                    state.copy(
+                        togglingJobIds = state.togglingJobIds - job.id,
+                        jobs = state.jobs.map { j -> if (j.id == job.id) updated else j },
+                        message = Words.Raw("${job.displayName}: ${if (updated.enabled && !updated.paused) "Đã bật" else "Đã tạm dừng"}"),
+                    )
+                }
+            } else {
+                _state.update { state ->
+                    state.copy(
+                        togglingJobIds = state.togglingJobIds - job.id,
+                        message = Words.Raw("Không thể đổi trạng thái kênh ${job.displayName}"),
+                    )
+                }
+            }
+        }
+    }
 
     override fun setFilter(filter: InboxFilter) = _state.update { it.copy(filter = filter) }
 
@@ -924,5 +1200,8 @@ class InboxViewModel(
 
         /** How long a run opened from a notification is waited for, while its push is stored. */
         const val OPEN_KEY_WAIT_MS = 10_000L
+
+        /** 3-second optimistic undo window before committing an Action Inbox choice/dismissal. */
+        const val UNDO_DELAY_MS = 3_000L
     }
 }
