@@ -702,7 +702,7 @@ class InboxViewModelTest {
         vm.escalateActionItemToChat(vm.state.value.actionItems.single())
         val openChat = (vm.events.first() as InboxEvent.OpenChat).chat
         assertEquals("Zalo · Viễn Dương", openChat.title)
-        assertTrue(openChat.draft!!.text.contains("Gửi bản vẽ mới"))
+        assertTrue(openChat.draft!!.text!!.contains("Gửi bản vẽ mới"))
         assertEquals("Chi tiết bản vẽ", openChat.draft!!.attachments.single().bytes.decodeToString())
     }
 }
