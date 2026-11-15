@@ -31,7 +31,7 @@ class DesktopActionsTest {
     }
 
     @Test fun assistantRequestsForwardToTheExistingRouteWithoutAnotherOwner() {
-        val directory = Files.createTempDirectory("kyllene launcher café ").toFile()
+        val directory = Files.createTempDirectory("motherbase launcher café ").toFile()
         val java = File(System.getProperty("java.home"), if (System.getProperty("os.name").startsWith("Windows")) "bin/java.exe" else "bin/java").path
         val classpath = listOf(SingleInstance::class.java, LauncherInstanceProbe::class.java, Unit::class.java)
             .map { File(it.protectionDomain.codeSource.location.toURI()).path }.distinct().joinToString(File.pathSeparator)

@@ -42,7 +42,7 @@ internal class LinuxGlobalShortcut(
     private val alive = AtomicBoolean(true)
     private val active = AtomicReference<Binding?>()
     private val changes = ArrayBlockingQueue<Unit>(1)
-    private val worker = thread(name = "kyllene-shortcut-portal", isDaemon = true) { run() }
+    private val worker = thread(name = "motherbase-shortcut-portal", isDaemon = true) { run() }
 
     override fun close() {
         if (!alive.getAndSet(false)) return
@@ -161,7 +161,7 @@ internal class LinuxGlobalShortcut(
             val handle = created["session_handle"]?.value
             check(((handle as? DBusPath)?.path ?: handle) == binding.session)
             val result = request(bus, binding) { options ->
-                val shortcut = ShortcutsPortal.Shortcut(ID, mapOf("description" to Variant("Open Kyllene quick entry"), "preferred_trigger" to Variant("CTRL+SHIFT+space")))
+                val shortcut = ShortcutsPortal.Shortcut(ID, mapOf("description" to Variant("Open MotherBase quick entry"), "preferred_trigger" to Variant("CTRL+SHIFT+space")))
                 call(bus, portal, "BindShortcuts", DBusPath(binding.session), listOf(shortcut), "", options, binding = binding)
             }
             val shortcuts = result["shortcuts"]?.value
@@ -259,8 +259,8 @@ internal class LinuxGlobalShortcut(
         private const val PATH = "/org/freedesktop/portal/desktop"
         private const val ID = "quick-entry"
         // The portal takes only an ID with an installed desktop entry: the .deb's (jpackage's package-launcher name).
-        private const val HOST_APP_ID = "kyllene-Kyllene"
+        private const val HOST_APP_ID = "motherbase-MotherBase"
         private const val HELD_NANOS = 1_000_000_000L
-        private fun token() = "kyllene" + UUID.randomUUID().toString().replace("-", "")
+        private fun token() = "motherbase" + UUID.randomUUID().toString().replace("-", "")
     }
 }

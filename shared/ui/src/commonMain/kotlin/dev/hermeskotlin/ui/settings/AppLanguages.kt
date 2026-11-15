@@ -1,7 +1,7 @@
 package dev.hermeskotlin.ui.settings
 
 /**
- * A language Kyllene ships: its BCP 47 [tag] as `locales_config.xml` lists it, and its name in itself ([endonym]),
+ * A language MotherBase ships: its BCP 47 [tag] as `locales_config.xml` lists it, and its name in itself ([endonym]),
  * which the picker shows untranslated so anyone can find their own language whatever the app is in.
  */
 data class AppLanguage(val tag: String, val endonym: String) {

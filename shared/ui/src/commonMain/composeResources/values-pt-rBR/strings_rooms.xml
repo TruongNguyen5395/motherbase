@@ -53,7 +53,7 @@
     <string name="rooms_mention">Mencionar um membro</string>
     <string name="rooms_to">Para %1$s</string>
     <string name="rooms_everyone">Todos</string>
-    <string name="rooms_file_no_owner">O Kyllene não sabe qual bot deste Gateway é dono deste arquivo.</string>
+    <string name="rooms_file_no_owner">O MotherBase não sabe qual bot deste Gateway é dono deste arquivo.</string>
     <string name="rooms_attachments_unsupported">Este Gateway não aceita anexos em salas. Atualize o Hermes para usá-los.</string>
     <string name="rooms_attachments_too_many">Até %1$d anexos por mensagem na sala.</string>
     <string name="rooms_attachment_size">Arquivos da sala devem ter entre 1 byte e %1$d MB.</string>

@@ -151,10 +151,10 @@
 
     <string name="assistant_not_signed_in">Nincs bejelentkezve</string>
     <string name="assistant_circle_part">A képernyő egy részének bekarikázása</string>
-    <string name="assistant_open_in_app">Megnyitás a Kyllene-ben</string>
+    <string name="assistant_open_in_app">Megnyitás a MotherBase-ben</string>
     <string name="assistant_close">Bezárás</string>
-    <string name="assistant_sign_in">Jelentkezz be egy Hermes Gateway-re a Kyllene-ben, hogy kérdezhess a képernyődről.</string>
-    <string name="assistant_open_app">Kyllene megnyitása</string>
+    <string name="assistant_sign_in">Jelentkezz be egy Hermes Gateway-re a MotherBase-ben, hogy kérdezhess a képernyődről.</string>
+    <string name="assistant_open_app">MotherBase megnyitása</string>
     <string name="assistant_listening">Figyelek…</string>
     <string name="assistant_transcribing">Leírom, amit mondtál…</string>
     <string name="assistant_connecting">Csatlakozás a Hermeshez…</string>
@@ -170,7 +170,7 @@
     <string name="assistant_text_only">csak szöveg</string>
     <string name="assistant_screenshot">Képernyőkép</string>
     <string name="assistant_add">Hozzáadás</string>
-    <string name="assistant_cant_see_screen">A Kyllene nem látja a képernyőt</string>
+    <string name="assistant_cant_see_screen">A MotherBase nem látja a képernyőt</string>
     <string name="assistant_turn_on_screen_text">Kapcsold be: „Szöveg használata a képernyőről”</string>
     <string name="assistant_what_you_circled">Amit bekarikáztál</string>
     <string name="assistant_circled">Bekarikázva</string>

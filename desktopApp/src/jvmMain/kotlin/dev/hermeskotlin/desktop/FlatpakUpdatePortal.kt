@@ -50,7 +50,7 @@ internal object FlatpakUpdatePortal {
                     val properties = bus.getRemoteObject(owner, PATH, Properties::class.java)
                     val version = call<Any>(bus, properties, timeoutMillis, "Get", NAME, "version")
                     check((((version as? Variant<*>)?.value ?: version) as? UInt32)?.toLong()?.let { it >= 2 } == true)
-                    val token = "kyllene" + UUID.randomUUID().toString().replace("-", "")
+                    val token = "motherbase" + UUID.randomUUID().toString().replace("-", "")
                     val path = "$PATH/update_monitor/${bus.uniqueName.substring(1).replace('.', '_')}/$token"
                     val monitor = Monitor(bus, owner, path, timeoutMillis, onEvent).also { opened = it }
                     monitor.subscribe()
@@ -137,7 +137,7 @@ internal object FlatpakUpdatePortal {
             try {
                 check(alive.get() && !revoked.get() && verified)
                 call<UInt32>(bus, bus.getRemoteObject(owner, PATH, FlatpakPortalWire::class.java), timeout, "Spawn",
-                    "/\u0000".toByteArray(), listOf("kyllene\u0000".toByteArray(), "--restart\u0000".toByteArray()),
+                    "/\u0000".toByteArray(), listOf("motherbase\u0000".toByteArray(), "--restart\u0000".toByteArray()),
                     emptyMap<UInt32, FileDescriptor>(), emptyMap<String, String>(), UInt32(2), emptyMap<String, Variant<*>>()).toLong()
             } catch (error: Exception) {
                 close()

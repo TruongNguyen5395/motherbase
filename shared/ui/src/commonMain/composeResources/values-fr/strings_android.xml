@@ -11,7 +11,7 @@
 
     <string name="android_attach_photo_failed">Impossible de lire la photo.</string>
     <string name="android_attach_no_camera">Aucune application d’appareil photo n’est disponible.</string>
-    <string name="android_attach_not_allowed">L’application qui l’a partagé ne laisse pas Kyllene lire le fichier.</string>
+    <string name="android_attach_not_allowed">L’application qui l’a partagé ne laisse pas MotherBase lire le fichier.</string>
     <string name="android_attach_read_failed">Impossible de lire un fichier.</string>
     <string name="android_attach_photo_too_large">%1$s dépasse 50 Mo.</string>
     <string name="android_attach_file_too_large">%1$s dépasse %2$d Mo.</string>

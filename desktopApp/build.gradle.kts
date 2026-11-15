@@ -79,10 +79,10 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Dmg, TargetFormat.Deb)
-            packageName = "Kyllene"
+            packageName = "MotherBase"
             packageVersion = appVersion
-            description = "Kyllene for Hermes Agent"
-            vendor = "Kyllene"
+            description = "MotherBase for Hermes Agent"
+            vendor = "MotherBase"
             // The JDK modules the app reaches: the default set misses DPAPI's JNA, SQLite and the JDK's own HTTP bits.
             // jdk.accessibility carries the Java Access Bridge that Windows screen readers (NVDA, JAWS) talk to; jcef
             // the Chromium that shows widgets and plugin pages, with its own files.
@@ -90,8 +90,8 @@ compose.desktop {
             // D-Bus EXTERNAL authentication reads UnixSystem from this module.
             if (System.getProperty("os.name").startsWith("Linux")) modules("jdk.security.auth")
             windows {
-                menuGroup = "Kyllene"
-                // Keeps upgrades in place: one Kyllene in Programs and Features, whatever the version.
+                menuGroup = "MotherBase"
+                // Keeps upgrades in place: one MotherBase in Programs and Features, whatever the version.
                 upgradeUuid = "5b0f3c8e-6f2a-4d0e-9a41-3c7d2e8b9f10"
                 iconFile.set(project.file("icons/herald.ico"))
                 // Herald keeps its data in the user's profile, so it installs there too, with no admin prompt.
@@ -109,7 +109,7 @@ compose.desktop {
                         <array>
                             <dict>
                                 <key>CFBundleURLName</key>
-                                <string>Kyllene link</string>
+                                <string>MotherBase link</string>
                                 <key>CFBundleURLSchemes</key>
                                 <array><string>herald</string></array>
                             </dict>

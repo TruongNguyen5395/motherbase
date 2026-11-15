@@ -151,10 +151,10 @@
 
     <string name="assistant_not_signed_in">Non connecté</string>
     <string name="assistant_circle_part">Entourer une partie de l’écran</string>
-    <string name="assistant_open_in_app">Ouvrir dans Kyllene</string>
+    <string name="assistant_open_in_app">Ouvrir dans MotherBase</string>
     <string name="assistant_close">Fermer</string>
-    <string name="assistant_sign_in">Connectez-vous à un Gateway Hermes dans Kyllene pour poser des questions sur votre écran.</string>
-    <string name="assistant_open_app">Ouvrir Kyllene</string>
+    <string name="assistant_sign_in">Connectez-vous à un Gateway Hermes dans MotherBase pour poser des questions sur votre écran.</string>
+    <string name="assistant_open_app">Ouvrir MotherBase</string>
     <string name="assistant_listening">À l’écoute…</string>
     <string name="assistant_transcribing">Transcription de vos paroles…</string>
     <string name="assistant_connecting">Connexion à Hermes…</string>
@@ -170,7 +170,7 @@
     <string name="assistant_text_only">texte seul</string>
     <string name="assistant_screenshot">Capture d’écran</string>
     <string name="assistant_add">Ajouter</string>
-    <string name="assistant_cant_see_screen">Kyllene ne voit pas l’écran</string>
+    <string name="assistant_cant_see_screen">MotherBase ne voit pas l’écran</string>
     <string name="assistant_turn_on_screen_text">Activez « Utiliser le texte affiché à l’écran »</string>
     <string name="assistant_what_you_circled">Ce que vous avez entouré</string>
     <string name="assistant_circled">Entouré</string>

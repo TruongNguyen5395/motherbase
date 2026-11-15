@@ -17,7 +17,7 @@
     <!-- Attachments: picked, taken or shared from another app -->
     <string name="android_attach_photo_failed">Couldn’t read the photo.</string>
     <string name="android_attach_no_camera">No camera app is available.</string>
-    <string name="android_attach_not_allowed">The app that shared it didn’t let Kyllene read the file.</string>
+    <string name="android_attach_not_allowed">The app that shared it didn’t let MotherBase read the file.</string>
     <string name="android_attach_read_failed">Couldn’t read a file.</string>
     <!-- %1$s: the file's name -->
     <string name="android_attach_photo_too_large">%1$s is larger than 50 MB.</string>
@@ -34,6 +34,6 @@
     <string name="android_save_needs_android_10">Saving needs Android 10. Use Share instead.</string>
     <!-- %1$s: the file's name -->
     <string name="android_save_failed">Couldn’t save %1$s.</string>
-    <!-- %1$s: the folder, such as Pictures/Kyllene -->
+    <!-- %1$s: the folder, such as Pictures/MotherBase -->
     <string name="android_saved_to">Saved to %1$s</string>
 </resources>

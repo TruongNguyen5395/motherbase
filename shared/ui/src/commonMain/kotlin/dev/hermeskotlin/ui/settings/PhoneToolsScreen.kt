@@ -155,7 +155,7 @@ internal fun quietWindow(settings: AppSettings): QuietWindow = when {
 
 /**
  * Under the switch: what quiet hours stop, and what Do Not Disturb does to the calls without them. The calls ring
- * with no contact behind them: Android holds them back unless Kyllene's calls may interrupt or anyone may call, but
+ * with no contact behind them: Android holds them back unless MotherBase's calls may interrupt or anyone may call, but
  * lets one through as a repeat caller (the same chat's name again within 15 minutes).
  */
 @Composable

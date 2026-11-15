@@ -101,7 +101,7 @@ internal class LinuxPushKeys(private val store: KeyValueStore) : PushKeys {
                 checkedState = state
             }
         } catch (_: Exception) {
-            throw IllegalStateException("Kyllene couldn't open its push identity. Existing data has been preserved; restore a known-good backup before retrying.")
+            throw IllegalStateException("MotherBase couldn't open its push identity. Existing data has been preserved; restore a known-good backup before retrying.")
         }
     }
 

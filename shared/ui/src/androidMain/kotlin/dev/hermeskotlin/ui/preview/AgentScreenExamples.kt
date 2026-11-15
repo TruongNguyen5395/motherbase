@@ -108,7 +108,7 @@ private fun ExampleCard(example: AgentScreenExample) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(example.name, style = Theme[typography][heading], color = Theme[colors][text])
         if (screen == null) {
-            Text("Kyllene doesn't read these messages as a screen.", style = Theme[typography][caption], color = Theme[colors][danger])
+            Text("MotherBase doesn't read these messages as a screen.", style = Theme[typography][caption], color = Theme[colors][danger])
             return@Column
         }
         AgentScreenSurface(

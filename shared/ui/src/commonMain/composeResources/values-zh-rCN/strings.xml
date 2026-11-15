@@ -108,7 +108,7 @@
     <string name="settings_show_pet">显示宠物</string>
     <string name="settings_show_pet_detail">配置的宠物待在输入框上，表演代理正在做的事。用 /pet 领养一只。</string>
     <string name="settings_link_previews">显示链接预览</string>
-    <string name="settings_link_previews_detail">为已完成回复中的每个网页链接显示一张卡片。Kyllene 会自己打开链接的页面及其图片，不带你网关的 Cookie。</string>
+    <string name="settings_link_previews_detail">为已完成回复中的每个网页链接显示一张卡片。MotherBase 会自己打开链接的页面及其图片，不带你网关的 Cookie。</string>
     <string name="settings_suggested_replies">建议回复</string>
     <string name="settings_suggestions_what">回复之后，在输入框上方显示你接下来可能发送的消息：轻点即可编辑并发送。它来自网关的 Next Prompt 插件，该插件每轮询问一次模型。</string>
     <string name="settings_suggestions_what_desktop">回复之后，在输入框上方显示你接下来可能发送的消息：点击即可编辑并发送。它来自网关的 Next Prompt 插件，该插件每轮询问一次模型。</string>
@@ -135,9 +135,9 @@
     <string name="settings_notify_requests">批准与提问</string>
     <string name="settings_notify_requests_detail">代理在等你时。可直接在通知中回答。</string>
     <string name="settings_notify_replies">已完成的回复</string>
-    <string name="settings_notify_replies_detail">Kyllene 在后台时，某一轮次结束后通知你。可在通知中回复。</string>
-    <string name="settings_notify_other_in_app">Kyllene 打开时，其他对话也发通知</string>
-    <string name="settings_notify_other_in_app_detail">即使你正在使用 Kyllene，当前屏幕以外的对话中的回复和请求也会发通知。</string>
+    <string name="settings_notify_replies_detail">MotherBase 在后台时，某一轮次结束后通知你。可在通知中回复。</string>
+    <string name="settings_notify_other_in_app">MotherBase 打开时，其他对话也发通知</string>
+    <string name="settings_notify_other_in_app_detail">即使你正在使用 MotherBase，当前屏幕以外的对话中的回复和请求也会发通知。</string>
     <string name="settings_alerts_other_chats">其他对话的提醒</string>
     <string name="settings_alerts_other_chats_detail">在某个对话中时，如果另一个对话回复或在等你，“会话”上会出现一个圆点。</string>
     <string name="settings_banner_other_chats">其他对话的横幅</string>
@@ -153,7 +153,7 @@
     <string name="settings_push_outdated">网关的 herald-push 插件是 %1$s；此功能需要 %2$s。请在下方更新。</string>
     <string name="settings_push_too_old">网关的 herald-push 插件太旧。</string>
     <string name="settings_push_failed">无法设置：%1$s</string>
-    <string name="settings_push_unknown">已开启。下次 Kyllene 连上网关时再确认。</string>
+    <string name="settings_push_unknown">已开启。下次 MotherBase 连上网关时再确认。</string>
     <string name="settings_error_unknown">未知错误</string>
     <string name="settings_phone_tools">手机工具</string>
     <string name="settings_phone_tools_off">关闭。让代理使用这部手机，每个工具都要你开启后才能用。</string>
@@ -163,7 +163,7 @@
     <string name="settings_connected_devices_pebble_on">Pebble 已开启。</string>
     <string name="settings_connected_devices_pebble_answers">Pebble 已开启，可回复批准与提问。</string>
     <string name="settings_app_lock">应用锁</string>
-    <string name="settings_app_lock_detail">Kyllene 打开时和离开一分钟后，要求验证指纹、面容或屏幕锁。在最近任务中隐藏 Kyllene，并禁止截屏。通知中的操作仍可使用。</string>
+    <string name="settings_app_lock_detail">MotherBase 打开时和离开一分钟后，要求验证指纹、面容或屏幕锁。在最近任务中隐藏 MotherBase，并禁止截屏。通知中的操作仍可使用。</string>
     <string name="settings_app_lock_needs_screen_lock">请先在 Android 设置中设置屏幕锁。</string>
     <string name="settings_switch_gateway">切换或添加网关</string>
     <string name="settings_sign_out">退出登录</string>
@@ -178,12 +178,12 @@
     <string name="update_available">%1$s 版已发布</string>
     <string name="update_install_hint">直接覆盖安装；登录状态和设置都会保留。</string>
     <string name="settings_check_sheet_detail">每个阶段单独测试。</string>
-    <string name="start_instruction_what">你在 Kyllene 中开始的每个新对话都会先把这段话告诉代理。它不会出现在对话中，无论在这里还是在你的其他 Hermes 应用里。已在进行的对话保留开始时的内容。留空则不使用。</string>
+    <string name="start_instruction_what">你在 MotherBase 中开始的每个新对话都会先把这段话告诉代理。它不会出现在对话中，无论在这里还是在你的其他 Hermes 应用里。已在进行的对话保留开始时的内容。留空则不使用。</string>
     <string name="start_instruction_placeholder">每个新对话都应该知道什么？</string>
     <string name="start_instruction_suggestions">建议</string>
     <string name="start_instruction_suggestion_phone">我在用手机：回复简短些，不要用长表格。</string>
     <string name="start_instruction_suggestion_short">我在用手机，经常在路上。除非我要求更多，否则用几句话回答。</string>
-    <string name="app_icon_restart">Kyllene 会重启以更换图标。有些启动器会将它从主屏幕移除；请从应用列表重新添加。</string>
+    <string name="app_icon_restart">MotherBase 会重启以更换图标。有些启动器会将它从主屏幕移除；请从应用列表重新添加。</string>
     <string name="app_icon_group_colors">颜色</string>
     <string name="app_icon_group_patterns">图案</string>
     <string name="app_icon_blue">蓝色</string>
@@ -195,18 +195,18 @@
     <string name="app_icon_hearts">爱心</string>
     <string name="app_icon_marks">符号</string>
     <string name="app_icon_bubbles">气泡</string>
-    <string name="app_lock_title">Kyllene 已锁定</string>
+    <string name="app_lock_title">MotherBase 已锁定</string>
     <string name="app_lock_detail">使用指纹、面容或屏幕锁解锁。</string>
     <string name="plugin_install_title">在网关上安装？</string>
-    <string name="plugin_install_message">%1$s 需要你的网关上有 herald-push 插件。如果还没有，Kyllene 会从 %3$s 安装 %2$s 版，使用审核此 Kyllene 时的提交。%4$s 只有在你选择时才会安装更新，你也可以随时在网关上移除该插件。</string>
+    <string name="plugin_install_message">%1$s 需要你的网关上有 herald-push 插件。如果还没有，MotherBase 会从 %3$s 安装 %2$s 版，使用审核此 MotherBase 时的提交。%4$s 只有在你选择时才会安装更新，你也可以随时在网关上移除该插件。</string>
     <string name="plugin_next_prompt_title">安装 Next Prompt？</string>
-    <string name="plugin_next_prompt_message">Kyllene 会从 %2$s 安装社区插件 Next Prompt %1$s，使用审核此 Kyllene 时的提交。每轮结束后，无论在 Kyllene、Hermes Desktop 还是终端中，它都会把对话的最后几条消息发给你的模型（或为其辅助任务设置的模型），并保留它建议的回复。这意味着每轮多一次模型调用。你可以随时在网关上移除它。</string>
+    <string name="plugin_next_prompt_message">MotherBase 会从 %2$s 安装社区插件 Next Prompt %1$s，使用审核此 MotherBase 时的提交。每轮结束后，无论在 MotherBase、Hermes Desktop 还是终端中，它都会把对话的最后几条消息发给你的模型（或为其辅助任务设置的模型），并保留它建议的回复。这意味着每轮多一次模型调用。你可以随时在网关上移除它。</string>
     <string name="plugin_notifications_what">它会关注你的机器人的对话，并把每条新回复经 ntfy.sh 端到端加密发送到这部手机。</string>
     <string name="plugin_update_needed_row">将网关的插件更新到 %1$s</string>
     <string name="plugin_update_row">插件更新：%1$s → %2$s</string>
     <string name="plugin_update_title">更新插件？</string>
-    <string name="plugin_update_message">Kyllene 会把网关及其机器人配置上较旧的 herald-push 副本更新为来自 %2$s 的 %1$s，使用审核此 Kyllene 时的提交。已停用的副本保持停用。进行中的对话会在其代理会话重新加载时获得新工具。</string>
-    <string name="plugin_update_needs_it">此 Kyllene 需要这次更新。</string>
+    <string name="plugin_update_message">MotherBase 会把网关及其机器人配置上较旧的 herald-push 副本更新为来自 %2$s 的 %1$s，使用审核此 MotherBase 时的提交。已停用的副本保持停用。进行中的对话会在其代理会话重新加载时获得新工具。</string>
+    <string name="plugin_update_needs_it">此 MotherBase 需要这次更新。</string>
     <string name="plugin_update_optional">只有在你选择时才会安装更新。</string>
     <string name="settings_alerts_phone_next">长按“会话”可前往下一个。</string>
     <string name="settings_search_placeholder">搜索设置</string>
@@ -214,7 +214,7 @@
     <string name="settings_text_size_desktop_detail">仅文字，在缩放的基础上调整。</string>
     <string name="settings_section_desktop">桌面端</string>
     <string name="settings_keep_running">在托盘中保持运行</string>
-    <string name="settings_keep_running_detail">关闭窗口后 Kyllene 留在托盘中，继续提醒你回复和提问。可从托盘菜单退出。</string>
+    <string name="settings_keep_running_detail">关闭窗口后 MotherBase 留在托盘中，继续提醒你回复和提问。可从托盘菜单退出。</string>
     <string name="settings_quick_entry">快速输入</string>
     <string name="settings_quick_entry_detail">在任何应用中按 %1$s 都会打开一个小输入框向 Hermes 提问，可在新对话或当前对话中。目前仅支持 Windows。</string>
     <string name="settings_quick_entry_taken">另一个应用正在使用这些按键，所以无法打开。</string>
@@ -231,8 +231,8 @@
     <string name="settings_zoom_smaller">缩小</string>
     <string name="settings_zoom_reset">100%</string>
     <string name="settings_zoom_bigger">放大</string>
-    <string name="settings_notify_requests_desktop_detail">代理在等你，且 Kyllene 不是当前使用的窗口时。</string>
-    <string name="settings_notify_replies_desktop_detail">Kyllene 不是当前使用的窗口时，某一轮次结束或失败后通知你。点击即可打开对话。</string>
+    <string name="settings_notify_requests_desktop_detail">代理在等你，且 MotherBase 不是当前使用的窗口时。</string>
+    <string name="settings_notify_replies_desktop_detail">MotherBase 不是当前使用的窗口时，某一轮次结束或失败后通知你。点击即可打开对话。</string>
     <string name="settings_alerts_desktop_next">按 %1$s 前往下一个。</string>
     <string name="settings_call_target">默认通话目标</string>
     <string name="settings_call_target_detail">使用“呼叫 Hermes”时通话转到哪里。在应用抽屉中按住应用图标即可使用</string>
@@ -254,8 +254,8 @@
     <string name="start_instruction_suggestion_direct">直接一点。先给答案，再讲细节。</string>
     <string name="update_downloading">正在下载…</string>
     <string name="connected_devices_section_pebble">Pebble</string>
-    <string name="connected_devices_pebble">Pebble 上的 Kyllene</string>
-    <string name="connected_devices_pebble_detail">通过 Kyllene 的 Pebble 手表应用与 Hermes 对话，并让它在手表上响铃。关闭后，手表应用会提示已关闭，不会再向它发送任何内容。</string>
+    <string name="connected_devices_pebble">Pebble 上的 MotherBase</string>
+    <string name="connected_devices_pebble_detail">通过 MotherBase 的 Pebble 手表应用与 Hermes 对话，并让它在手表上响铃。关闭后，手表应用会提示已关闭，不会再向它发送任何内容。</string>
     <string name="connected_devices_answers">在 Pebble 上回复</string>
     <string name="connected_devices_answers_detail">可以在手表上回复批准与提问，但手表不会要求解锁这部手机：任何戴着它的人都能回复。</string>
     <string name="connected_devices_section_prompts">Pebble 提示语</string>
@@ -264,7 +264,7 @@
     <string name="connected_devices_prompt_remove">移除此提示语</string>
     <string name="connected_devices_prompt_add">添加提示语</string>
     <string name="connected_devices_section_wear">Wear OS</string>
-    <string name="connected_devices_wear_detail">Wear OS 手表上的 Kyllene 有自己的设置：在手表上打开 Kyllene 的聊天，然后点按“设置”。是否随手机一起响铃，在“手机工具 › 通话”中设置，与 Pebble 相同。</string>
+    <string name="connected_devices_wear_detail">Wear OS 手表上的 MotherBase 有自己的设置：在手表上打开 MotherBase 的聊天，然后点按“设置”。是否随手机一起响铃，在“手机工具 › 通话”中设置，与 Pebble 相同。</string>
     <plurals name="settings_phone_tools_count">
         <item quantity="other">已开启 %1$d 个工具。</item>
     </plurals>
@@ -280,11 +280,11 @@
     <string name="managed_update_denied">系统未允许此次更新。请在隐私设置中允许更新，或使用系统更新工具。</string>
     <string name="managed_update_system">请使用系统更新工具检查并安装此次更新，包括任何权限变更。</string>
     <string name="managed_update_uncertain">无法确认更新结果。请先使用系统更新工具检查，再重试。</string>
-    <string name="managed_update_restart_failed">无法确认重启。请完成工作后退出并重新打开 Kyllene。</string>
+    <string name="managed_update_restart_failed">无法确认重启。请完成工作后退出并重新打开 MotherBase。</string>
     <string name="managed_update_unavailable">此处无法更新应用。请使用系统更新工具。</string>
     <string name="managed_update_failed">更新失败。请重试或使用系统更新工具。</string>
     <string name="managed_update_restart">重启</string>
-    <string name="managed_update_restart_title">重启 Kyllene？</string>
+    <string name="managed_update_restart_title">重启 MotherBase？</string>
     <string name="managed_update_restart_warning">请结束通话并保存工作。重启将关闭所有窗口，未保存的更改和附件可能会丢失。</string>
     <string name="managed_update_restart_now">立即重启</string>
 </resources>

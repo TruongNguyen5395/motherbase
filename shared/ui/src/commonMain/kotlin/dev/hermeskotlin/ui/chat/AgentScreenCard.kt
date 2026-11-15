@@ -132,7 +132,7 @@ internal fun AgentScreenCard(view: ScreenView, newest: Boolean) {
     if (!drawsAgentScreens) return
     val context = LocalAgentScreens.current
     val chat = LocalAgentScreenChat.current
-    // So a call that updates it is checked against what's here, even one made after Kyllene restarted.
+    // So a call that updates it is checked against what's here, even one made after MotherBase restarted.
     LaunchedEffect(chat, screen.messages) { context.onDrawn(chat, screen) }
     val waits = screen.wait && call.running
     val live = waits && context.live.any { waiting -> screen.surfaceIds.any { waiting.matches(chat, it) } }

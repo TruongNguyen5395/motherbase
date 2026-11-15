@@ -982,7 +982,7 @@ internal fun SettingsView(
     }
 }
 
-/** The Kyllene community server; the invite never expires. */
+/** The MotherBase community server; the invite never expires. */
 private const val DISCORD_INVITE = "https://discord.gg/wCtyvQ3KcM"
 
 /** The sidebar page each side of the Chats / Bots switch is, for its name and icon. */
@@ -1020,7 +1020,7 @@ internal sealed interface SuggestionsLine {
     /** Installed, but the gateway doesn't list it yet. */
     data object NotListed : SuggestionsLine
 
-    /** [have] is the version on the gateway; [need] the one this Kyllene asks for. */
+    /** [have] is the version on the gateway; [need] the one this MotherBase asks for. */
     data class Outdated(val have: String?, val need: String) : SuggestionsLine
 }
 

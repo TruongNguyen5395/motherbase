@@ -48,7 +48,7 @@
     <string name="voice_error_live_ended">Az élő hívás véget ért.</string>
     <string name="voice_error_live_ended_because">Az élő hívás véget ért: %1$s</string>
     <string name="voice_error_live_dropped">Az élő hívás megszakadt.</string>
-    <string name="call_title">Kyllene-hívás</string>
+    <string name="call_title">MotherBase-hívás</string>
     <string name="call_answer">Fogadás</string>
     <string name="call_decline">Elutasítás</string>
     <string name="call_reason_approval">Jóváhagyásodra vár</string>

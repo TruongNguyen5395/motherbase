@@ -50,7 +50,7 @@ class ClientCertPickerTest {
             onNodeWithText("Cancelar").assertExists()
             onNode(hasSetTextAction()).performTextInput("wrong")
             onNodeWithText("Importar").performClick()
-            waitUntil { onAllNodes(androidx.compose.ui.test.hasText("Kyllene no pudo abrir este certificado de cliente.", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil { onAllNodes(androidx.compose.ui.test.hasText("MotherBase no pudo abrir este certificado de cliente.", substring = true)).fetchSemanticsNodes().isNotEmpty() }
             onNode(hasSetTextAction()).assertTextEquals("")
             assertTrue(selected.isEmpty())
         } finally {
@@ -86,7 +86,7 @@ class ClientCertPickerTest {
             onNode(hasSetTextAction()).performTextInput("wrong")
             onNodeWithText("Import").performClick()
             waitUntil { attempts == 1 && secret!!.all { it == '\u0000' } }
-            onNodeWithText("Kyllene couldn't open this client certificate.", substring = true).assertExists()
+            onNodeWithText("MotherBase couldn't open this client certificate.", substring = true).assertExists()
             assertTrue(selected.isEmpty())
             assertTrue(consumed!!.all { it == 0.toByte() })
             onNode(hasSetTextAction()).assertTextEquals("")

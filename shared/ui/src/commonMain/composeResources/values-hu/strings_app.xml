@@ -202,10 +202,10 @@
     <string name="wallpaper_dialog_title">Csevegés háttere</string>
     <string name="wallpaper_dialog_failed">Nem sikerült megnyitni a fájlválasztót.</string>
     <string name="wallpaper_too_large">A fotó túl nagy, vagy nem olvasható.</string>
-    <string name="wallpaper_not_an_image">Ez a fájl nem olyan kép, amelyet a Kyllene be tud olvasni.</string>
+    <string name="wallpaper_not_an_image">Ez a fájl nem olyan kép, amelyet a MotherBase be tud olvasni.</string>
     <string name="wallpaper_read_failed">Nem sikerült beolvasni a képet.</string>
 
-    <string name="update_renamed">A Herald mostantól Kyllene</string>
+    <string name="update_renamed">A Herald mostantól MotherBase</string>
     <string name="update_renamed_detail">Ugyanaz az alkalmazás új névvel és ikonnal. A bejelentkezésed, a csevegéseid és a beállításaid megmaradnak.</string>
     <string name="update_got_it">Értem</string>
 
@@ -221,13 +221,13 @@
     <string name="gateways_rename_title">Gateway átnevezése</string>
     <string name="gateways_rename_detail">Hagyd üresen, hogy a cím látsszon.</string>
     <string name="gateways_remove_title">Eltávolítod a Gateway-t?</string>
-    <string name="gateways_remove_detail">A Kyllene kijelentkezik innen: „%1$s”, és elfelejti. A csevegései a Gateway-en maradnak.</string>
-    <string name="gateways_client_cert_detail">A Kyllene ezt a tanúsítványt mutatja be ennek: „%1$s”, amikor a szerver kéri. A kulcs a rendszer tárolójában marad; csak a neve van elmentve.</string>
+    <string name="gateways_remove_detail">A MotherBase kijelentkezik innen: „%1$s”, és elfelejti. A csevegései a Gateway-en maradnak.</string>
+    <string name="gateways_client_cert_detail">A MotherBase ezt a tanúsítványt mutatja be ennek: „%1$s”, amikor a szerver kéri. A kulcs a rendszer tárolójában marad; csak a neve van elmentve.</string>
     <string name="gateways_pick">Kiválasztás…</string>
     <string name="gateways_change">Módosítás…</string>
     <string name="gateways_clear">Törlés</string>
 
-    <string name="connect_welcome">Üdv a Kyllene-ben</string>
+    <string name="connect_welcome">Üdv a MotherBase-ben</string>
     <string name="connect_welcome_detail">Csatlakozz a Hermes Agent Gateway-edhez. Semmi sem megy el, amíg be nem jelentkezel.</string>
     <string name="connect_add_gateway">Gateway hozzáadása</string>
     <string name="connect_add_gateway_detail">Csatlakozz egy másik Hermes Agent Gateway-hez. A mentettekben bejelentkezve maradsz.</string>
@@ -292,7 +292,7 @@
     <string name="signin_signing_in">Bejelentkezés…</string>
     <string name="signin_with_browser">Bejelentkezés böngészővel</string>
     <string name="signin_waiting_browser">Várakozás a böngészőre…</string>
-    <string name="signin_finish_in_browser">Fejezd be a bejelentkezést a megnyílt oldalon. A Kyllene magától visszatér, ha végeztél.</string>
+    <string name="signin_finish_in_browser">Fejezd be a bejelentkezést a megnyílt oldalon. A MotherBase magától visszatér, ha végeztél.</string>
     <string name="signin_different_gateway">Másik Gateway használata</string>
     <string name="signin_gateway_chip">Gateway: %1$s</string>
     <string name="signin_or">vagy</string>
@@ -364,26 +364,26 @@
 
     <!-- Imported desktop client certificates. -->
     <string name="check_fix_client_cert_desktop">Importáld a PKCS#12 klienstanúsítványt, amelyet ez a szerver kér, majd ellenőrizd újra.</string>
-    <string name="check_fix_client_cert_unsupported">A Kyllene ezen változata nem tud klienstanúsítványt bemutatni. Ehhez a szerverhez használd az Android-alkalmazást vagy a linuxos Flatpaket.</string>
+    <string name="check_fix_client_cert_unsupported">A MotherBase ezen változata nem tud klienstanúsítványt bemutatni. Ehhez a szerverhez használd az Android-alkalmazást vagy a linuxos Flatpaket.</string>
     <string name="client_cert_import_title">Klienstanúsítvány importálása</string>
     <string name="client_cert_import">Importálás</string>
     <string name="client_cert_importing">Importálás…</string>
     <string name="client_cert_import_detail">Add meg a kiválasztott PKCS#12 fájl jelszavát. A kulcsa titkosítva lesz tárolva ehhez a TLS-gépnévhez. Az azonos gépnevű átjárók a tanúsítványválasztáson is osztoznak, a porttól és az útvonaltól függetlenül.</string>
     <string name="client_cert_password">PKCS#12 jelszó</string>
-    <string name="client_cert_invalid">A Kyllene nem tudta megnyitni ezt a klienstanúsítványt. Ellenőrizd a jelszót, és válassz egy olyan PKCS#12 fájlt, amelyben egyetlen le nem járt klienstanúsítvány, a hozzá tartozó privát kulcs és a tanúsítványlánc van.</string>
+    <string name="client_cert_invalid">A MotherBase nem tudta megnyitni ezt a klienstanúsítványt. Ellenőrizd a jelszót, és válassz egy olyan PKCS#12 fájlt, amelyben egyetlen le nem járt klienstanúsítvány, a hozzá tartozó privát kulcs és a tanúsítványlánc van.</string>
     <string name="client_cert_regular_file">Válassz egy normál PKCS#12 fájlt. Szimbolikus linkek, eszközök és nevesített csövek nem importálhatók.</string>
     <string name="client_cert_read_failed">Nem sikerült beolvasni ezt a PKCS#12 fájlt. Válaszd ki újra, és ellenőrizd a fájlhozzáférést.</string>
     <string name="client_cert_clear_selection">Választás törlése</string>
     <string name="connect_cert_kept_desktop">Az importált kulcsok titkosítva vannak tárolva ehhez a TLS-gépnévhez. A választás törlése után is használatban maradhat egy másik, ugyanehhez a gépnévhez mentett tanúsítvány. Az importált kulcsok a titkosított beállításokban maradnak.</string>
-    <string name="gateways_client_cert_detail_desktop">A Kyllene ezt a tanúsítványt mutatja be ennek: „%1$s”, amikor a szerver kéri. Az importált kulcsok titkosítva vannak tárolva ehhez a TLS-gépnévhez. A választás törlése után is használatban maradhat egy másik, ugyanehhez a gépnévhez mentett tanúsítvány. Az importált kulcsok a titkosított beállításokban maradnak.</string>
-    <string name="client_cert_storage_unavailable">A Kyllene nem tudta lekérni a tárolókulcsát. Oldd fel az asztali kulcstartót, ellenőrizd, hogy elérhető-e a Secret portálja, majd próbáld újra.</string>
+    <string name="gateways_client_cert_detail_desktop">A MotherBase ezt a tanúsítványt mutatja be ennek: „%1$s”, amikor a szerver kéri. Az importált kulcsok titkosítva vannak tárolva ehhez a TLS-gépnévhez. A választás törlése után is használatban maradhat egy másik, ugyanehhez a gépnévhez mentett tanúsítvány. Az importált kulcsok a titkosított beállításokban maradnak.</string>
+    <string name="client_cert_storage_unavailable">A MotherBase nem tudta lekérni a tárolókulcsát. Oldd fel az asztali kulcstartót, ellenőrizd, hogy elérhető-e a Secret portálja, majd próbáld újra.</string>
     <string name="client_cert_storage_cancelled">A tároló feloldása megszakadt. Próbáld újra a feloldáshoz; a meglévő adatok megmaradtak.</string>
-    <string name="client_cert_storage_corrupt">A Kyllene nem tudta megnyitni a titkosított beállításait. Állíts vissza egy működő biztonsági mentést, vagy használd az eredeti alkalmazás-azonosítót. A meglévő adatok megmaradtak.</string>
-    <string name="client_cert_storage_version">Ehhez a beállításformátumhoz a Kyllene egy másik verziója kell. A meglévő adatok megmaradtak.</string>
-    <string name="client_cert_storage_read">A Kyllene nem tudta beolvasni a beállításait, vagy a fájl nagyobb 16 MiB-nál. Ellenőrizd a fájlhozzáférést, mielőtt újra próbálod.</string>
-    <string name="client_cert_storage_write">A Kyllene nem tudta befejezni a beállításai mentését vagy rendbetételét. A meglévő másolatok megmaradtak; ellenőrizd a lemezterületet és a fájlhozzáférést, mielőtt újra próbálod.</string>
-    <string name="client_cert_storage_uncertain">A Kyllene nem tudta megerősíteni, hogy a beállításai mentésre kerültek. Ellenőrizd a fájlhozzáférést, majd indítsd újra, vagy lépj ki és indítsd újra, mielőtt további módosítást végzel.</string>
+    <string name="client_cert_storage_corrupt">A MotherBase nem tudta megnyitni a titkosított beállításait. Állíts vissza egy működő biztonsági mentést, vagy használd az eredeti alkalmazás-azonosítót. A meglévő adatok megmaradtak.</string>
+    <string name="client_cert_storage_version">Ehhez a beállításformátumhoz a MotherBase egy másik verziója kell. A meglévő adatok megmaradtak.</string>
+    <string name="client_cert_storage_read">A MotherBase nem tudta beolvasni a beállításait, vagy a fájl nagyobb 16 MiB-nál. Ellenőrizd a fájlhozzáférést, mielőtt újra próbálod.</string>
+    <string name="client_cert_storage_write">A MotherBase nem tudta befejezni a beállításai mentését vagy rendbetételét. A meglévő másolatok megmaradtak; ellenőrizd a lemezterületet és a fájlhozzáférést, mielőtt újra próbálod.</string>
+    <string name="client_cert_storage_uncertain">A MotherBase nem tudta megerősíteni, hogy a beállításai mentésre kerültek. Ellenőrizd a fájlhozzáférést, majd indítsd újra, vagy lépj ki és indítsd újra, mielőtt további módosítást végzel.</string>
     <string name="client_cert_storage_changed">A beállítások ezen az ablakon kívül megváltoztak. Lépj ki, és indítsd újra a Kyllenét, hogy mentés előtt újratöltse őket.</string>
     <string name="client_cert_storage_legacy">Ütköző vagy befejezetlen régi beállítások kerültek elő. A meglévő fájlok megmaradtak. Lépj ki, és rendezd a régebbi másolatot, mielőtt újra próbálod.</string>
-    <string name="client_cert_storage_unsupported">A Kyllene nem tudta ellenőrizni a Flatpak alkalmazás-azonosítóját. Ellenőrizd a telepítést, mielőtt újra próbálod. Titkosítatlan tartalék megoldás nincs.</string>
+    <string name="client_cert_storage_unsupported">A MotherBase nem tudta ellenőrizni a Flatpak alkalmazás-azonosítóját. Ellenőrizd a telepítést, mielőtt újra próbálod. Titkosítatlan tartalék megoldás nincs.</string>
 </resources>

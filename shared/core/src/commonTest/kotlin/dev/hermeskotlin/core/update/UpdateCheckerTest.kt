@@ -48,17 +48,17 @@ class UpdateCheckerTest {
     fun aDesktopTakesItsOwnInstallerAndNeverAnApk() {
         val release = HermesJson.parseToJsonElement(
             """{"tag_name":"v1.2.0","html_url":"https://github.com/o/r/releases/tag/v1.2.0","assets":[""" +
-                listOf("kyllene-1.2.0.apk", "kyllene-desktop-1.2.0.dmg", "kyllene-desktop-1.2.0.msi", "kyllene-desktop-1.2.0.msi.sha256", "kyllene-desktop-1.2.0_amd64.deb")
+                listOf("motherbase-1.2.0.apk", "motherbase-desktop-1.2.0.dmg", "motherbase-desktop-1.2.0.msi", "motherbase-desktop-1.2.0.msi.sha256", "motherbase-desktop-1.2.0_amd64.deb")
                     .joinToString(",") { """{"name":"$it","browser_download_url":"https://x/$it"}""" } + "]}",
         ) as JsonObject
 
-        assertEquals("https://x/kyllene-desktop-1.2.0.msi", parseRelease(release, emptyList(), installer = ".msi")?.downloadUrl)
-        assertEquals("https://x/kyllene-desktop-1.2.0.dmg", parseRelease(release, emptyList(), installer = ".dmg")?.downloadUrl)
-        assertEquals("https://x/kyllene-desktop-1.2.0_amd64.deb", parseRelease(release, emptyList(), installer = ".deb")?.downloadUrl)
+        assertEquals("https://x/motherbase-desktop-1.2.0.msi", parseRelease(release, emptyList(), installer = ".msi")?.downloadUrl)
+        assertEquals("https://x/motherbase-desktop-1.2.0.dmg", parseRelease(release, emptyList(), installer = ".dmg")?.downloadUrl)
+        assertEquals("https://x/motherbase-desktop-1.2.0_amd64.deb", parseRelease(release, emptyList(), installer = ".deb")?.downloadUrl)
         // A release without this desktop's installer: the release page.
         assertNull(parseRelease(release, emptyList(), installer = ".rpm")?.downloadUrl)
         // And a phone never takes a desktop installer.
-        assertEquals("https://x/kyllene-1.2.0.apk", parseRelease(release, listOf("arm64-v8a"))?.downloadUrl)
+        assertEquals("https://x/motherbase-1.2.0.apk", parseRelease(release, listOf("arm64-v8a"))?.downloadUrl)
     }
 
     @Test
@@ -99,11 +99,11 @@ class UpdateCheckerTest {
         assertEquals(null, parseRelease(wearOnly, listOf("arm64-v8a"))?.downloadUrl)
 
         // Under another app name too, even listed before the phone's APKs.
-        val renamed = release("kyllene-wear-0.9.0.apk" to "wear.apk", "kyllene-0.9.0.apk" to "universal.apk", "kyllene-0.9.0_arm64-v8a.apk" to "arm64.apk")
+        val renamed = release("motherbase-wear-0.9.0.apk" to "wear.apk", "motherbase-0.9.0.apk" to "universal.apk", "motherbase-0.9.0_arm64-v8a.apk" to "arm64.apk")
         assertEquals("https://x/universal.apk", parseRelease(renamed, listOf("x86"))?.downloadUrl)
         assertEquals("https://x/arm64.apk", parseRelease(renamed, listOf("arm64-v8a"))?.downloadUrl)
-        assertEquals(null, parseRelease(release("Kyllene-Wear-0.9.0.apk" to "wear.apk"), listOf("arm64-v8a"))?.downloadUrl)
-        assertEquals(null, parseRelease(release("kyllene-dev-wear-0.9.0.apk" to "wear.apk"), listOf("arm64-v8a"))?.downloadUrl)
+        assertEquals(null, parseRelease(release("MotherBase-Wear-0.9.0.apk" to "wear.apk"), listOf("arm64-v8a"))?.downloadUrl)
+        assertEquals(null, parseRelease(release("motherbase-dev-wear-0.9.0.apk" to "wear.apk"), listOf("arm64-v8a"))?.downloadUrl)
 
         // Nor the Pebble watchapp, listed before the phone's APKs.
         val pebble = release("herald-0.9.0.pbw" to "pebble.pbw", "herald-0.9.0.apk" to "universal.apk")

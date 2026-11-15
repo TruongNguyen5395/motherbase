@@ -36,13 +36,13 @@ class AgentScreens(private val shownWithinMs: Long = SHOWN_WITHIN_MS) {
 
     private val waiting = MutableStateFlow<List<Waiting>>(emptyList())
 
-    /** The messages each surface was sent, by chat and surface id, since Kyllene started: what a later call updates. */
+    /** The messages each surface was sent, by chat and surface id, since MotherBase started: what a later call updates. */
     private val sent = MutableStateFlow<Map<Pair<String?, String>, List<String>>>(emptyMap())
 
     /**
      * What [chat]'s surfaces got before [screen], for the surfaces [screen] changes without making them (an
      * update), in the order they came: [screen] is checked on top of them. Null when one of them isn't known here
-     * (made before Kyllene started, or never).
+     * (made before MotherBase started, or never).
      */
     fun earlier(screen: AgentScreen, chat: String?): List<String>? {
         val parsed = screen.messages.mapNotNull(A2uiEnvelope::of)
@@ -53,7 +53,7 @@ class AgentScreens(private val shownWithinMs: Long = SHOWN_WITHIN_MS) {
 
     /**
      * A card in [chat] draws [screen], every message its surfaces got. Kept only for a surface not known here (made
-     * before Kyllene started): for the others [record] knows better, as a card may show a call the phone is still
+     * before MotherBase started): for the others [record] knows better, as a card may show a call the phone is still
      * checking, or one drawn before a later call.
      */
     fun drawn(screen: AgentScreen, chat: String) = sent.update { known ->
@@ -81,7 +81,7 @@ class AgentScreens(private val shownWithinMs: Long = SHOWN_WITHIN_MS) {
 
     /**
      * Waits until the user answers [screen] in [chat], and returns what they did, for the agent. Throws
-     * [PhoneToolException] when the chat doesn't show it soon (Kyllene is closed, or on another chat), when it
+     * [PhoneToolException] when the chat doesn't show it soon (MotherBase is closed, or on another chat), when it
      * failed to draw, when the call ended, or when a newer call took over its surface.
      */
     suspend fun await(screen: AgentScreen, chat: String?): JsonElement {
@@ -140,7 +140,7 @@ class AgentScreens(private val shownWithinMs: Long = SHOWN_WITHIN_MS) {
         const val SHOWN_WITHIN_MS = 15_000L
 
         const val REPLACED = "A newer screen with the same surface id took its place."
-        const val NOT_SHOWN = "Kyllene isn't showing this chat on the phone right now, so the user can't see the " +
+        const val NOT_SHOWN = "MotherBase isn't showing this chat on the phone right now, so the user can't see the " +
             "screen. Ask in words instead, or try again when they're in the chat."
     }
 }

@@ -151,10 +151,10 @@
 
     <string name="assistant_not_signed_in">Nicht angemeldet</string>
     <string name="assistant_circle_part">Teil des Bildschirms einkreisen</string>
-    <string name="assistant_open_in_app">In Kyllene öffnen</string>
+    <string name="assistant_open_in_app">In MotherBase öffnen</string>
     <string name="assistant_close">Schließen</string>
-    <string name="assistant_sign_in">Melde dich in Kyllene bei einem Hermes-Gateway an, um nach deinem Bildschirm zu fragen.</string>
-    <string name="assistant_open_app">Kyllene öffnen</string>
+    <string name="assistant_sign_in">Melde dich in MotherBase bei einem Hermes-Gateway an, um nach deinem Bildschirm zu fragen.</string>
+    <string name="assistant_open_app">MotherBase öffnen</string>
     <string name="assistant_listening">Hört zu…</string>
     <string name="assistant_transcribing">Schreibt mit, was du gesagt hast…</string>
     <string name="assistant_connecting">Verbindung mit Hermes…</string>
@@ -170,7 +170,7 @@
     <string name="assistant_text_only">nur Text</string>
     <string name="assistant_screenshot">Screenshot</string>
     <string name="assistant_add">Hinzufügen</string>
-    <string name="assistant_cant_see_screen">Kyllene sieht den Bildschirm nicht</string>
+    <string name="assistant_cant_see_screen">MotherBase sieht den Bildschirm nicht</string>
     <string name="assistant_turn_on_screen_text">Schalte „Text auf dem Bildschirm verwenden“ ein</string>
     <string name="assistant_what_you_circled">Was du eingekreist hast</string>
     <string name="assistant_circled">Eingekreist</string>

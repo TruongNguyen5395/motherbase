@@ -209,7 +209,7 @@ void request_on_send_failed(int type) {
   if (type != LINK_ANSWER || !s_window || !s_sending) return;
   // The answer never reached the phone, so no outcome will come: it can be tried again.
   s_sending = false;
-  prv_copy(s_status, sizeof(s_status), "Couldn't reach Kyllene on your phone.");
+  prv_copy(s_status, sizeof(s_status), "Couldn't reach MotherBase on your phone.");
   vibes_double_pulse();
   prv_redraw();
 }

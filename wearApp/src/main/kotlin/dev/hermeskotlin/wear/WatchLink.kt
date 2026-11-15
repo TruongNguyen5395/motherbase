@@ -725,7 +725,7 @@ class WatchLink(
     }
 
     companion object {
-        /** Kyllene on the phone didn't answer, for a screen to say. */
+        /** MotherBase on the phone didn't answer, for a screen to say. */
         val NO_HERALD = WatchLine.Res(R.string.wear_phone_no_app)
         private const val ANSWER_WITHIN_MS = 30_000L
         private const val CALL_POLL_MS = 100L

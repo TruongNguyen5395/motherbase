@@ -54,7 +54,7 @@ actual fun rememberPhoneToolAccess(): PhoneToolAccess {
     }
 }
 
-/** Whether the phone has Health Connect, what Kyllene may read there, and whether reading while closed exists. */
+/** Whether the phone has Health Connect, what MotherBase may read there, and whether reading while closed exists. */
 private class HealthState(val status: Int, val granted: Set<String>, val background: Boolean)
 
 private suspend fun healthState(context: Context): HealthState {
@@ -110,7 +110,7 @@ private class AndroidPhoneToolAccess(
             tool in ASKS && !notificationsOn() -> requestNotifications()
             // Both, so the prompt offers precise or approximate: the user picks.
             tool == PhoneTool.Location && !granted(FINE) && !granted(COARSE) -> prompt(FINE, COARSE)
-            // Precise first: Android only offers "all the time" once Kyllene has location while in use.
+            // Precise first: Android only offers "all the time" once MotherBase has location while in use.
             tool == PhoneTool.Geofences && !granted(FINE) -> prompt(FINE, COARSE)
             tool == PhoneTool.Geofences && needsBackground() -> prompt(BACKGROUND)
             tool == PhoneTool.Calendar && (!granted(READ_CALENDAR) || !granted(WRITE_CALENDAR)) -> prompt(READ_CALENDAR, WRITE_CALENDAR)
@@ -125,7 +125,7 @@ private class AndroidPhoneToolAccess(
             tool == PhoneTool.Health && health?.status == HealthConnectClient.SDK_AVAILABLE -> askHealth(HEALTH_READS)
             tool == PhoneTool.Sound && !policyAccess() -> open(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
             tool == PhoneTool.ScreenTime && !usageAccess() -> {
-                // Kyllene's own switch where Android has a page for it (10 and later), else the list of apps.
+                // MotherBase's own switch where Android has a page for it (10 and later), else the list of apps.
                 val list = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
                 if (!open(Intent(list).setData(Uri.fromParts("package", context.packageName, null)))) open(list)
             }
@@ -144,7 +144,7 @@ private class AndroidPhoneToolAccess(
     }
 
     override fun requestOptional(tool: PhoneTool) {
-        // Android 11 and later answer this one with Kyllene's location page, where "Allow all the time" is a choice.
+        // Android 11 and later answer this one with MotherBase's location page, where "Allow all the time" is a choice.
         if (tool == PhoneTool.Location && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) prompt(BACKGROUND)
         if (tool == PhoneTool.Health && health != null) {
             val rest = HEALTH_READS - health.granted
@@ -161,7 +161,7 @@ private class AndroidPhoneToolAccess(
     override fun requestRings() {
         when {
             !notificationsOn(CALL_CHANNEL) -> requestNotifications()
-            // Android 14 and later: a switch of its own, on Kyllene's page.
+            // Android 14 and later: a switch of its own, on MotherBase's page.
             !fullScreen() -> open(
                 Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).setData(Uri.fromParts("package", context.packageName, null)),
             )
@@ -173,7 +173,7 @@ private class AndroidPhoneToolAccess(
 
     private fun granted(permission: String) = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
-    /** The permission prompt, or Kyllene's page in Android's settings once the prompt was refused for good. */
+    /** The permission prompt, or MotherBase's page in Android's settings once the prompt was refused for good. */
     private fun prompt(vararg permissions: String) {
         val first = permissions.first()
         val activity = context as? Activity
@@ -227,7 +227,7 @@ private class AndroidPhoneToolAccess(
 
     /** Whether Android had a page for [intent]. */
     private fun open(intent: Intent): Boolean {
-        // In Kyllene's own task, so Back from the settings page comes back here and not into a Settings app left open.
+        // In MotherBase's own task, so Back from the settings page comes back here and not into a Settings app left open.
         if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return runCatching { context.startActivity(intent) }.isSuccess
     }

@@ -48,7 +48,7 @@
     <string name="voice_error_live_ended">L’appel en direct est terminé.</string>
     <string name="voice_error_live_ended_because">L’appel en direct est terminé : %1$s</string>
     <string name="voice_error_live_dropped">L’appel en direct a été coupé.</string>
-    <string name="call_title">Appel Kyllene</string>
+    <string name="call_title">Appel MotherBase</string>
     <string name="call_answer">Répondre</string>
     <string name="call_decline">Refuser</string>
     <string name="call_reason_approval">Attend votre approbation</string>

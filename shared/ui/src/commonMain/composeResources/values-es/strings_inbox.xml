@@ -151,10 +151,10 @@
 
     <string name="assistant_not_signed_in">Sin sesión iniciada</string>
     <string name="assistant_circle_part">Rodear parte de la pantalla</string>
-    <string name="assistant_open_in_app">Abrir en Kyllene</string>
+    <string name="assistant_open_in_app">Abrir en MotherBase</string>
     <string name="assistant_close">Cerrar</string>
-    <string name="assistant_sign_in">Inicia sesión en un Gateway de Hermes en Kyllene para preguntar sobre tu pantalla.</string>
-    <string name="assistant_open_app">Abrir Kyllene</string>
+    <string name="assistant_sign_in">Inicia sesión en un Gateway de Hermes en MotherBase para preguntar sobre tu pantalla.</string>
+    <string name="assistant_open_app">Abrir MotherBase</string>
     <string name="assistant_listening">Escuchando…</string>
     <string name="assistant_transcribing">Escribiendo lo que dijiste…</string>
     <string name="assistant_connecting">Conectando con Hermes…</string>
@@ -170,7 +170,7 @@
     <string name="assistant_text_only">solo texto</string>
     <string name="assistant_screenshot">Captura de pantalla</string>
     <string name="assistant_add">Añadir</string>
-    <string name="assistant_cant_see_screen">Kyllene no puede ver la pantalla</string>
+    <string name="assistant_cant_see_screen">MotherBase no puede ver la pantalla</string>
     <string name="assistant_turn_on_screen_text">Activa “Usar texto de la pantalla”</string>
     <string name="assistant_what_you_circled">Lo que rodeaste</string>
     <string name="assistant_circled">Rodeado</string>

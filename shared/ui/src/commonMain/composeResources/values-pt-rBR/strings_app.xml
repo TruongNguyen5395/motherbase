@@ -202,10 +202,10 @@
     <string name="wallpaper_dialog_title">Fundo do chat</string>
     <string name="wallpaper_dialog_failed">Não foi possível abrir a janela de arquivos.</string>
     <string name="wallpaper_too_large">Essa foto é grande demais ou não pode ser lida.</string>
-    <string name="wallpaper_not_an_image">Esse arquivo não é uma imagem que o Kyllene consegue ler.</string>
+    <string name="wallpaper_not_an_image">Esse arquivo não é uma imagem que o MotherBase consegue ler.</string>
     <string name="wallpaper_read_failed">Não foi possível ler essa imagem.</string>
 
-    <string name="update_renamed">Herald agora é Kyllene</string>
+    <string name="update_renamed">Herald agora é MotherBase</string>
     <string name="update_renamed_detail">O mesmo app com novo nome e ícone. Seu login, suas conversas e suas configurações continuam.</string>
     <string name="update_got_it">Entendi</string>
 
@@ -221,13 +221,13 @@
     <string name="gateways_rename_title">Renomear Gateway</string>
     <string name="gateways_rename_detail">Deixe vazio para mostrar o endereço.</string>
     <string name="gateways_remove_title">Remover Gateway?</string>
-    <string name="gateways_remove_detail">O Kyllene sai de “%1$s” e o esquece. As conversas dele ficam no Gateway.</string>
-    <string name="gateways_client_cert_detail">O Kyllene apresenta este certificado a “%1$s” quando o servidor pede um. A chave fica no armazenamento do sistema; só o nome dela é guardado.</string>
+    <string name="gateways_remove_detail">O MotherBase sai de “%1$s” e o esquece. As conversas dele ficam no Gateway.</string>
+    <string name="gateways_client_cert_detail">O MotherBase apresenta este certificado a “%1$s” quando o servidor pede um. A chave fica no armazenamento do sistema; só o nome dela é guardado.</string>
     <string name="gateways_pick">Escolher…</string>
     <string name="gateways_change">Alterar…</string>
     <string name="gateways_clear">Limpar</string>
 
-    <string name="connect_welcome">Boas-vindas ao Kyllene</string>
+    <string name="connect_welcome">Boas-vindas ao MotherBase</string>
     <string name="connect_welcome_detail">Conecte-se ao seu Gateway do Hermes Agent. Nada é enviado até você entrar.</string>
     <string name="connect_add_gateway">Adicionar um Gateway</string>
     <string name="connect_add_gateway_detail">Conecte-se a outro Gateway do Hermes Agent. Você continua conectado aos que salvou.</string>
@@ -292,7 +292,7 @@
     <string name="signin_signing_in">Entrando…</string>
     <string name="signin_with_browser">Entrar com o navegador</string>
     <string name="signin_waiting_browser">Aguardando o navegador…</string>
-    <string name="signin_finish_in_browser">Termine de entrar na página que abriu. O Kyllene volta sozinho quando você terminar.</string>
+    <string name="signin_finish_in_browser">Termine de entrar na página que abriu. O MotherBase volta sozinho quando você terminar.</string>
     <string name="signin_different_gateway">Usar outro Gateway</string>
     <string name="signin_gateway_chip">Gateway %1$s</string>
     <string name="signin_or">ou</string>
@@ -364,26 +364,26 @@
 
     <!-- Imported desktop client certificates. -->
     <string name="check_fix_client_cert_desktop">Importe o certificado de cliente PKCS#12 que este servidor pede e verifique de novo.</string>
-    <string name="check_fix_client_cert_unsupported">Esta versão do Kyllene não consegue apresentar certificados de cliente. Use o app para Android ou o Flatpak para Linux com este servidor.</string>
+    <string name="check_fix_client_cert_unsupported">Esta versão do MotherBase não consegue apresentar certificados de cliente. Use o app para Android ou o Flatpak para Linux com este servidor.</string>
     <string name="client_cert_import_title">Importar certificado de cliente</string>
     <string name="client_cert_import">Importar</string>
     <string name="client_cert_importing">Importando…</string>
     <string name="client_cert_import_detail">Digite a senha do arquivo PKCS#12 escolhido. A chave dele será guardada criptografada para este nome de host TLS. Gateways com o mesmo nome de host também compartilham a escolha de certificado, seja qual for a porta ou o caminho.</string>
     <string name="client_cert_password">Senha do PKCS#12</string>
-    <string name="client_cert_invalid">O Kyllene não conseguiu abrir este certificado de cliente. Verifique a senha e escolha um arquivo PKCS#12 com um único certificado de cliente válido, a chave privada correspondente e a cadeia de certificados.</string>
+    <string name="client_cert_invalid">O MotherBase não conseguiu abrir este certificado de cliente. Verifique a senha e escolha um arquivo PKCS#12 com um único certificado de cliente válido, a chave privada correspondente e a cadeia de certificados.</string>
     <string name="client_cert_regular_file">Escolha um arquivo PKCS#12 comum. Links simbólicos, dispositivos e pipes nomeados não podem ser importados.</string>
     <string name="client_cert_read_failed">Não foi possível ler esse arquivo PKCS#12. Escolha-o de novo e verifique o acesso ao arquivo.</string>
     <string name="client_cert_clear_selection">Limpar escolha</string>
     <string name="connect_cert_kept_desktop">As chaves importadas são guardadas criptografadas para este nome de host TLS. Depois de limpar esta escolha, outro certificado salvo para o mesmo nome de host ainda pode ser usado. As chaves importadas continuam nas configurações criptografadas.</string>
-    <string name="gateways_client_cert_detail_desktop">O Kyllene apresenta este certificado a “%1$s” quando o servidor pede um. As chaves importadas são guardadas criptografadas para este nome de host TLS. Depois de limpar esta escolha, outro certificado salvo para o mesmo nome de host ainda pode ser usado. As chaves importadas continuam nas configurações criptografadas.</string>
-    <string name="client_cert_storage_unavailable">O Kyllene não conseguiu obter a chave de armazenamento. Desbloqueie o chaveiro da sua área de trabalho, verifique se o portal Secret está disponível e tente de novo.</string>
+    <string name="gateways_client_cert_detail_desktop">O MotherBase apresenta este certificado a “%1$s” quando o servidor pede um. As chaves importadas são guardadas criptografadas para este nome de host TLS. Depois de limpar esta escolha, outro certificado salvo para o mesmo nome de host ainda pode ser usado. As chaves importadas continuam nas configurações criptografadas.</string>
+    <string name="client_cert_storage_unavailable">O MotherBase não conseguiu obter a chave de armazenamento. Desbloqueie o chaveiro da sua área de trabalho, verifique se o portal Secret está disponível e tente de novo.</string>
     <string name="client_cert_storage_cancelled">O desbloqueio do armazenamento foi cancelado. Tente de novo para desbloqueá-lo; os dados existentes foram preservados.</string>
-    <string name="client_cert_storage_corrupt">O Kyllene não conseguiu abrir as configurações criptografadas. Restaure um backup em bom estado ou use a identidade original do aplicativo. Os dados existentes foram preservados.</string>
-    <string name="client_cert_storage_version">Este formato de configurações precisa de outra versão do Kyllene. Os dados existentes foram preservados.</string>
-    <string name="client_cert_storage_read">O Kyllene não conseguiu ler as configurações, ou o arquivo passa de 16 MiB. Verifique o acesso ao arquivo antes de tentar de novo.</string>
-    <string name="client_cert_storage_write">O Kyllene não conseguiu terminar de salvar ou limpar as configurações. As cópias existentes foram preservadas; verifique o espaço em disco e o acesso ao arquivo antes de tentar de novo.</string>
-    <string name="client_cert_storage_uncertain">O Kyllene não conseguiu confirmar que as configurações foram salvas. Verifique o acesso ao arquivo e tente iniciar de novo, ou feche e reabra antes de fazer outras mudanças.</string>
-    <string name="client_cert_storage_changed">As configurações mudaram fora desta janela. Feche e reabra o Kyllene para recarregá-las antes de salvar.</string>
+    <string name="client_cert_storage_corrupt">O MotherBase não conseguiu abrir as configurações criptografadas. Restaure um backup em bom estado ou use a identidade original do aplicativo. Os dados existentes foram preservados.</string>
+    <string name="client_cert_storage_version">Este formato de configurações precisa de outra versão do MotherBase. Os dados existentes foram preservados.</string>
+    <string name="client_cert_storage_read">O MotherBase não conseguiu ler as configurações, ou o arquivo passa de 16 MiB. Verifique o acesso ao arquivo antes de tentar de novo.</string>
+    <string name="client_cert_storage_write">O MotherBase não conseguiu terminar de salvar ou limpar as configurações. As cópias existentes foram preservadas; verifique o espaço em disco e o acesso ao arquivo antes de tentar de novo.</string>
+    <string name="client_cert_storage_uncertain">O MotherBase não conseguiu confirmar que as configurações foram salvas. Verifique o acesso ao arquivo e tente iniciar de novo, ou feche e reabra antes de fazer outras mudanças.</string>
+    <string name="client_cert_storage_changed">As configurações mudaram fora desta janela. Feche e reabra o MotherBase para recarregá-las antes de salvar.</string>
     <string name="client_cert_storage_legacy">Foram encontradas configurações antigas conflitantes ou incompletas. Os arquivos existentes foram preservados. Feche o app e resolva a cópia mais antiga antes de tentar de novo.</string>
-    <string name="client_cert_storage_unsupported">O Kyllene não conseguiu verificar a identidade de aplicativo Flatpak. Verifique a instalação antes de tentar de novo. Não há alternativa sem criptografia.</string>
+    <string name="client_cert_storage_unsupported">O MotherBase não conseguiu verificar a identidade de aplicativo Flatpak. Verifique a instalação antes de tentar de novo. Não há alternativa sem criptografia.</string>
 </resources>

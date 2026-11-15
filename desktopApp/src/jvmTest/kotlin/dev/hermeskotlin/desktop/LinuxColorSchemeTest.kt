@@ -22,7 +22,7 @@ class LinuxColorSchemeTest {
         private val config = run {
             assumeTrue("The color scheme tests need Linux and dbus-daemon",
                 System.getProperty("os.name") == "Linux" && java.io.File("/usr/bin/dbus-daemon").canExecute())
-            Files.createTempFile("kyllene-scheme-bus-", ".conf")
+            Files.createTempFile("motherbase-scheme-bus-", ".conf")
         }
         private val daemon: Process
         val address: String

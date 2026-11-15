@@ -97,7 +97,7 @@ private var loader: ImageLoader? = null
  * name is turned away by some image hosts (Wikimedia).
  */
 private fun webClient(version: String?): OkHttpClient = client ?: run {
-    val agent = "Kyllene/${version ?: "dev"} (Android; https://github.com/Giton22/kyllene)"
+    val agent = "MotherBase/${version ?: "dev"} (Android; https://github.com/TruongNguyen5395/motherbase)"
     OkHttpClient.Builder()
         .publicOnly()
         .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("User-Agent", agent).build()) }

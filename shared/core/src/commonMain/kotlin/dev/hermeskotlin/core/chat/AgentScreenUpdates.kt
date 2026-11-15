@@ -34,7 +34,7 @@ fun screenViews(calls: List<ToolActivity>, took: (AgentScreen) -> Boolean = { tr
         if (!refused) parsed.filterNot { it in own }.groupBy { (_, e) -> ownerOf.getValue(e!!.surfaceId) }.forEach { (owner, sent) ->
             val view = views.getValue(owner)
             val updated = view.screen.copy(messages = view.screen.messages + sent.map { it.first }, wait = screen.wait)
-            // One that would leave a layout Kyllene won't draw is left out: the screen stays as it was.
+            // One that would leave a layout MotherBase won't draw is left out: the screen stays as it was.
             if (updated.layoutProblem == null) views[owner] = view.copy(latest = call, screen = updated)
         }
         // Only a call that makes a surface gets a card. One that updates a surface the chat hasn't loaded (an

@@ -1,4 +1,4 @@
-# Kyllene: notes for Claude
+# MotherBase: notes for Claude
 
 Setup, commit style, tests and PR rules are in [CONTRIBUTING.md](CONTRIBUTING.md). This file adds what a reviewer
 should check, so every review (local `/code-review`, a fresh reviewer agent, or one in CI) looks for the same things.

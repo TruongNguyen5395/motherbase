@@ -13,17 +13,17 @@
     <string name="wear_phone_reconnecting">Reconectando</string>
     <string name="wear_phone_not_connected">Não conectado</string>
     <string name="wear_phone_not_connected_detail">Seu telefone não está conectado.</string>
-    <string name="wear_phone_no_app">O Kyllene no seu telefone não respondeu. Abra o app lá ou atualize-o.</string>
-    <string name="wear_phone_signed_out">Primeiro, entre no Kyllene no seu telefone.</string>
-    <string name="wear_phone_unreachable">O Kyllene não alcança o seu Gateway. Verifique no seu telefone.</string>
-    <string name="wear_phone_no_answer">O Kyllene no seu telefone não respondeu. Tente de novo.</string>
+    <string name="wear_phone_no_app">O MotherBase no seu telefone não respondeu. Abra o app lá ou atualize-o.</string>
+    <string name="wear_phone_signed_out">Primeiro, entre no MotherBase no seu telefone.</string>
+    <string name="wear_phone_unreachable">O MotherBase não alcança o seu Gateway. Verifique no seu telefone.</string>
+    <string name="wear_phone_no_answer">O MotherBase no seu telefone não respondeu. Tente de novo.</string>
     <string name="wear_phone_changed">O telefone mudou. Tente de novo.</string>
     <string name="wear_phone_unreachable_short">Não foi possível alcançar seu telefone.</string>
     <string name="wear_profile_changed">O perfil do telefone mudou. Tente de novo, por favor.</string>
     <string name="wear_profile_changed_short">O perfil do telefone mudou. Tente de novo.</string>
-    <string name="wear_update_for_profiles">Atualize o Kyllene no seu telefone para usar chamadas por perfil.</string>
-    <string name="wear_update_for_bots">Atualize o Kyllene no seu telefone para falar com bots.</string>
-    <string name="wear_update_for_bot_calls">Atualize o Kyllene no seu telefone para ligar para bots.</string>
+    <string name="wear_update_for_profiles">Atualize o MotherBase no seu telefone para usar chamadas por perfil.</string>
+    <string name="wear_update_for_bots">Atualize o MotherBase no seu telefone para falar com bots.</string>
+    <string name="wear_update_for_bot_calls">Atualize o MotherBase no seu telefone para ligar para bots.</string>
     <string name="wear_call_target_changed">O destino da chamada mudou. Toque em Ligar de novo.</string>
     <string name="wear_default_call_target_changed">O destino padrão das chamadas mudou. Toque em Ligar de novo.</string>
 
@@ -46,7 +46,7 @@
     <string name="wear_waiting_on_phone">Esperando você no telefone</string>
     <string name="wear_thinking">Pensando…</string>
     <string name="wear_said">“%1$s”</string>
-    <string name="wear_needs_microphone">O Kyllene precisa do microfone para ouvir você.</string>
+    <string name="wear_needs_microphone">O MotherBase precisa do microfone para ouvir você.</string>
     <string name="wear_tap_allow_microphone">Toque para permitir o microfone.</string>
     <string name="wear_nothing_heard">Não ouvi nada.</string>
     <string name="wear_microphone_failed">Não foi possível usar o microfone.</string>
@@ -95,7 +95,7 @@
     <string name="wear_read_aloud">Ler em voz alta</string>
     <string name="wear_read_aloud_detail">Cada resposta</string>
     <string name="wear_assistant">Assistente</string>
-    <string name="wear_assistant_set">O Kyllene atende o botão</string>
+    <string name="wear_assistant_set">O MotherBase atende o botão</string>
     <string name="wear_assistant_refused">Não definido. Toque para tentar de novo</string>
-    <string name="wear_assistant_unset">Definir o Kyllene como assistente</string>
+    <string name="wear_assistant_unset">Definir o MotherBase como assistente</string>
 </resources>

@@ -85,7 +85,7 @@ class GeofenceReceiver : BroadcastReceiver(), KoinComponent {
         }
     }
 
-    /** Kyllene may not be running: brings the connection up on [gateway] and gives it a while. */
+    /** MotherBase may not be running: brings the connection up on [gateway] and gives it a while. */
     private suspend fun awaitConnection(gateway: GatewayUrl): ConnectionState {
         connection.state.value.let { if (it is ConnectionState.Connected) return it }
         connection.start(gateway)

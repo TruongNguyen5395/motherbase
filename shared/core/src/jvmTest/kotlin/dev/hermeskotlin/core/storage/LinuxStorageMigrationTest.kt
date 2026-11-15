@@ -115,7 +115,7 @@ class LinuxStorageMigrationTest {
 
     private fun fixture(block: suspend (File, File) -> Unit) = runBlocking {
         assumeTrue("Linux secure-storage migration requires Linux", System.getProperty("os.name") == "Linux")
-        val directory = Files.createTempDirectory("kyllene-migration-").toFile()
+        val directory = Files.createTempDirectory("motherbase-migration-").toFile()
         try { block(File(directory, "settings.secure"), File(directory, "settings.json")) }
         finally { directory.deleteRecursively() }
     }

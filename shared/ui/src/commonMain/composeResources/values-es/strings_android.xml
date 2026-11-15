@@ -11,7 +11,7 @@
 
     <string name="android_attach_photo_failed">No se pudo leer la foto.</string>
     <string name="android_attach_no_camera">No hay ninguna app de cámara disponible.</string>
-    <string name="android_attach_not_allowed">La app que lo compartió no dejó que Kyllene leyera el archivo.</string>
+    <string name="android_attach_not_allowed">La app que lo compartió no dejó que MotherBase leyera el archivo.</string>
     <string name="android_attach_read_failed">No se pudo leer un archivo.</string>
     <string name="android_attach_photo_too_large">%1$s ocupa más de 50 MB.</string>
     <string name="android_attach_file_too_large">%1$s ocupa más de %2$d MB.</string>

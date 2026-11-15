@@ -14,7 +14,7 @@ import kotlinx.serialization.json.put
 
 /**
  * A screen the agent draws in the chat (experiment). The chat draws it from the call's own arguments; this checks
- * Kyllene can draw it and, when the agent waits, hands back what the user tapped there, in the chat that called.
+ * MotherBase can draw it and, when the agent waits, hands back what the user tapped there, in the chat that called.
  */
 class ShowUiTool(private val context: Context, private val screens: AgentScreens, private val chats: ChatTargets) {
 

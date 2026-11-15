@@ -101,7 +101,7 @@ class AgentScreenUpdatesTest {
         // The card still shows the screen without the update: the chat hasn't heard of it yet.
         screens.drawn(first, "chat")
         assertEquals(first.messages + update.messages, screens.earlier(update, "chat"))
-        // A card drawn after Kyllene started tells the phone what's on screen.
+        // A card drawn after MotherBase started tells the phone what's on screen.
         val fresh = AgentScreens()
         fresh.drawn(AgentScreen(first.messages + update.messages, setOf("pick"), true), "chat")
         assertEquals(first.messages + update.messages, fresh.earlier(update, "chat"))

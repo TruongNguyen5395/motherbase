@@ -97,7 +97,7 @@ android {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
-        // "Kyllene Dev": a build that installs beside the real app, with its own data and sign-in, for trying work
+        // "MotherBase Dev": a build that installs beside the real app, with its own data and sign-in, for trying work
         // in progress on a phone without touching the installed app. It's built like a release (R8, not
         // debuggable), so it scrolls and animates as the real app will; a debuggable Compose build runs far slower.
         // It keeps the debug key, so each one installs over the last.
@@ -124,7 +124,7 @@ dependencies {
     // The watch companion's link to Herald's Wear OS app (wearApp).
     implementation(libs.play.services.wearable)
     implementation(libs.kotlinx.coroutines.play.services)
-    // The Pebble companion's link to Kyllene's Pebble watchapp (pebbleApp), through the Pebble phone app.
+    // The Pebble companion's link to MotherBase's Pebble watchapp (pebbleApp), through the Pebble phone app.
     implementation(libs.pebblekit2.client)
     debugImplementation(libs.compose.ui.tooling)
 }

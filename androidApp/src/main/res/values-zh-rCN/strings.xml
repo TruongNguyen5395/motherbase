@@ -6,11 +6,11 @@
     <string name="shortcut_voice_chat">呼叫 Hermes</string>
     <string name="shortcut_voice_chat_moved">“呼叫 Hermes”已移动位置。长按应用图标，重新固定它。</string>
 
-    <string name="app_lock_prompt_title">解锁 Kyllene</string>
+    <string name="app_lock_prompt_title">解锁 MotherBase</string>
     <string name="link_no_app">这部手机上没有应用能打开该链接。</string>
 
     <string name="channel_connection_name">后台连接</string>
-    <string name="channel_connection_description">Kyllene 在后台保持连接或处理一轮对话时显示。</string>
+    <string name="channel_connection_description">MotherBase 在后台保持连接或处理一轮对话时显示。</string>
     <string name="channel_requests_name">批准和问题</string>
     <string name="channel_requests_description">智能体正在等你。</string>
     <string name="channel_replies_name">已完成的回复</string>
@@ -72,13 +72,13 @@
     <string name="notification_push_test_text">这条通知经 ntfy 端到端加密送达，而不是通过你的网关连接。</string>
 
     <string name="notification_send_failed">无法发送</string>
-    <string name="notification_bot_send_failed">无法发送。打开 Kyllene 重试。</string>
-    <string name="notification_chat_closed">该对话已不再打开。打开 Kyllene 来回复。</string>
-    <string name="notification_reply_send_failed">无法发送。打开 Kyllene 重新发送。</string>
-    <string name="notification_reply_open_app">打开 Kyllene 重新发送。</string>
-    <string name="notification_answer_not_connected">未连接到网关。打开 Kyllene 来回答。</string>
+    <string name="notification_bot_send_failed">无法发送。打开 MotherBase 重试。</string>
+    <string name="notification_chat_closed">该对话已不再打开。打开 MotherBase 来回复。</string>
+    <string name="notification_reply_send_failed">无法发送。打开 MotherBase 重新发送。</string>
+    <string name="notification_reply_open_app">打开 MotherBase 重新发送。</string>
+    <string name="notification_answer_not_connected">未连接到网关。打开 MotherBase 来回答。</string>
 
-    <string name="call_needs_microphone">Kyllene 需要麦克风才能通话。问题在对话里。</string>
+    <string name="call_needs_microphone">MotherBase 需要麦克风才能通话。问题在对话里。</string>
     <string name="call_new_session">新会话</string>
 
     <string name="phone_allow">允许</string>
@@ -152,16 +152,16 @@
     <string name="phone_place_here">手机当前所在位置，%1$s</string>
     <string name="phone_place_chat">\"%1$s\"</string>
     <string name="phone_place_this_chat">此对话</string>
-    <string name="phone_place_add_arrive">当你到达 %1$s（%2$s，%3$d 米）时，Kyllene 会以你的身份把这段内容发送到 %4$s：%5$s</string>
-    <string name="phone_place_add_leave">当你离开 %1$s（%2$s，%3$d 米）时，Kyllene 会以你的身份把这段内容发送到 %4$s：%5$s</string>
+    <string name="phone_place_add_arrive">当你到达 %1$s（%2$s，%3$d 米）时，MotherBase 会以你的身份把这段内容发送到 %4$s：%5$s</string>
+    <string name="phone_place_add_leave">当你离开 %1$s（%2$s，%3$d 米）时，MotherBase 会以你的身份把这段内容发送到 %4$s：%5$s</string>
     <string name="phone_place_arrived">已到达 %1$s</string>
     <string name="phone_place_left">已离开 %1$s</string>
     <string name="phone_place_the_chat">对话</string>
     <string name="phone_place_sent">已发送到 %1$s：%2$s</string>
-    <string name="phone_place_not_sent">无法发送到 %1$s：%2$s。打开 Kyllene 自己发送。</string>
+    <string name="phone_place_not_sent">无法发送到 %1$s：%2$s。打开 MotherBase 自己发送。</string>
     <string name="phone_place_no_answer">网关没有及时响应</string>
-    <string name="phone_place_other_gateway">Kyllene 现在登录的是另一个网关</string>
+    <string name="phone_place_other_gateway">MotherBase 现在登录的是另一个网关</string>
     <string name="phone_place_not_accepted">未被接受</string>
-    <string name="phone_place_no_reach">Kyllene 无法连接到网关</string>
+    <string name="phone_place_no_reach">MotherBase 无法连接到网关</string>
     <string name="phone_place_refused">网关拒绝了它</string>
 </resources>

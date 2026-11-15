@@ -136,7 +136,7 @@ class ManagedUpdateTest {
             }, "Sidebar actions must remain fully readable")
             onNodeWithText("Reiniciar").performClick()
             assertEquals(0, restarts)
-            onNodeWithText("¿Reiniciar Kyllene?").assertExists()
+            onNodeWithText("¿Reiniciar MotherBase?").assertExists()
             onNodeWithText("Cancelar").performClick()
             assertEquals(0, restarts)
             onNodeWithText("Reiniciar").performClick()

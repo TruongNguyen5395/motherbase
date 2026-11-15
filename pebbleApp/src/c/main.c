@@ -1,4 +1,4 @@
-// Kyllene on a Pebble: talk to Hermes through Kyllene on the phone, which holds the gateway connection and the
+// MotherBase on a Pebble: talk to Hermes through MotherBase on the phone, which holds the gateway connection and the
 // sign-in. See docs/pebble.md.
 
 #include <pebble.h>

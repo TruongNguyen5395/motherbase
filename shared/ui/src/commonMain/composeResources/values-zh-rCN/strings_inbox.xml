@@ -143,10 +143,10 @@
 
     <string name="assistant_not_signed_in">未登录</string>
     <string name="assistant_circle_part">圈选屏幕的一部分</string>
-    <string name="assistant_open_in_app">在 Kyllene 中打开</string>
+    <string name="assistant_open_in_app">在 MotherBase 中打开</string>
     <string name="assistant_close">关闭</string>
-    <string name="assistant_sign_in">在 Kyllene 中登录 Hermes 网关，即可询问屏幕上的内容。</string>
-    <string name="assistant_open_app">打开 Kyllene</string>
+    <string name="assistant_sign_in">在 MotherBase 中登录 Hermes 网关，即可询问屏幕上的内容。</string>
+    <string name="assistant_open_app">打开 MotherBase</string>
     <string name="assistant_listening">正在聆听…</string>
     <string name="assistant_transcribing">正在记下你说的话…</string>
     <string name="assistant_connecting">正在连接 Hermes…</string>
@@ -162,7 +162,7 @@
     <string name="assistant_text_only">仅文字</string>
     <string name="assistant_screenshot">截图</string>
     <string name="assistant_add">添加</string>
-    <string name="assistant_cant_see_screen">Kyllene 看不到屏幕</string>
+    <string name="assistant_cant_see_screen">MotherBase 看不到屏幕</string>
     <string name="assistant_turn_on_screen_text">开启“使用屏幕上的文字”</string>
     <string name="assistant_what_you_circled">你圈选的内容</string>
     <string name="assistant_circled">已圈选</string>

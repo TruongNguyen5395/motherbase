@@ -23,7 +23,7 @@ fun linuxClientCertificates(store: KeyValueStore): LinuxClientCertificates? =
     if (store is LinuxKeyValueStore) LinuxClientCertificates(store) else null
 
 class ClientCertificateException : IllegalArgumentException(
-    "Kyllene couldn't open this client certificate. Check the password and choose a PKCS#12 file with one unexpired client certificate, its matching private key and certificate chain.",
+    "MotherBase couldn't open this client certificate. Check the password and choose a PKCS#12 file with one unexpired client certificate, its matching private key and certificate chain.",
 )
 
 /** Imported keys live only in the encrypted store, selected for one hostname, never a browser. */

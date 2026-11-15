@@ -408,7 +408,7 @@ class ChatNotifications(
     }
 
     /**
-     * Whether this phone's call for [requestId] shows on the watch too, as [by] [want]s: it does once Kyllene didn't
+     * Whether this phone's call for [requestId] shows on the watch too, as [by] [want]s: it does once MotherBase didn't
      * say it rings on any watch rung for it ([AlsoRings.showsCall]), and stops again should one say so late. Ringing
      * on as it is, from where it got to.
      */

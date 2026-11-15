@@ -241,7 +241,7 @@ class LinuxKeyValueStoreTest {
 
     private fun fixture(block: suspend (File) -> Unit) = runBlocking {
         assumeTrue("Linux secure-storage filesystem tests require Linux", System.getProperty("os.name") == "Linux")
-        val directory = Files.createTempDirectory("kyllene-secure-store-").toFile()
+        val directory = Files.createTempDirectory("motherbase-secure-store-").toFile()
         try { block(File(directory, "settings.secure")) } finally { directory.deleteRecursively() }
     }
 }

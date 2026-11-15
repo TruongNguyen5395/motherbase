@@ -374,8 +374,8 @@
         </service>
 
         <!--
-            Messages from Kyllene's Pebble watchapp, handed over by the Pebble phone app while the watchapp is open.
-            Exported for the Pebble app to bind; PebbleKit's base class answers only the Pebble app Kyllene picked
+            Messages from MotherBase's Pebble watchapp, handed over by the Pebble phone app while the watchapp is open.
+            Exported for the Pebble app to bind; PebbleKit's base class answers only the Pebble app MotherBase picked
             (PebbleApps), checked by the caller's uid.
         -->
         <service

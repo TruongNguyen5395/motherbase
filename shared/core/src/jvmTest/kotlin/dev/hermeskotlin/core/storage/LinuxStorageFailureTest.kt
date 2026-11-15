@@ -182,7 +182,7 @@ class LinuxStorageFailureTest {
     private fun store(file: File) = LinuxKeyValueStore(file, ID) { PortalSecret(ByteArray(32) { 7 }, null) }
     private fun fixture(block: suspend (File) -> Unit) = runBlocking {
         assumeTrue("Linux secure-storage filesystem tests require Linux", System.getProperty("os.name") == "Linux")
-        val directory = Files.createTempDirectory("kyllene-storage-failure-").toFile()
+        val directory = Files.createTempDirectory("motherbase-storage-failure-").toFile()
         try { block(File(directory, "settings.secure")) } finally { directory.deleteRecursively() }
     }
     private companion object { const val ID = "io.example.StorageFixture" }

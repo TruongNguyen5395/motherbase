@@ -255,7 +255,7 @@ private object DrawnScreens {
 }
 
 /**
- * Why [screen]'s messages aren't a screen Kyllene can draw, in words for the agent to fix them; null when they are.
+ * Why [screen]'s messages aren't a screen MotherBase can draw, in words for the agent to fix them; null when they are.
  * Each must parse, and together they must make their surfaces with no error (an unknown catalog, a missing root):
  * found here, before the call waits, rather than once the user looks.
  */

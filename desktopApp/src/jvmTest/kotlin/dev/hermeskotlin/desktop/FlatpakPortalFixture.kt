@@ -23,7 +23,7 @@ internal class FlatpakPortalFixture : AutoCloseable {
     private val config = run {
         assumeTrue("Flatpak portal integration requires Linux and dbus-daemon",
             System.getProperty("os.name") == "Linux" && java.io.File("/usr/bin/dbus-daemon").canExecute())
-        Files.createTempFile("kyllene-update-bus-", ".conf")
+        Files.createTempFile("motherbase-update-bus-", ".conf")
     }
     private val daemon: Process
     val address: String
@@ -116,7 +116,7 @@ internal class FlatpakPortalFixture : AutoCloseable {
             flags: UInt32, options: Map<String, Variant<*>>): UInt32 {
             spawns.incrementAndGet()
             assertEquals("/\u0000", cwd.toString(Charsets.UTF_8))
-            assertEquals(listOf("kyllene\u0000", "--restart\u0000"), argv.map { it.toString(Charsets.UTF_8) })
+            assertEquals(listOf("motherbase\u0000", "--restart\u0000"), argv.map { it.toString(Charsets.UTF_8) })
             assertTrue(fds.isEmpty() && env.isEmpty() && options.isEmpty())
             assertEquals(2L, flags.toLong())
             return UInt32(42)

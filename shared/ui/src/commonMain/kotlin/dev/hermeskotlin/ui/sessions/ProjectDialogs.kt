@@ -154,7 +154,7 @@ internal fun NewProjectDialog(
             FolderPicker(dir, onOpen = { browsing = it }, listFolders = listFolders, makeFolder = makeFolder)
             return@Dialog
         }
-        TextField(state = name, label = stringResource(Res.string.sessions_project_name), placeholder = "Kyllene", enabled = !busy, autofocus = true)
+        TextField(state = name, label = stringResource(Res.string.sessions_project_name), placeholder = "MotherBase", enabled = !busy, autofocus = true)
         TextField(
             state = folder,
             label = stringResource(Res.string.sessions_project_folder),

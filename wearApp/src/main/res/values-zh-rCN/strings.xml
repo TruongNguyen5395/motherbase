@@ -13,17 +13,17 @@
     <string name="wear_phone_reconnecting">正在重新连接</string>
     <string name="wear_phone_not_connected">未连接</string>
     <string name="wear_phone_not_connected_detail">你的手机未连接。</string>
-    <string name="wear_phone_no_app">手机上的 Kyllene 没有响应。请在手机上打开它，或更新它。</string>
-    <string name="wear_phone_signed_out">请先在手机上登录 Kyllene。</string>
-    <string name="wear_phone_unreachable">Kyllene 无法连接到你的网关。请在手机上检查。</string>
-    <string name="wear_phone_no_answer">手机上的 Kyllene 没有响应。请重试。</string>
+    <string name="wear_phone_no_app">手机上的 MotherBase 没有响应。请在手机上打开它，或更新它。</string>
+    <string name="wear_phone_signed_out">请先在手机上登录 MotherBase。</string>
+    <string name="wear_phone_unreachable">MotherBase 无法连接到你的网关。请在手机上检查。</string>
+    <string name="wear_phone_no_answer">手机上的 MotherBase 没有响应。请重试。</string>
     <string name="wear_phone_changed">手机已更换。请重试。</string>
     <string name="wear_phone_unreachable_short">无法连接到你的手机。</string>
     <string name="wear_profile_changed">手机上的配置文件已更改。请重试。</string>
     <string name="wear_profile_changed_short">手机上的配置文件已更改。请重试。</string>
-    <string name="wear_update_for_profiles">请在手机上更新 Kyllene，以使用按配置文件的通话。</string>
-    <string name="wear_update_for_bots">请在手机上更新 Kyllene，以便与机器人对话。</string>
-    <string name="wear_update_for_bot_calls">请在手机上更新 Kyllene，以便呼叫机器人。</string>
+    <string name="wear_update_for_profiles">请在手机上更新 MotherBase，以使用按配置文件的通话。</string>
+    <string name="wear_update_for_bots">请在手机上更新 MotherBase，以便与机器人对话。</string>
+    <string name="wear_update_for_bot_calls">请在手机上更新 MotherBase，以便呼叫机器人。</string>
     <string name="wear_call_target_changed">通话对象已更改。请再次点按“呼叫”。</string>
     <string name="wear_default_call_target_changed">默认通话对象已更改。请再次点按“呼叫”。</string>
 
@@ -46,7 +46,7 @@
     <string name="wear_waiting_on_phone">正在手机上等你</string>
     <string name="wear_thinking">正在思考…</string>
     <string name="wear_said">“%1$s”</string>
-    <string name="wear_needs_microphone">Kyllene 需要麦克风才能听到你。</string>
+    <string name="wear_needs_microphone">MotherBase 需要麦克风才能听到你。</string>
     <string name="wear_tap_allow_microphone">点按以允许使用麦克风。</string>
     <string name="wear_nothing_heard">我什么也没听到。</string>
     <string name="wear_microphone_failed">无法使用麦克风。</string>
@@ -95,7 +95,7 @@
     <string name="wear_read_aloud">朗读</string>
     <string name="wear_read_aloud_detail">每条回复</string>
     <string name="wear_assistant">助理</string>
-    <string name="wear_assistant_set">按键由 Kyllene 响应</string>
+    <string name="wear_assistant_set">按键由 MotherBase 响应</string>
     <string name="wear_assistant_refused">未设置。点按重试</string>
-    <string name="wear_assistant_unset">将 Kyllene 设为助理</string>
+    <string name="wear_assistant_unset">将 MotherBase 设为助理</string>
 </resources>

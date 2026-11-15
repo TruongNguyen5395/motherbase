@@ -23,10 +23,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Rings Kyllene on the Pebbles along with the phone when Hermes calls for an answer, whether or not the gateway talks
- * live: Kyllene is opened there for it. Answer on the watch shows the approval or question there while answering on
+ * Rings MotherBase on the Pebbles along with the phone when Hermes calls for an answer, whether or not the gateway talks
+ * live: MotherBase is opened there for it. Answer on the watch shows the approval or question there while answering on
  * the Pebble is on (Settings → Connected devices); else the watch only stops ringing and says to answer on the phone,
- * which rings on, and so it does for a call from the agent. Only Pebbles Kyllene heard from ring: Kyllene is installed
+ * which rings on, and so it does for a call from the agent. Only Pebbles MotherBase heard from ring: MotherBase is installed
  * there.
  */
 class PebbleRinger(
@@ -55,7 +55,7 @@ class PebbleRinger(
 
     // Everything below is only touched on the main thread.
 
-    /** The Pebbles Kyllene heard from. */
+    /** The Pebbles MotherBase heard from. */
     private var heard: Set<String> = prefs.getStringSet(HEARD, null).orEmpty().toSet()
 
     private val rung = mutableMapOf<String, Rung>()
@@ -65,7 +65,7 @@ class PebbleRinger(
 
     private val current: AppSettings get() = settings.settings.value ?: AppSettings()
 
-    /** Kyllene on Pebble [node] sent something: it can ring there. */
+    /** MotherBase on Pebble [node] sent something: it can ring there. */
     fun heardFrom(node: String) = onMain {
         if (node in heard) return@onMain
         heard = (heard + node).toList().takeLast(MAX_WATCHES).toSet()
@@ -89,12 +89,12 @@ class PebbleRinger(
         val id = call.id
         rung[id] = Rung(call, ring, answering, to.toMutableSet(), to.toMutableSet())
         for (node in to) {
-            // Open already, it rings now; else once Kyllene opens there ([opened]).
+            // Open already, it rings now; else once MotherBase opens there ([opened]).
             outbox.watch(node).message(ring)
             scope.launch { outbox.launch(node) }
         }
         scope.launch {
-            // No Pebble said it rings (out of reach, Kyllene gone from it): the phone's call shows there instead.
+            // No Pebble said it rings (out of reach, MotherBase gone from it): the phone's call shows there instead.
             delay(RING_ON_MS)
             val now = rung[id] ?: return@launch
             // None left ringing (each was picked up there): nothing to show the phone's call instead of.
@@ -105,7 +105,7 @@ class PebbleRinger(
         return true
     }
 
-    /** Kyllene opened on [node]: the rings it hasn't said it rings for go to it. */
+    /** MotherBase opened on [node]: the rings it hasn't said it rings for go to it. */
     fun opened(node: String) {
         rung.values.filter { node in it.waiting }.forEach { outbox.watch(node).message(it.ring) }
     }
@@ -157,7 +157,7 @@ class PebbleRinger(
         const val HEARD = "heard"
         const val MAX_WATCHES = 4
 
-        /** How long a Pebble has to say it rings: opening Kyllene there for it takes a few seconds. */
+        /** How long a Pebble has to say it rings: opening MotherBase there for it takes a few seconds. */
         const val RING_ON_MS = 12_000L
     }
 }

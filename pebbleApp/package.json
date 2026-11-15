@@ -1,10 +1,10 @@
 {
-  "name": "kyllene",
-  "author": "Kyllene",
+  "name": "motherbase",
+  "author": "MotherBase",
   "version": "0.1.0",
   "private": true,
   "pebble": {
-    "displayName": "Kyllene",
+    "displayName": "MotherBase",
     "uuid": "5f539f5a-9395-4cf1-8601-c3882e672ccd",
     "sdkVersion": "3",
     "enableMultiJS": false,
@@ -47,7 +47,7 @@
     },
     "companionApp": {
       "android": {
-        "url": "https://github.com/Giton22/kyllene",
+        "url": "https://github.com/TruongNguyen5395/motherbase",
         "apps": [
           { "package": "co.hidave.motherbase" },
           { "package": "co.hidave.motherbase.dev" }

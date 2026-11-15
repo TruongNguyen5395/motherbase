@@ -71,7 +71,7 @@ internal class LinuxSecretPortal(
                         bus.call<UInt32>(daemon, "StartServiceByName", name, UInt32(0))
                     }
                     val owner = bus.call<String>(daemon, "GetNameOwner", name)
-                    val handleToken = "kyllene" + UUID.randomUUID().toString().replace("-", "")
+                    val handleToken = "motherbase" + UUID.randomUUID().toString().replace("-", "")
                     val path = "/org/freedesktop/portal/desktop/request/" + bus.uniqueName.substring(1).replace('.', '_') + "/" + handleToken
                     // Where the request lives: the predicted path, or the one an older portal returned instead.
                     var requestPath = path

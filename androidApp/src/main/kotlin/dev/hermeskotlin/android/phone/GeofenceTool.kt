@@ -31,7 +31,7 @@ class ChatTargets(
     private val gateways: GatewayRepository,
     private val profiles: ProfileStore,
 ) {
-    /** The gateway Kyllene is signed in to now. */
+    /** The gateway MotherBase is signed in to now. */
     suspend fun gateway(): String? = gateways.current()?.gatewayUrl?.value
 
     /** [id] is what the gateway calls the chat: its stored id (`HERMES_UI_SESSION_ID`), or the live one on this socket. */
@@ -51,7 +51,7 @@ class ChatTargets(
 /**
  * `phone_geofence`: places the phone watches. Adding one asks first and shows exactly what will be sent and where,
  * and removing one asks too; listing doesn't. Watching needs precise location all the time,
- * since the place matters most while Kyllene is closed.
+ * since the place matters most while MotherBase is closed.
  */
 internal class GeofenceTool(
     private val context: Context,
@@ -68,7 +68,7 @@ internal class GeofenceTool(
     }
 
     /**
-     * The places the calling agent may see and remove: those added on the gateway Kyllene is signed in to, in the
+     * The places the calling agent may see and remove: those added on the gateway MotherBase is signed in to, in the
      * calling chat's profile. A call from no chat on this phone (a scheduled job, Desktop) sees the default profile's
      * only. Another gateway's or profile's places are none of its business.
      */
@@ -136,14 +136,14 @@ internal class GeofenceTool(
         if (radius !in MIN_RADIUS..MAX_RADIUS) throw PhoneToolException("radius_m is $MIN_RADIUS to $MAX_RADIUS.")
         if (!places.allowed()) {
             throw PhoneToolException(
-                "Watching places needs precise location all the time, which Kyllene doesn't have. The user can allow it in " +
-                    "Kyllene: Settings → Phone tools → Watched places.",
+                "Watching places needs precise location all the time, which MotherBase doesn't have. The user can allow it in " +
+                    "MotherBase: Settings → Phone tools → Watched places.",
             )
         }
         if (context.getSystemService(LocationManager::class.java) == null) throw PhoneToolException("The phone has no location service.")
         val target = chats.of(session) ?: throw PhoneToolException(
             "A place can only be watched for a chat open on this phone, so its message has somewhere to go. Ask the user " +
-                "to add it from a chat in Kyllene.",
+                "to add it from a chat in MotherBase.",
         )
         val lat = args.double("latitude")
         val lon = args.double("longitude")

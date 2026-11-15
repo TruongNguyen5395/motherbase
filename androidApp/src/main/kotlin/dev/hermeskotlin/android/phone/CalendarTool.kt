@@ -141,7 +141,7 @@ internal class CalendarTool(private val context: Context, private val confirmati
             values.put(CalendarContract.Events.DTSTART, start.atZone(zone).toInstant().toEpochMilli())
             values.put(CalendarContract.Events.DTEND, end.atZone(zone).toInstant().toEpochMilli())
         }
-        val calendar = writableCalendar() ?: throw PhoneToolException("The phone has no calendar Kyllene can add to.")
+        val calendar = writableCalendar() ?: throw PhoneToolException("The phone has no calendar MotherBase can add to.")
         values.put(CalendarContract.Events.CALENDAR_ID, calendar.id)
         values.put(CalendarContract.Events.TITLE, title)
         location?.let { values.put(CalendarContract.Events.EVENT_LOCATION, it) }
@@ -328,7 +328,7 @@ internal class CalendarTool(private val context: Context, private val confirmati
 
     private fun need(permission: String) {
         if (ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
-            throw PhoneToolException("Kyllene isn't allowed to use the calendar. The user can allow it in Kyllene: Settings → Phone tools.")
+            throw PhoneToolException("MotherBase isn't allowed to use the calendar. The user can allow it in MotherBase: Settings → Phone tools.")
         }
     }
 
@@ -395,7 +395,7 @@ internal class CalendarTool(private val context: Context, private val confirmati
         const val DATE_LENGTH = 10
         val RFC_DURATION = Regex("""^\+?P(?:(\d+)W)?(?:(\d+)D)?(?:T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$""")
         val LOCAL: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm", Locale.ROOT)
-        // In the user's language, read each time: it can change while Kyllene runs.
+        // In the user's language, read each time: it can change while MotherBase runs.
         val HOUR: DateTimeFormatter get() = DateTimeFormatter.ofPattern("H:mm", Locale.getDefault())
     }
 }

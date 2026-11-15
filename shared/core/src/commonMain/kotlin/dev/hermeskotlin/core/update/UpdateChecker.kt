@@ -80,12 +80,12 @@ class UpdateChecker(
 }
 
 /**
- * A release names one APK per ABI (`kyllene-1.2.3_arm64-v8a.apk`) beside the universal one (`kyllene-1.2.3.apk`):
+ * A release names one APK per ABI (`motherbase-1.2.3_arm64-v8a.apk`) beside the universal one (`motherbase-1.2.3.apk`):
  * the one for the first of [abis] that has its own wins, then the universal one, then any APK. The watch app's APK
- * (`kyllene-wear-1.2.3.apk`) is never offered: it installs on the watch, not the phone. It is known by `-wear-` after
+ * (`motherbase-wear-1.2.3.apk`) is never offered: it installs on the watch, not the phone. It is known by `-wear-` after
  * the app's name, whatever that name is, so older `herald-wear-1.2.3.apk` releases are skipped too.
  *
- * A desktop ([installer] set) takes the installer for its system instead (`kyllene-desktop-1.2.3.msi`).
+ * A desktop ([installer] set) takes the installer for its system instead (`motherbase-desktop-1.2.3.msi`).
  */
 internal fun parseRelease(release: JsonObject, abis: List<String>, installer: String? = null): AppUpdate? {
     val tag = release.text("tag_name") ?: return null
@@ -113,7 +113,7 @@ private val APK_ABIS = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 private val WEAR_APK = Regex("-wear-\\d", RegexOption.IGNORE_CASE)
 
 /** How release.yml names the desktop installers. */
-private const val DESKTOP_PREFIX = "kyllene-desktop-"
+private const val DESKTOP_PREFIX = "motherbase-desktop-"
 
 /** True when [candidate] is a higher `major.minor.patch` than [current]; a leading `v` and any `-suffix` are ignored. */
 internal fun isNewer(candidate: String, current: String): Boolean {

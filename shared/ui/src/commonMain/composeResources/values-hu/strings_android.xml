@@ -11,7 +11,7 @@
 
     <string name="android_attach_photo_failed">Nem sikerült beolvasni a fotót.</string>
     <string name="android_attach_no_camera">Nincs elérhető kameraalkalmazás.</string>
-    <string name="android_attach_not_allowed">A megosztó alkalmazás nem engedte, hogy a Kyllene beolvassa a fájlt.</string>
+    <string name="android_attach_not_allowed">A megosztó alkalmazás nem engedte, hogy a MotherBase beolvassa a fájlt.</string>
     <string name="android_attach_read_failed">Nem sikerült beolvasni egy fájlt.</string>
     <string name="android_attach_photo_too_large">%1$s nagyobb 50 MB-nál.</string>
     <string name="android_attach_file_too_large">%1$s nagyobb, mint %2$d MB.</string>

@@ -8,12 +8,12 @@
     <string name="shortcut_voice_chat_moved">Call Hermes moved. Hold the app icon and pin it again.</string>
 
     <!-- App lock and links -->
-    <string name="app_lock_prompt_title">Unlock Kyllene</string>
+    <string name="app_lock_prompt_title">Unlock MotherBase</string>
     <string name="link_no_app">No app on this phone can open that link.</string>
 
     <!-- Notification channels, as Settings › Notifications lists them -->
     <string name="channel_connection_name">Background connection</string>
-    <string name="channel_connection_description">Shown while Kyllene stays connected in the background, or works on a turn.</string>
+    <string name="channel_connection_description">Shown while MotherBase stays connected in the background, or works on a turn.</string>
     <string name="channel_requests_name">Approvals and questions</string>
     <string name="channel_requests_description">The agent is waiting on you.</string>
     <string name="channel_replies_name">Finished replies</string>
@@ -31,7 +31,7 @@
     <string name="channel_phone_tools_name">Phone tools</string>
     <string name="channel_phone_tools_description">When the agent wants to change something on this phone</string>
 
-    <!-- The ongoing notification while Kyllene stays connected -->
+    <!-- The ongoing notification while MotherBase stays connected -->
     <string name="notification_connected">Connected to Hermes</string>
     <string name="notification_reconnecting">Reconnecting to Hermes…</string>
     <string name="notification_push_anywhere">Bot messages reach you through Notifications anywhere</string>
@@ -84,14 +84,14 @@
 
     <!-- An answer from the shade that couldn't be delivered -->
     <string name="notification_send_failed">Couldn’t send</string>
-    <string name="notification_bot_send_failed">Couldn’t send it. Open Kyllene to try again.</string>
-    <string name="notification_chat_closed">That chat isn’t open anymore. Open Kyllene to reply.</string>
-    <string name="notification_reply_send_failed">Couldn’t send it. Open Kyllene to send it again.</string>
-    <string name="notification_reply_open_app">Open Kyllene to send it again.</string>
-    <string name="notification_answer_not_connected">Not connected to the gateway. Open Kyllene to answer.</string>
+    <string name="notification_bot_send_failed">Couldn’t send it. Open MotherBase to try again.</string>
+    <string name="notification_chat_closed">That chat isn’t open anymore. Open MotherBase to reply.</string>
+    <string name="notification_reply_send_failed">Couldn’t send it. Open MotherBase to send it again.</string>
+    <string name="notification_reply_open_app">Open MotherBase to send it again.</string>
+    <string name="notification_answer_not_connected">Not connected to the gateway. Open MotherBase to answer.</string>
 
     <!-- Calls -->
-    <string name="call_needs_microphone">Kyllene needs the microphone for calls. The question is in the chat.</string>
+    <string name="call_needs_microphone">MotherBase needs the microphone for calls. The question is in the chat.</string>
     <string name="call_new_session">New session</string>
 
     <!-- Phone tools: what the agent asks to do, before it happens -->
@@ -188,18 +188,18 @@
     <string name="phone_place_chat">\"%1$s\"</string>
     <string name="phone_place_this_chat">this chat</string>
     <!-- %1$s: the place; %2$s: where; %3$d: radius in metres; %4$s: the chat; %5$s: the message -->
-    <string name="phone_place_add_arrive">When you arrive at %1$s (%2$s, %3$d m), Kyllene sends this to %4$s as you: %5$s</string>
-    <string name="phone_place_add_leave">When you leave %1$s (%2$s, %3$d m), Kyllene sends this to %4$s as you: %5$s</string>
+    <string name="phone_place_add_arrive">When you arrive at %1$s (%2$s, %3$d m), MotherBase sends this to %4$s as you: %5$s</string>
+    <string name="phone_place_add_leave">When you leave %1$s (%2$s, %3$d m), MotherBase sends this to %4$s as you: %5$s</string>
     <string name="phone_place_arrived">Arrived at %1$s</string>
     <string name="phone_place_left">Left %1$s</string>
     <string name="phone_place_the_chat">the chat</string>
     <!-- %1$s: the chat; %2$s: the message -->
     <string name="phone_place_sent">Sent to %1$s: %2$s</string>
     <!-- %2$s: why, such as phone_place_no_reach -->
-    <string name="phone_place_not_sent">Couldn’t send it to %1$s: %2$s. Open Kyllene to send it yourself.</string>
+    <string name="phone_place_not_sent">Couldn’t send it to %1$s: %2$s. Open MotherBase to send it yourself.</string>
     <string name="phone_place_no_answer">the gateway didn’t answer in time</string>
-    <string name="phone_place_other_gateway">Kyllene is signed in to another gateway now</string>
+    <string name="phone_place_other_gateway">MotherBase is signed in to another gateway now</string>
     <string name="phone_place_not_accepted">it wasn’t accepted</string>
-    <string name="phone_place_no_reach">Kyllene couldn’t reach the gateway</string>
+    <string name="phone_place_no_reach">MotherBase couldn’t reach the gateway</string>
     <string name="phone_place_refused">the gateway refused it</string>
 </resources>

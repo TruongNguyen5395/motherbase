@@ -6,11 +6,11 @@
     <string name="shortcut_voice_chat">Hermes hívása</string>
     <string name="shortcut_voice_chat_moved">A „Hermes hívása” máshova került. Tartsd lenyomva az alkalmazás ikonját, és rögzítsd újra.</string>
 
-    <string name="app_lock_prompt_title">Kyllene feloldása</string>
+    <string name="app_lock_prompt_title">MotherBase feloldása</string>
     <string name="link_no_app">Ezen a telefonon egyik alkalmazás sem tudja megnyitni ezt a linket.</string>
 
     <string name="channel_connection_name">Háttérkapcsolat</string>
-    <string name="channel_connection_description">Látható, amíg a Kyllene a háttérben kapcsolódva marad, vagy egy körön dolgozik.</string>
+    <string name="channel_connection_description">Látható, amíg a MotherBase a háttérben kapcsolódva marad, vagy egy körön dolgozik.</string>
     <string name="channel_requests_name">Jóváhagyások és kérdések</string>
     <string name="channel_requests_description">Az ügynök rád vár.</string>
     <string name="channel_replies_name">Kész válaszok</string>
@@ -73,13 +73,13 @@
     <string name="notification_push_test_text">Ez végpontok közötti titkosítással, az ntfy-on keresztül érkezett, nem a Gateway-kapcsolatodon.</string>
 
     <string name="notification_send_failed">Nem sikerült elküldeni</string>
-    <string name="notification_bot_send_failed">Nem sikerült elküldeni. Nyisd meg a Kyllene-t, és próbáld újra.</string>
-    <string name="notification_chat_closed">Ez a csevegés már nincs megnyitva. Nyisd meg a Kyllene-t a válaszhoz.</string>
-    <string name="notification_reply_send_failed">Nem sikerült elküldeni. Nyisd meg a Kyllene-t, és küldd el újra.</string>
-    <string name="notification_reply_open_app">Nyisd meg a Kyllene-t, és küldd el újra.</string>
-    <string name="notification_answer_not_connected">Nincs kapcsolat a Gateway-jel. Nyisd meg a Kyllene-t a válaszhoz.</string>
+    <string name="notification_bot_send_failed">Nem sikerült elküldeni. Nyisd meg a MotherBase-t, és próbáld újra.</string>
+    <string name="notification_chat_closed">Ez a csevegés már nincs megnyitva. Nyisd meg a MotherBase-t a válaszhoz.</string>
+    <string name="notification_reply_send_failed">Nem sikerült elküldeni. Nyisd meg a MotherBase-t, és küldd el újra.</string>
+    <string name="notification_reply_open_app">Nyisd meg a MotherBase-t, és küldd el újra.</string>
+    <string name="notification_answer_not_connected">Nincs kapcsolat a Gateway-jel. Nyisd meg a MotherBase-t a válaszhoz.</string>
 
-    <string name="call_needs_microphone">A Kyllene-nek mikrofon kell a hívásokhoz. A kérdés a csevegésben van.</string>
+    <string name="call_needs_microphone">A MotherBase-nek mikrofon kell a hívásokhoz. A kérdés a csevegésben van.</string>
     <string name="call_new_session">Új munkamenet</string>
 
     <string name="phone_allow">Engedélyezés</string>
@@ -154,16 +154,16 @@
     <string name="phone_place_here">ahol a telefon most van, %1$s</string>
     <string name="phone_place_chat">\"%1$s\"</string>
     <string name="phone_place_this_chat">ez a csevegés</string>
-    <string name="phone_place_add_arrive">Amikor ideérsz: %1$s (%2$s, %3$d m), a Kyllene a nevedben elküldi ezt ide: %4$s: %5$s</string>
-    <string name="phone_place_add_leave">Amikor elmész innen: %1$s (%2$s, %3$d m), a Kyllene a nevedben elküldi ezt ide: %4$s: %5$s</string>
+    <string name="phone_place_add_arrive">Amikor ideérsz: %1$s (%2$s, %3$d m), a MotherBase a nevedben elküldi ezt ide: %4$s: %5$s</string>
+    <string name="phone_place_add_leave">Amikor elmész innen: %1$s (%2$s, %3$d m), a MotherBase a nevedben elküldi ezt ide: %4$s: %5$s</string>
     <string name="phone_place_arrived">Megérkeztél: %1$s</string>
     <string name="phone_place_left">Elmentél: %1$s</string>
     <string name="phone_place_the_chat">a csevegés</string>
     <string name="phone_place_sent">Elküldve ide: %1$s: %2$s</string>
-    <string name="phone_place_not_sent">Nem sikerült elküldeni ide: %1$s: %2$s. Nyisd meg a Kyllene-t, és küldd el magad.</string>
+    <string name="phone_place_not_sent">Nem sikerült elküldeni ide: %1$s: %2$s. Nyisd meg a MotherBase-t, és küldd el magad.</string>
     <string name="phone_place_no_answer">a Gateway nem válaszolt időben</string>
-    <string name="phone_place_other_gateway">A Kyllene most egy másik Gateway-be van bejelentkezve</string>
+    <string name="phone_place_other_gateway">A MotherBase most egy másik Gateway-be van bejelentkezve</string>
     <string name="phone_place_not_accepted">nem fogadták el</string>
-    <string name="phone_place_no_reach">A Kyllene nem érte el a Gateway-t</string>
+    <string name="phone_place_no_reach">A MotherBase nem érte el a Gateway-t</string>
     <string name="phone_place_refused">a Gateway elutasította</string>
 </resources>

@@ -48,7 +48,7 @@
     <string name="voice_error_live_ended">A chamada ao vivo terminou.</string>
     <string name="voice_error_live_ended_because">A chamada ao vivo terminou: %1$s</string>
     <string name="voice_error_live_dropped">A chamada ao vivo caiu.</string>
-    <string name="call_title">Chamada do Kyllene</string>
+    <string name="call_title">Chamada do MotherBase</string>
     <string name="call_answer">Atender</string>
     <string name="call_decline">Recusar</string>
     <string name="call_reason_approval">Precisa da sua aprovação</string>

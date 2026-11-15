@@ -354,7 +354,7 @@ fun HeraldPreview(scene: PreviewScene, dark: Boolean = true, accent: String = DE
                         ProjectActionsSheet(site, onDismiss = {}, onRename = {}, onDelete = {}, onSave = {})
                     } else {
                         NewProjectDialog(
-                            ProjectDraft(name = "Kyllene", folder = "/home/you/projects/kyllene"),
+                            ProjectDraft(name = "MotherBase", folder = "/home/you/projects/motherbase"),
                             busy = false,
                             error = null,
                             onDismiss = {},

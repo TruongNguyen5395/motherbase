@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
 internal class ShortcutPortalFixture(claim: Boolean = true) : AutoCloseable {
     private val config = run {
         assumeTrue("Shortcut portal integration requires Linux and dbus-daemon", System.getProperty("os.name") == "Linux" && java.io.File("/usr/bin/dbus-daemon").canExecute())
-        Files.createTempFile("kyllene-shortcut-bus-", ".conf")
+        Files.createTempFile("motherbase-shortcut-bus-", ".conf")
     }
     private val daemon: Process
     val address: String

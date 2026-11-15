@@ -11,7 +11,7 @@
 
     <string name="android_attach_photo_failed">无法读取照片。</string>
     <string name="android_attach_no_camera">没有可用的相机应用。</string>
-    <string name="android_attach_not_allowed">分享它的应用不允许 Kyllene 读取该文件。</string>
+    <string name="android_attach_not_allowed">分享它的应用不允许 MotherBase 读取该文件。</string>
     <string name="android_attach_read_failed">无法读取文件。</string>
     <string name="android_attach_photo_too_large">%1$s 超过 50 MB。</string>
     <string name="android_attach_file_too_large">%1$s 超过 %2$d MB。</string>

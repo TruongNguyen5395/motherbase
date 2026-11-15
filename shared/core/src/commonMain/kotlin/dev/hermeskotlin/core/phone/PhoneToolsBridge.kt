@@ -425,7 +425,7 @@ class PhoneToolsBridge(
 
     private suspend fun answer(requestId: String, result: JsonElement?, error: String?, wait: Long = ANSWER_WAIT_MS) {
         try {
-            // A call rung from a push may end while Kyllene can't reach the gateway: the answer waits for it, trying
+            // A call rung from a push may end while MotherBase can't reach the gateway: the answer waits for it, trying
             // again every few seconds rather than sitting out a long backoff once the network is back.
             if (connection.state.value !is ConnectionState.Connected) {
                 withTimeoutOrNull(wait) {
@@ -504,7 +504,7 @@ class PhoneToolsBridge(
         const val MAX_RECENT = 20
         const val TOO_LONG = "The phone took too long."
         const val SWITCHED_OFF = "The user turned this tool off on the phone."
-        const val UNKNOWN_TOOL = "This version of Kyllene doesn't have that tool; the user can update Kyllene."
+        const val UNKNOWN_TOOL = "This version of MotherBase doesn't have that tool; the user can update MotherBase."
         private val WAITS_FOR_USER = setOf(State.NotInstalled, State.Outdated)
         private const val MAX_ANSWERED = 200
         private const val ID_BYTES = 16

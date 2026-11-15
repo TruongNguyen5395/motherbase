@@ -131,7 +131,7 @@ class NotificationActionReceiver : BroadcastReceiver(), KoinComponent {
     }
 
     /**
-     * The turn a notification's reply started in the watch's chat: Kyllene stays connected until it ends, and its
+     * The turn a notification's reply started in the watch's chat: MotherBase stays connected until it ends, and its
      * reply comes as a notification, as the one that was answered did.
      */
     private suspend fun tellWatchChat(chat: ChatSession, storedId: String, sent: Boolean) {

@@ -51,7 +51,7 @@ class SingleInstanceRestartTest {
     }
 
     private fun directory(block: (File) -> Unit) {
-        val dir = Files.createTempDirectory("kyllene-restart-").toFile()
+        val dir = Files.createTempDirectory("motherbase-restart-").toFile()
         try { block(dir) } finally { dir.deleteRecursively() }
     }
 }

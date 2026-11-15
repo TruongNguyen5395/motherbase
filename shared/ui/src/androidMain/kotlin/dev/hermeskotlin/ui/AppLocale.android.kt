@@ -21,7 +21,7 @@ import dev.hermeskotlin.ui.settings.pickedFromPerAppLocales
 import dev.hermeskotlin.ui.settings.systemAppLanguage
 import java.util.Locale
 
-/** Android 13 and later keep the app's language themselves (Settings › Apps › Kyllene › Language). */
+/** Android 13 and later keep the app's language themselves (Settings › Apps › MotherBase › Language). */
 @get:ChecksSdkIntAtLeast(api = Build.VERSION_CODES.TIRAMISU)
 val systemKeepsAppLanguage: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 

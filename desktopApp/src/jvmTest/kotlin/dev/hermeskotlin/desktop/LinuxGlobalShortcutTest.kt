@@ -195,10 +195,10 @@ class LinuxGlobalShortcutTest {
             val states = LinkedBlockingQueue<LinuxGlobalShortcut.State>()
             LinuxGlobalShortcut({}, { state, _ -> states.add(state) }, fixture.address, flatpakInfo = File("/nonexistent/.flatpak-info")).use {
                 states.bound()
-                assertEquals(listOf("Register kyllene-Kyllene", "CreateSession"), fixture.service.calls.toList())
+                assertEquals(listOf("Register motherbase-MotherBase", "CreateSession"), fixture.service.calls.toList())
             }
         }
-        val sandbox = Files.createTempFile("kyllene-flatpak-info", "")
+        val sandbox = Files.createTempFile("motherbase-flatpak-info", "")
         try {
             ShortcutPortalFixture().use { fixture ->
                 val states = LinkedBlockingQueue<LinuxGlobalShortcut.State>()
@@ -285,7 +285,7 @@ class LinuxGlobalShortcutTest {
 
     @Test fun closingWhileThePortalIsAbsentEndsTheWorker() {
         ShortcutPortalFixture(claim = false).use { fixture ->
-            fun workers() = Thread.getAllStackTraces().keys.count { it.name == "kyllene-shortcut-portal" && it.isAlive }
+            fun workers() = Thread.getAllStackTraces().keys.count { it.name == "motherbase-shortcut-portal" && it.isAlive }
             val before = workers()
             val states = LinkedBlockingQueue<LinuxGlobalShortcut.State>()
             val shortcut = LinuxGlobalShortcut({}, { state, _ -> states.add(state) }, fixture.address)

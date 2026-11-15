@@ -31,9 +31,9 @@ import org.koin.android.ext.android.inject
 import java.util.UUID
 
 /**
- * Where Kyllene's Pebble watchapp lands on the phone, even with Kyllene closed: the Pebble phone app binds this while
+ * Where MotherBase's Pebble watchapp lands on the phone, even with MotherBase closed: the Pebble phone app binds this while
  * the watchapp is open, and hands it what the watch sends. Each message goes to [WatchRelay], as a Wear OS watch's
- * does. Only the Pebble phone app Kyllene picked ([PebbleApps]) gets through: the base class checks the caller.
+ * does. Only the Pebble phone app MotherBase picked ([PebbleApps]) gets through: the base class checks the caller.
  */
 class PebbleBridgeService : BasePebbleListenerService() {
 
@@ -58,7 +58,7 @@ class PebbleBridgeService : BasePebbleListenerService() {
         val incoming = PebbleLink.decode(dict) ?: return ReceiveResult.Ack
         // By type number: R8 renames the classes in a release build.
         Log.d(TAG, "From the Pebble: type ${dict[PebbleKeys.TYPE]}")
-        // Waited for: the watch's first message often starts Kyllene, before the stored settings are read.
+        // Waited for: the watch's first message often starts MotherBase, before the stored settings are read.
         if (!settings.settings.filterNotNull().first().pebble) {
             // Switched off in Settings: the watch says so instead of waiting on an answer.
             outbox.watch(node).message(PebbleLink.off())
@@ -78,7 +78,7 @@ class PebbleBridgeService : BasePebbleListenerService() {
             }
             PebbleIncoming.ChatsRequest -> relay.chats(node)
             is PebbleIncoming.StatusRequest -> scope.launch {
-                // Waited for: the watch's first message often starts Kyllene, and the stored settings are still being read then.
+                // Waited for: the watch's first message often starts MotherBase, and the stored settings are still being read then.
                 val current = settings.settings.filterNotNull().first()
                 val accent = watchAccent(current.accent)
                 relay.status(node, accent = accent.updateFor(incoming.accentRevision))

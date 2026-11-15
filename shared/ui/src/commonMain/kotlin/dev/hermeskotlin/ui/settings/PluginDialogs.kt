@@ -21,7 +21,7 @@ import org.jetbrains.compose.resources.stringResource
 private val PLUGIN_SOURCE = PushApi.PLUGIN_REPO.substringAfter("://")
 
 /**
- * Asked before a feature that needs the herald-push plugin is turned on: Kyllene installs code on the user's
+ * Asked before a feature that needs the herald-push plugin is turned on: MotherBase installs code on the user's
  * gateway, so it says so first. [what] is what the plugin does for this feature.
  */
 @Composable
@@ -45,7 +45,7 @@ internal fun PluginInstallDialog(visible: Boolean, feature: String, what: String
 }
 
 /**
- * Asked before Kyllene puts the Next Prompt plugin on the gateway: it's someone else's code, it runs after every
+ * Asked before MotherBase puts the Next Prompt plugin on the gateway: it's someone else's code, it runs after every
  * turn, and it sends the end of each chat to a model, which costs a call each time.
  */
 @Composable

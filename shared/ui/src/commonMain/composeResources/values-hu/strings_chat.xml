@@ -461,8 +461,8 @@
     <string name="chat_notice_voice_needs_ffmpeg">A hangcsevegésnek a /usr/bin/ffmpeg helyen lévő ffmpeg kell a válaszai kimondásához. Telepítsd, majd indítsd újra a hangcsevegést.</string>
     <string name="chat_notice_nothing_waiting">Semmi sem vár</string>
     <string name="chat_notice_adopted">Örökbe fogadtad: %1$s</string>
-    <string name="chat_notice_prompt_not_sent">A prompt nem ment el: a Kyllene nem érte el a Gatewayt. A beviteli mezőben van.</string>
-    <string name="chat_notice_call_not_started">A hívás nem indult el: a Kyllene nem érte el a Gatewayt.</string>
+    <string name="chat_notice_prompt_not_sent">A prompt nem ment el: a MotherBase nem érte el a Gatewayt. A beviteli mezőben van.</string>
+    <string name="chat_notice_call_not_started">A hívás nem indult el: a MotherBase nem érte el a Gatewayt.</string>
     <string name="chat_notice_too_many_files">Üzenetenként legfeljebb %1$d melléklet.</string>
     <string name="chat_notice_file_too_large">%1$s nagyobb, mint %2$d MB.</string>
     <string name="chat_uploading">%1$s feltöltése · %2$d%</string>

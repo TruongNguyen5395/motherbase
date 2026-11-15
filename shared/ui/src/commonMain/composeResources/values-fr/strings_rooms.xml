@@ -53,7 +53,7 @@
     <string name="rooms_mention">Mentionner un membre</string>
     <string name="rooms_to">À %1$s</string>
     <string name="rooms_everyone">Tout le monde</string>
-    <string name="rooms_file_no_owner">Kyllene ne sait pas à quel bot de ce Gateway appartient ce fichier.</string>
+    <string name="rooms_file_no_owner">MotherBase ne sait pas à quel bot de ce Gateway appartient ce fichier.</string>
     <string name="rooms_attachments_unsupported">Ce Gateway ne prend pas en charge les pièces jointes dans les salons. Mettez Hermes à jour pour les utiliser.</string>
     <string name="rooms_attachments_too_many">Jusqu’à %1$d pièces jointes par message de salon.</string>
     <string name="rooms_attachment_size">Les fichiers du salon doivent faire entre 1 octet et %1$d Mo.</string>

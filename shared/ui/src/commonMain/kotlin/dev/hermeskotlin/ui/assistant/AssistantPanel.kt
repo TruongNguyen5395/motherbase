@@ -357,7 +357,7 @@ internal fun AssistantCard(
     }
 }
 
-/** The chat's top bar in small: the mark, "Kyllene" over its status line, and Open and Close in a ringed pill. */
+/** The chat's top bar in small: the mark, "MotherBase" over its status line, and Open and Close in a ringed pill. */
 @Composable
 private fun Header(status: BarStatus?, onCircle: (() -> Unit)?, onOpenHerald: () -> Unit, onClose: () -> Unit) {
     Row(

@@ -2,9 +2,9 @@
 
 The x86_64 development recipe builds the existing desktop application from a
 pinned upstream revision, using Freedesktop 26.08 and JBRSDK 25 with JCEF. It does
-not extract a DEB or use host Java. Its identity, `app.kyllene.Kyllene.Devel`, is
-separate from other installations. The stable app is `app.kyllene.Kyllene`, after
-the project's domain, kyllene.app.
+not extract a DEB or use host Java. Its identity, `app.motherbase.MotherBase.Devel`, is
+separate from other installations. The stable app is `app.motherbase.MotherBase`, after
+the project's domain, motherbase.app.
 
 Flatpak updates come from the installed app's signed remote, through the Flatpak
 update portal (version 2 or newer), software centres or `flatpak update`.
@@ -23,20 +23,20 @@ Run `./gradlew :desktopApp:jvmTest --tests '*FlatpakUpdate*Test'`; Windows/macOS
 contributors can use the Ubuntu workflow for the Linux-only cases.
 
 Each release also carries the stable app as a bundle,
-`kyllene-desktop-<version>_x86_64.flatpak`, for a manual install. The release
+`motherbase-desktop-<version>_x86_64.flatpak`, for a manual install. The release
 workflow runs `prepare-ci.py --release <version>`, which makes the Devel manifest
-into `release.json`: `app.kyllene.Kyllene` on the `stable` branch, built as that
+into `release.json`: `app.motherbase.MotherBase` on the `stable` branch, built as that
 version, with its own `.desktop` file and metainfo. The bundle names Flathub as its
 runtime's repository, so installing it fetches the Freedesktop runtime. Installing
 the next release's bundle replaces it in place and keeps the app's data.
 
 ### Our repository
 
-Kyllene's own Flatpak repository, `https://flatpak.kyllene.app/repo/`, delivers
+MotherBase's own Flatpak repository, `https://flatpak.motherbase.app/repo/`, delivers
 updates. Users install from it once:
 
 ```sh
-flatpak install --user https://kyllene.app/kyllene.flatpakref
+flatpak install --user https://motherbase.app/motherbase.flatpakref
 ```
 
 and `flatpak update` or a software centre takes each release from then on. A release
@@ -46,21 +46,21 @@ installed by hand updates from it too.
 - **Publishing:** publishing a GitHub release (never a draft or a pre-release) runs
   `flatpak-repo.yml`. It downloads the release's bundle, and `publish-repo.sh` signs
   it into an empty repository. The upload adds that repository's objects to the R2
-  bucket behind `flatpak.kyllene.app`, then replaces its refs and summary. Objects
+  bucket behind `flatpak.motherbase.app`, then replaces its refs and summary. Objects
   are named by their hash and never change, so earlier releases' objects stay, and an
   update downloads only what changed. Only GitHub's latest release is published,
   because Flatpak refuses a commit older than the installed one, so an older tag
   would stop every update. The workflow waits up to an hour for the release job to
   attach the bundle. To publish the latest release again, run the workflow by hand
   with its tag.
-- **Signing key:** the public half is `packaging/flatpak/kyllene-repo.asc`.
-  `website/kyllene.flatpakref` and `website/kyllene.flatpakrepo` carry the same key
+- **Signing key:** the public half is `packaging/flatpak/motherbase-repo.asc`.
+  `website/motherbase.flatpakref` and `website/motherbase.flatpakrepo` carry the same key
   (`test_repo_files.py` checks this). The private half is the
   `FLATPAK_GPG_PRIVATE_KEY` secret, which both the release and the publish workflows
   use. Replacing the key breaks updates for every existing install, so keep a backup
   of it outside GitHub.
-- **Storage:** the R2 bucket `kyllene-flatpak` (or the `FLATPAK_R2_BUCKET`
-  variable), with the custom domain `flatpak.kyllene.app` and an Object Read & Write
+- **Storage:** the R2 bucket `motherbase-flatpak` (or the `FLATPAK_R2_BUCKET`
+  variable), with the custom domain `flatpak.motherbase.app` and an Object Read & Write
   token in the `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` secrets.
 - **Tests:** Linux advisory runs JVM/desktop and portable packaging checks on every PR
   that touches what the desktop app is built from (Android-only PRs skip it),
@@ -99,10 +99,10 @@ runtime in the user installation. From the repository root, build and install:
 
 ```sh
 user_flatpak="$(realpath "${XDG_DATA_HOME:-$HOME/.local/share}/flatpak")"
-flatpak run --env=FLATPAK_USER_DIR="$user_flatpak" --filesystem="$user_flatpak" org.flatpak.Builder --user --repo=build/flatpak-repo build/flatpak packaging/flatpak/app.kyllene.Kyllene.Devel.json
-flatpak build-bundle build/flatpak-repo build/kyllene.flatpak app.kyllene.Kyllene.Devel devel
-flatpak install --user build/kyllene.flatpak
-flatpak run app.kyllene.Kyllene.Devel
+flatpak run --env=FLATPAK_USER_DIR="$user_flatpak" --filesystem="$user_flatpak" org.flatpak.Builder --user --repo=build/flatpak-repo build/flatpak packaging/flatpak/app.motherbase.MotherBase.Devel.json
+flatpak build-bundle build/flatpak-repo build/motherbase.flatpak app.motherbase.MotherBase.Devel devel
+flatpak install --user build/motherbase.flatpak
+flatpak run app.motherbase.MotherBase.Devel
 ```
 
 Flatpak-builder downloads checksummed inputs before running Gradle offline in
@@ -184,7 +184,7 @@ are required. A per-profile file lock serializes version checks and replacement;
 a stale writer must reopen. Failed or uncertain writes do not permit further unsafe mutations.
 
 Back up the complete profile before upgrades. The file's format has a version: a
-`settings.secure` written by a newer Kyllene stops an older one at startup, with
+`settings.secure` written by a newer MotherBase stops an older one at startup, with
 Quit as the only choice, instead of being read wrongly or replaced. Go back to that
 version or newer, or restore the backup taken before the upgrade. Other Flatpak identities are never
 searched or imported. Removing old plaintext does not securely erase disk blocks
@@ -353,7 +353,7 @@ uninstalls its verified app without deleting data after failed checks. If the
 installed commit cannot be verified, it reports retained/unknown state and leaves
 the installation for inspection instead of deleting an unverified ref.
 
-Run `python3 packaging/flatpak/tests/installed_smoke.py build/kyllene.flatpak`
+Run `python3 packaging/flatpak/tests/installed_smoke.py build/motherbase.flatpak`
 on Linux with Flatpak, its matching runtime, Xvfb, xauth, xdotool and Pillow
 installed. The app reads its settings key from the Secret portal at startup, so
 run it as CI does: `dbus-run-session` with a throwaway unlocked gnome-keyring as
@@ -397,7 +397,7 @@ refusal or unavailable portal. After refusing, turn the setting off and on to
 ask again. When the desktop grants it with no key (KDE does once its dialog is
 closed, and remembers that), Settings says so: pick a key in the desktop's own
 shortcut settings, and the row follows. Outside Flatpak the app names itself to
-the portal as `kyllene-Kyllene`, the .deb's desktop entry; a build run without
+the portal as `motherbase-MotherBase`, the .deb's desktop entry; a build run without
 that entry installed gets no shortcut. Disabling it or quitting closes the request/session; a portal restart
 recreates the session. A held key opens once until released.
 
@@ -418,4 +418,4 @@ destination. If signed out, the request waits for sign-in through the usual flow
 The action starts a call and may use the microphone and configured voice provider.
 
 The equivalent explicit invocation is `flatpak run
-app.kyllene.Kyllene.Devel herald://voice-chat`.
+app.motherbase.MotherBase.Devel herald://voice-chat`.

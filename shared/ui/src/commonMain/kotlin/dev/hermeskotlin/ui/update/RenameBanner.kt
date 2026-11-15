@@ -64,7 +64,7 @@ fun rememberRenameOffer(): RenameOffer {
     }
 }
 
-/** A card saying Herald is now Kyllene and that nothing else changed, until it is closed. */
+/** A card saying Herald is now MotherBase and that nothing else changed, until it is closed. */
 @Composable
 fun RenameBanner(modifier: Modifier = Modifier) {
     val offer = LocalRenameOffer.current

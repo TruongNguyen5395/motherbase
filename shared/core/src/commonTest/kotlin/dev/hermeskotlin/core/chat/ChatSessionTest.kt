@@ -1194,7 +1194,7 @@ class ChatSessionTest {
         assertTrue(chat.send("summarise", listOf(pdf)))
 
         val staged = assertNotNull(routes.uploadPath)
-        assertTrue(Regex("""/home/u/\.kyllene-uploads/[0-9a-f]+/report\.pdf""").matches(staged), staged)
+        assertTrue(Regex("""/home/u/\.motherbase-uploads/[0-9a-f]+/report\.pdf""").matches(staged), staged)
         assertTrue(routes.uploadLength > 12_806_962)
         assertEquals(routes.uploadLength, routes.uploadBody.size.toLong())
         // The whole PDF is attached as a file, not rendered to its first pages.
@@ -1429,7 +1429,7 @@ class ChatSessionTest {
         assertTrue(chat.send("look", listOf(streamed("logs.tar", "application/x-tar", 13_000_000L))))
 
         val staged = assertNotNull(routes.uploadPath)
-        assertTrue(Regex("""C:\\Users\\u\\\.kyllene-uploads\\[0-9a-f]+\\logs\.tar""").matches(staged), staged)
+        assertTrue(Regex("""C:\\Users\\u\\\.motherbase-uploads\\[0-9a-f]+\\logs\.tar""").matches(staged), staged)
         assertEquals(listOf(staged.substringBeforeLast('\\')), routes.deleted)
     }
 
@@ -1449,9 +1449,9 @@ class ChatSessionTest {
         answerFileRoutes(
             routes,
             uploads = """{"entries":[
-                {"name":"old","path":"/home/u/.kyllene-uploads/old","is_directory":true,"size":null,"mtime":${now - 8 * 86_400}},
-                {"name":"new","path":"/home/u/.kyllene-uploads/new","is_directory":true,"size":null,"mtime":${now - 86_400}},
-                {"name":"stray.txt","path":"/home/u/.kyllene-uploads/stray.txt","is_directory":false,"size":1,"mtime":1}
+                {"name":"old","path":"/home/u/.motherbase-uploads/old","is_directory":true,"size":null,"mtime":${now - 8 * 86_400}},
+                {"name":"new","path":"/home/u/.motherbase-uploads/new","is_directory":true,"size":null,"mtime":${now - 86_400}},
+                {"name":"stray.txt","path":"/home/u/.motherbase-uploads/stray.txt","is_directory":false,"size":1,"mtime":1}
             ]}""",
         )
         connection.state.first { it is ConnectionState.Connected }
@@ -1461,8 +1461,8 @@ class ChatSessionTest {
         assertTrue(chat.send("one", listOf(streamed("a.tar", "application/x-tar", 13_000_000L))))
         assertTrue(chat.send("two", listOf(streamed("b.tar", "application/x-tar", 13_000_000L))))
 
-        assertEquals(listOf("/home/u/.kyllene-uploads"), routes.listed)
-        assertEquals(listOf("/home/u/.kyllene-uploads/old"), routes.deleted)
+        assertEquals(listOf("/home/u/.motherbase-uploads"), routes.listed)
+        assertEquals(listOf("/home/u/.motherbase-uploads/old"), routes.deleted)
     }
 
     @Test

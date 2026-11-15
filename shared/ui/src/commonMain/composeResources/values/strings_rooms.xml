@@ -56,7 +56,7 @@
     <string name="rooms_mention">Mention a member</string>
     <string name="rooms_to">To %1$s</string>
     <string name="rooms_everyone">Everyone</string>
-    <string name="rooms_file_no_owner">Kyllene can’t tell which of this gateway’s bots owns this file.</string>
+    <string name="rooms_file_no_owner">MotherBase can’t tell which of this gateway’s bots owns this file.</string>
     <string name="rooms_attachments_unsupported">This gateway doesn’t support room attachments. Update Hermes to use them.</string>
     <string name="rooms_attachments_too_many">Up to %1$d attachments per room message.</string>
     <string name="rooms_attachment_size">Room files must be between 1 byte and %1$d MB.</string>

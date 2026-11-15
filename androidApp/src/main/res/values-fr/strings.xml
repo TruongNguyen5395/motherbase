@@ -6,11 +6,11 @@
     <string name="shortcut_voice_chat">Appeler Hermes</string>
     <string name="shortcut_voice_chat_moved">« Appeler Hermes » a changé de place. Maintenez l’icône de l’app et épinglez-le à nouveau.</string>
 
-    <string name="app_lock_prompt_title">Déverrouiller Kyllene</string>
+    <string name="app_lock_prompt_title">Déverrouiller MotherBase</string>
     <string name="link_no_app">Aucune app de ce téléphone ne peut ouvrir ce lien.</string>
 
     <string name="channel_connection_name">Connexion en arrière-plan</string>
-    <string name="channel_connection_description">Affichée tant que Kyllene reste connecté en arrière-plan ou traite un tour.</string>
+    <string name="channel_connection_description">Affichée tant que MotherBase reste connecté en arrière-plan ou traite un tour.</string>
     <string name="channel_requests_name">Approbations et questions</string>
     <string name="channel_requests_description">L’agent vous attend.</string>
     <string name="channel_replies_name">Réponses terminées</string>
@@ -74,13 +74,13 @@
     <string name="notification_push_test_text">Ceci est arrivé chiffré de bout en bout via ntfy, pas par la connexion à votre Gateway.</string>
 
     <string name="notification_send_failed">Envoi impossible</string>
-    <string name="notification_bot_send_failed">Envoi impossible. Ouvrez Kyllene pour réessayer.</string>
-    <string name="notification_chat_closed">Cette conversation n’est plus ouverte. Ouvrez Kyllene pour répondre.</string>
-    <string name="notification_reply_send_failed">Envoi impossible. Ouvrez Kyllene pour renvoyer le message.</string>
-    <string name="notification_reply_open_app">Ouvrez Kyllene pour renvoyer le message.</string>
-    <string name="notification_answer_not_connected">Non connecté au Gateway. Ouvrez Kyllene pour répondre.</string>
+    <string name="notification_bot_send_failed">Envoi impossible. Ouvrez MotherBase pour réessayer.</string>
+    <string name="notification_chat_closed">Cette conversation n’est plus ouverte. Ouvrez MotherBase pour répondre.</string>
+    <string name="notification_reply_send_failed">Envoi impossible. Ouvrez MotherBase pour renvoyer le message.</string>
+    <string name="notification_reply_open_app">Ouvrez MotherBase pour renvoyer le message.</string>
+    <string name="notification_answer_not_connected">Non connecté au Gateway. Ouvrez MotherBase pour répondre.</string>
 
-    <string name="call_needs_microphone">Kyllene a besoin du micro pour les appels. La question est dans la conversation.</string>
+    <string name="call_needs_microphone">MotherBase a besoin du micro pour les appels. La question est dans la conversation.</string>
     <string name="call_new_session">Nouvelle session</string>
 
     <string name="phone_allow">Autoriser</string>
@@ -156,16 +156,16 @@
     <string name="phone_place_here">là où se trouve le téléphone, %1$s</string>
     <string name="phone_place_chat">\"%1$s\"</string>
     <string name="phone_place_this_chat">cette conversation</string>
-    <string name="phone_place_add_arrive">Quand vous arrivez à %1$s (%2$s, %3$d m), Kyllene envoie ceci à %4$s en votre nom : %5$s</string>
-    <string name="phone_place_add_leave">Quand vous quittez %1$s (%2$s, %3$d m), Kyllene envoie ceci à %4$s en votre nom : %5$s</string>
+    <string name="phone_place_add_arrive">Quand vous arrivez à %1$s (%2$s, %3$d m), MotherBase envoie ceci à %4$s en votre nom : %5$s</string>
+    <string name="phone_place_add_leave">Quand vous quittez %1$s (%2$s, %3$d m), MotherBase envoie ceci à %4$s en votre nom : %5$s</string>
     <string name="phone_place_arrived">Arrivé à %1$s</string>
     <string name="phone_place_left">Parti de %1$s</string>
     <string name="phone_place_the_chat">la conversation</string>
     <string name="phone_place_sent">Envoyé à %1$s : %2$s</string>
-    <string name="phone_place_not_sent">Envoi impossible à %1$s : %2$s. Ouvrez Kyllene pour l’envoyer vous-même.</string>
+    <string name="phone_place_not_sent">Envoi impossible à %1$s : %2$s. Ouvrez MotherBase pour l’envoyer vous-même.</string>
     <string name="phone_place_no_answer">le Gateway n’a pas répondu à temps</string>
-    <string name="phone_place_other_gateway">Kyllene est maintenant connecté à un autre Gateway</string>
+    <string name="phone_place_other_gateway">MotherBase est maintenant connecté à un autre Gateway</string>
     <string name="phone_place_not_accepted">il n’a pas été accepté</string>
-    <string name="phone_place_no_reach">Kyllene n’a pas pu joindre le Gateway</string>
+    <string name="phone_place_no_reach">MotherBase n’a pas pu joindre le Gateway</string>
     <string name="phone_place_refused">le Gateway l’a refusé</string>
 </resources>

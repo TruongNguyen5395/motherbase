@@ -20,16 +20,16 @@ import kotlinx.coroutines.withContext
 
 class SecureStorageException(val reason: Reason) : IOException(reason.guidance) {
     enum class Reason(val guidance: String) {
-        Unavailable("Kyllene couldn't retrieve its storage key. Unlock your desktop keyring and check that its Secret portal is available, then retry."),
+        Unavailable("MotherBase couldn't retrieve its storage key. Unlock your desktop keyring and check that its Secret portal is available, then retry."),
         Cancelled("Storage unlock was cancelled. Retry to unlock it; existing data has been preserved."),
-        Corrupt("Kyllene couldn't open its encrypted settings. Restore a known-good backup or use the original application identity. Existing data has been preserved."),
-        Version("This settings format needs a different version of Kyllene. Existing data has been preserved."),
-        Read("Kyllene couldn't read its settings, or the file exceeds 16 MiB. Check file access before retrying."),
-        Write("Kyllene couldn't finish saving or cleaning up its settings. Existing copies have been preserved; check disk space and file access before retrying."),
-        Uncertain("Kyllene couldn't confirm its settings commit. Check file access, then retry startup or quit and restart before making further changes."),
-        Changed("Settings changed outside this window. Quit and restart Kyllene to reload them before saving."),
+        Corrupt("MotherBase couldn't open its encrypted settings. Restore a known-good backup or use the original application identity. Existing data has been preserved."),
+        Version("This settings format needs a different version of MotherBase. Existing data has been preserved."),
+        Read("MotherBase couldn't read its settings, or the file exceeds 16 MiB. Check file access before retrying."),
+        Write("MotherBase couldn't finish saving or cleaning up its settings. Existing copies have been preserved; check disk space and file access before retrying."),
+        Uncertain("MotherBase couldn't confirm its settings commit. Check file access, then retry startup or quit and restart before making further changes."),
+        Changed("Settings changed outside this window. Quit and restart MotherBase to reload them before saving."),
         Legacy("Conflicting or unfinished legacy settings were found. Existing files were preserved. Quit and resolve the older copy before retrying."),
-        Unsupported("Kyllene couldn't verify its Flatpak application identity. Check the installation before retrying. No plaintext fallback is available."),
+        Unsupported("MotherBase couldn't verify its Flatpak application identity. Check the installation before retrying. No plaintext fallback is available."),
     }
 }
 

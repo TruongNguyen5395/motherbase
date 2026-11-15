@@ -156,10 +156,10 @@
 
     <string name="assistant_not_signed_in">Not signed in</string>
     <string name="assistant_circle_part">Circle part of the screen</string>
-    <string name="assistant_open_in_app">Open in Kyllene</string>
+    <string name="assistant_open_in_app">Open in MotherBase</string>
     <string name="assistant_close">Close</string>
-    <string name="assistant_sign_in">Sign in to a Hermes gateway in Kyllene to ask about your screen.</string>
-    <string name="assistant_open_app">Open Kyllene</string>
+    <string name="assistant_sign_in">Sign in to a Hermes gateway in MotherBase to ask about your screen.</string>
+    <string name="assistant_open_app">Open MotherBase</string>
     <string name="assistant_listening">Listening…</string>
     <string name="assistant_transcribing">Writing down what you said…</string>
     <string name="assistant_connecting">Connecting to Hermes…</string>
@@ -175,7 +175,7 @@
     <string name="assistant_text_only">text only</string>
     <string name="assistant_screenshot">Screenshot</string>
     <string name="assistant_add">Add</string>
-    <string name="assistant_cant_see_screen">Kyllene can’t see the screen</string>
+    <string name="assistant_cant_see_screen">MotherBase can’t see the screen</string>
     <string name="assistant_turn_on_screen_text">Turn on “Use text from screen”</string>
     <string name="assistant_what_you_circled">What you circled</string>
     <string name="assistant_circled">Circled</string>

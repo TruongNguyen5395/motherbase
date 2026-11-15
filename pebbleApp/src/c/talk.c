@@ -9,7 +9,7 @@
 #define MAX_REPLY 6000
 // PebbleLink.MAX_PROMPTS, each clipped to 60 bytes.
 #define MAX_PROMPTS 6
-// The phone answers a status request at once; none within this, Kyllene isn't there.
+// The phone answers a status request at once; none within this, MotherBase isn't there.
 #define ANSWER_WITHIN_MS 5000
 // While open, the phone's state is asked again this often (as the Wear watch does).
 #define STATUS_EVERY_MS 30000
@@ -21,9 +21,9 @@
 #define REPLY_FONT FONT_KEY_GOTHIC_24
 // A quick launch opens straight into dictation, once the window is up.
 #define QUICK_DICTATE_MS 400
-// How long the launcher says Kyllene's working, after it closed mid-turn.
+// How long the launcher says MotherBase's working, after it closed mid-turn.
 #define GLANCE_WORKING_S (10 * 60)
-// The launcher's line under Kyllene holds 150 bytes.
+// The launcher's line under MotherBase holds 150 bytes.
 #define GLANCE_BYTES 140
 
 // Asked with a press, from the hold-Select menu: these until the phone sends its own (Settings → Connected devices).
@@ -41,12 +41,12 @@ typedef enum {
   PHONE_UNKNOWN,
   // No phone is connected to the watch.
   PHONE_NOT_CONNECTED,
-  // A phone is, but Kyllene there didn't answer.
+  // A phone is, but MotherBase there didn't answer.
   PHONE_NO_HERALD,
   PHONE_SIGNED_OUT,
-  // Kyllene's Pebble switch is off.
+  // MotherBase's Pebble switch is off.
   PHONE_OFF,
-  // Signed in, and Kyllene gave up reaching the gateway.
+  // Signed in, and MotherBase gave up reaching the gateway.
   PHONE_UNREACHABLE,
   PHONE_RECONNECTING,
   PHONE_READY,
@@ -113,9 +113,9 @@ static bool prv_running(void) {
 static const char *prv_phone_problem_short(void) {
   switch (s_phone) {
     case PHONE_NOT_CONNECTED: return "Phone not connected";
-    case PHONE_NO_HERALD: return "No answer from Kyllene";
+    case PHONE_NO_HERALD: return "No answer from MotherBase";
     case PHONE_SIGNED_OUT: return "Sign in on your phone";
-    case PHONE_OFF: return "Off in Kyllene";
+    case PHONE_OFF: return "Off in MotherBase";
     case PHONE_UNREACHABLE: return "Gateway out of reach";
     default: return NULL;
   }
@@ -125,10 +125,10 @@ static const char *prv_phone_problem_short(void) {
 static const char *prv_phone_problem(void) {
   switch (s_phone) {
     case PHONE_NOT_CONNECTED: return "Your phone isn't connected.";
-    case PHONE_NO_HERALD: return "Kyllene on your phone didn't answer. Open it there, or update it.";
-    case PHONE_SIGNED_OUT: return "Sign in to Kyllene on your phone first.";
-    case PHONE_OFF: return "Kyllene on the Pebble is off. Turn it on in Kyllene's settings on your phone.";
-    case PHONE_UNREACHABLE: return "Kyllene can't reach your gateway. Check it on your phone.";
+    case PHONE_NO_HERALD: return "MotherBase on your phone didn't answer. Open it there, or update it.";
+    case PHONE_SIGNED_OUT: return "Sign in to MotherBase on your phone first.";
+    case PHONE_OFF: return "MotherBase on the Pebble is off. Turn it on in MotherBase's settings on your phone.";
+    case PHONE_UNREACHABLE: return "MotherBase can't reach your gateway. Check it on your phone.";
     default: return NULL;
   }
 }
@@ -307,7 +307,7 @@ static void prv_ask(const char *text) {
 void talk_on_send_failed(int type) {
   if (type == LINK_ASK && s_has_turn && s_phase == PHASE_SENDING) {
     s_phase = PHASE_FAILED;
-    prv_copy(s_error, sizeof(s_error), "Couldn't reach Kyllene on your phone.");
+    prv_copy(s_error, sizeof(s_error), "Couldn't reach MotherBase on your phone.");
     vibes_double_pulse();
     prv_redraw();
   } else if (type == LINK_STATUS_REQ) {
@@ -616,7 +616,7 @@ static void prv_glance(AppGlanceReloadSession *session, size_t limit, void *cont
 #endif
 
 void talk_init(void) {
-  // Kyllene blue on white until the phone tells its accent.
+  // MotherBase blue on white until the phone tells its accent.
   s_fill = PBL_IF_COLOR_ELSE(GColorFromHEX(0x2F6BF5), GColorBlack);
   s_on_fill = GColorWhite;
   if (persist_exists(KEY_CHAT_ID)) persist_read_string(KEY_CHAT_ID, s_chat_id, sizeof(s_chat_id));

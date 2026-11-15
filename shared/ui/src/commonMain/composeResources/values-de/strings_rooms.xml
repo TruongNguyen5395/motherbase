@@ -53,7 +53,7 @@
     <string name="rooms_mention">Mitglied erwähnen</string>
     <string name="rooms_to">An %1$s</string>
     <string name="rooms_everyone">Alle</string>
-    <string name="rooms_file_no_owner">Kyllene weiß nicht, welchem Bot dieses Gateways diese Datei gehört.</string>
+    <string name="rooms_file_no_owner">MotherBase weiß nicht, welchem Bot dieses Gateways diese Datei gehört.</string>
     <string name="rooms_attachments_unsupported">Dieses Gateway unterstützt keine Anhänge in Räumen. Aktualisiere Hermes, um sie zu nutzen.</string>
     <string name="rooms_attachments_too_many">Bis zu %1$d Anhänge pro Raum-Nachricht.</string>
     <string name="rooms_attachment_size">Dateien im Raum müssen zwischen 1 Byte und %1$d MB groß sein.</string>

@@ -18,7 +18,7 @@ internal class SettingsPayload(val values: Map<String, String>, val legacyDigest
 
 internal class SettingsEnvelope(val nonce: ByteArray, val ciphertext: ByteArray, val token: String?) {
     companion object {
-        private const val FORMAT = "kyllene.settings.encrypted"
+        private const val FORMAT = "motherbase.settings.encrypted"
         private val base64 = Base64.getEncoder()
         private val unbase64 = Base64.getDecoder()
 

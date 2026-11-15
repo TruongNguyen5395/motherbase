@@ -199,10 +199,10 @@
     <string name="wallpaper_dialog_title">聊天背景</string>
     <string name="wallpaper_dialog_failed">无法打开文件对话框。</string>
     <string name="wallpaper_too_large">该照片太大或无法读取。</string>
-    <string name="wallpaper_not_an_image">该文件不是 Kyllene 能读取的图片。</string>
+    <string name="wallpaper_not_an_image">该文件不是 MotherBase 能读取的图片。</string>
     <string name="wallpaper_read_failed">无法读取该图片。</string>
 
-    <string name="update_renamed">Herald 现已更名为 Kyllene</string>
+    <string name="update_renamed">Herald 现已更名为 MotherBase</string>
     <string name="update_renamed_detail">同一个应用，换了新名字和新图标。你的登录、对话和设置都会保留。</string>
     <string name="update_got_it">知道了</string>
 
@@ -218,13 +218,13 @@
     <string name="gateways_rename_title">重命名网关</string>
     <string name="gateways_rename_detail">留空则显示地址。</string>
     <string name="gateways_remove_title">移除网关？</string>
-    <string name="gateways_remove_detail">Kyllene 会退出“%1$s”并忘记它。它的对话仍保留在网关上。</string>
-    <string name="gateways_client_cert_detail">当服务器要求时，Kyllene 会向“%1$s”出示此证书。密钥保存在系统存储中，只保存它的名称。</string>
+    <string name="gateways_remove_detail">MotherBase 会退出“%1$s”并忘记它。它的对话仍保留在网关上。</string>
+    <string name="gateways_client_cert_detail">当服务器要求时，MotherBase 会向“%1$s”出示此证书。密钥保存在系统存储中，只保存它的名称。</string>
     <string name="gateways_pick">选择…</string>
     <string name="gateways_change">更改…</string>
     <string name="gateways_clear">清除</string>
 
-    <string name="connect_welcome">欢迎使用 Kyllene</string>
+    <string name="connect_welcome">欢迎使用 MotherBase</string>
     <string name="connect_welcome_detail">连接到你的 Hermes Agent 网关。登录前不会发送任何内容。</string>
     <string name="connect_add_gateway">添加网关</string>
     <string name="connect_add_gateway_detail">连接到另一个 Hermes Agent 网关。你已保存的网关仍保持登录。</string>
@@ -289,7 +289,7 @@
     <string name="signin_signing_in">正在登录…</string>
     <string name="signin_with_browser">用浏览器登录</string>
     <string name="signin_waiting_browser">正在等待浏览器…</string>
-    <string name="signin_finish_in_browser">在打开的页面中完成登录。完成后 Kyllene 会自动返回。</string>
+    <string name="signin_finish_in_browser">在打开的页面中完成登录。完成后 MotherBase 会自动返回。</string>
     <string name="signin_different_gateway">使用其他网关</string>
     <string name="signin_gateway_chip">网关 %1$s</string>
     <string name="signin_or">或</string>
@@ -361,26 +361,26 @@
 
     <!-- Imported desktop client certificates. -->
     <string name="check_fix_client_cert_desktop">请导入该服务器要求的 PKCS#12 客户端证书，然后再次检查。</string>
-    <string name="check_fix_client_cert_unsupported">此版本的 Kyllene 无法出示客户端证书。请使用 Android 应用或 Linux Flatpak 连接此服务器。</string>
+    <string name="check_fix_client_cert_unsupported">此版本的 MotherBase 无法出示客户端证书。请使用 Android 应用或 Linux Flatpak 连接此服务器。</string>
     <string name="client_cert_import_title">导入客户端证书</string>
     <string name="client_cert_import">导入</string>
     <string name="client_cert_importing">正在导入…</string>
     <string name="client_cert_import_detail">请输入所选 PKCS#12 文件的密码。其密钥会针对此 TLS 主机名加密保存。共用此主机名的网关也共用证书选择，与端口或路径无关。</string>
     <string name="client_cert_password">PKCS#12 密码</string>
-    <string name="client_cert_invalid">Kyllene 无法打开此客户端证书。请检查密码，并选择只含一个未过期客户端证书、其对应私钥和证书链的 PKCS#12 文件。</string>
+    <string name="client_cert_invalid">MotherBase 无法打开此客户端证书。请检查密码，并选择只含一个未过期客户端证书、其对应私钥和证书链的 PKCS#12 文件。</string>
     <string name="client_cert_regular_file">请选择普通的 PKCS#12 文件。符号链接、设备和命名管道无法导入。</string>
     <string name="client_cert_read_failed">无法读取该 PKCS#12 文件。请重新选择，并检查文件访问权限。</string>
     <string name="client_cert_clear_selection">清除选择</string>
     <string name="connect_cert_kept_desktop">导入的密钥会针对此 TLS 主机名加密保存。清除此选择后，仍可能使用为同一主机名保存的其他证书。导入的密钥仍保留在加密设置中。</string>
-    <string name="gateways_client_cert_detail_desktop">当服务器要求时，Kyllene 会向“%1$s”出示此证书。导入的密钥会针对此 TLS 主机名加密保存。清除此选择后，仍可能使用为同一主机名保存的其他证书。导入的密钥仍保留在加密设置中。</string>
-    <string name="client_cert_storage_unavailable">Kyllene 无法获取其存储密钥。请解锁桌面密钥环，并检查其 Secret 门户是否可用，然后重试。</string>
+    <string name="gateways_client_cert_detail_desktop">当服务器要求时，MotherBase 会向“%1$s”出示此证书。导入的密钥会针对此 TLS 主机名加密保存。清除此选择后，仍可能使用为同一主机名保存的其他证书。导入的密钥仍保留在加密设置中。</string>
+    <string name="client_cert_storage_unavailable">MotherBase 无法获取其存储密钥。请解锁桌面密钥环，并检查其 Secret 门户是否可用，然后重试。</string>
     <string name="client_cert_storage_cancelled">存储解锁已取消。请重试以解锁；现有数据已保留。</string>
-    <string name="client_cert_storage_corrupt">Kyllene 无法打开其加密设置。请恢复一个正常的备份，或使用原来的应用标识。现有数据已保留。</string>
-    <string name="client_cert_storage_version">此设置格式需要其他版本的 Kyllene。现有数据已保留。</string>
-    <string name="client_cert_storage_read">Kyllene 无法读取其设置，或文件超过 16 MiB。请先检查文件访问权限再重试。</string>
-    <string name="client_cert_storage_write">Kyllene 无法完成保存或清理其设置。现有副本已保留；请先检查磁盘空间和文件访问权限再重试。</string>
-    <string name="client_cert_storage_uncertain">Kyllene 无法确认设置已保存。请检查文件访问权限，然后重试启动，或在进行其他更改前退出并重新启动。</string>
-    <string name="client_cert_storage_changed">设置已在此窗口之外更改。请退出并重新启动 Kyllene 以在保存前重新加载。</string>
+    <string name="client_cert_storage_corrupt">MotherBase 无法打开其加密设置。请恢复一个正常的备份，或使用原来的应用标识。现有数据已保留。</string>
+    <string name="client_cert_storage_version">此设置格式需要其他版本的 MotherBase。现有数据已保留。</string>
+    <string name="client_cert_storage_read">MotherBase 无法读取其设置，或文件超过 16 MiB。请先检查文件访问权限再重试。</string>
+    <string name="client_cert_storage_write">MotherBase 无法完成保存或清理其设置。现有副本已保留；请先检查磁盘空间和文件访问权限再重试。</string>
+    <string name="client_cert_storage_uncertain">MotherBase 无法确认设置已保存。请检查文件访问权限，然后重试启动，或在进行其他更改前退出并重新启动。</string>
+    <string name="client_cert_storage_changed">设置已在此窗口之外更改。请退出并重新启动 MotherBase 以在保存前重新加载。</string>
     <string name="client_cert_storage_legacy">发现了冲突或未完成的旧设置。现有文件已保留。请退出并处理较旧的副本后再重试。</string>
-    <string name="client_cert_storage_unsupported">Kyllene 无法验证其 Flatpak 应用标识。请先检查安装再重试。没有未加密的备用方案。</string>
+    <string name="client_cert_storage_unsupported">MotherBase 无法验证其 Flatpak 应用标识。请先检查安装再重试。没有未加密的备用方案。</string>
 </resources>

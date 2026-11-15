@@ -53,7 +53,7 @@
     <string name="rooms_mention">Tag megemlítése</string>
     <string name="rooms_to">Címzett: %1$s</string>
     <string name="rooms_everyone">Mindenki</string>
-    <string name="rooms_file_no_owner">A Kyllene nem tudja, ennek a Gateway-nek melyik botjáé ez a fájl.</string>
+    <string name="rooms_file_no_owner">A MotherBase nem tudja, ennek a Gateway-nek melyik botjáé ez a fájl.</string>
     <string name="rooms_attachments_unsupported">Ez a Gateway nem támogatja a szobamellékleteket. Frissítsd a Hermest a használatukhoz.</string>
     <string name="rooms_attachments_too_many">Szobaüzenetenként legfeljebb %1$d melléklet.</string>
     <string name="rooms_attachment_size">A szobafájloknak 1 bájt és %1$d MB között kell lenniük.</string>

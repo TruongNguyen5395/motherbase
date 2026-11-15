@@ -13,17 +13,17 @@
     <string name="wear_phone_reconnecting">Verbindet erneut</string>
     <string name="wear_phone_not_connected">Nicht verbunden</string>
     <string name="wear_phone_not_connected_detail">Dein Telefon ist nicht verbunden.</string>
-    <string name="wear_phone_no_app">Kyllene auf deinem Telefon hat nicht geantwortet. Öffne es dort oder aktualisiere es.</string>
-    <string name="wear_phone_signed_out">Melde dich zuerst in Kyllene auf deinem Telefon an.</string>
-    <string name="wear_phone_unreachable">Kyllene erreicht dein Gateway nicht. Prüfe es auf deinem Telefon.</string>
-    <string name="wear_phone_no_answer">Kyllene auf deinem Telefon hat nicht geantwortet. Versuch es noch einmal.</string>
+    <string name="wear_phone_no_app">MotherBase auf deinem Telefon hat nicht geantwortet. Öffne es dort oder aktualisiere es.</string>
+    <string name="wear_phone_signed_out">Melde dich zuerst in MotherBase auf deinem Telefon an.</string>
+    <string name="wear_phone_unreachable">MotherBase erreicht dein Gateway nicht. Prüfe es auf deinem Telefon.</string>
+    <string name="wear_phone_no_answer">MotherBase auf deinem Telefon hat nicht geantwortet. Versuch es noch einmal.</string>
     <string name="wear_phone_changed">Telefon gewechselt. Versuch es noch einmal.</string>
     <string name="wear_phone_unreachable_short">Dein Telefon ist nicht erreichbar.</string>
     <string name="wear_profile_changed">Profil auf dem Telefon gewechselt. Bitte versuch es noch einmal.</string>
     <string name="wear_profile_changed_short">Profil auf dem Telefon gewechselt. Versuch es noch einmal.</string>
-    <string name="wear_update_for_profiles">Aktualisiere Kyllene auf deinem Telefon für Anrufe mit Profilen.</string>
-    <string name="wear_update_for_bots">Aktualisiere Kyllene auf deinem Telefon, um mit Bots zu sprechen.</string>
-    <string name="wear_update_for_bot_calls">Aktualisiere Kyllene auf deinem Telefon, um Bots anzurufen.</string>
+    <string name="wear_update_for_profiles">Aktualisiere MotherBase auf deinem Telefon für Anrufe mit Profilen.</string>
+    <string name="wear_update_for_bots">Aktualisiere MotherBase auf deinem Telefon, um mit Bots zu sprechen.</string>
+    <string name="wear_update_for_bot_calls">Aktualisiere MotherBase auf deinem Telefon, um Bots anzurufen.</string>
     <string name="wear_call_target_changed">Anrufziel geändert. Tippe noch einmal auf Anrufen.</string>
     <string name="wear_default_call_target_changed">Standard-Anrufziel geändert. Tippe noch einmal auf Anrufen.</string>
 
@@ -46,7 +46,7 @@
     <string name="wear_waiting_on_phone">Wartet auf dich am Telefon</string>
     <string name="wear_thinking">Denkt nach …</string>
     <string name="wear_said">„%1$s“</string>
-    <string name="wear_needs_microphone">Kyllene braucht das Mikrofon, um dich zu hören.</string>
+    <string name="wear_needs_microphone">MotherBase braucht das Mikrofon, um dich zu hören.</string>
     <string name="wear_tap_allow_microphone">Tippe, um das Mikrofon zu erlauben.</string>
     <string name="wear_nothing_heard">Ich habe nichts gehört.</string>
     <string name="wear_microphone_failed">Das Mikrofon ließ sich nicht nutzen.</string>
@@ -95,7 +95,7 @@
     <string name="wear_read_aloud">Vorlesen</string>
     <string name="wear_read_aloud_detail">Jede Antwort</string>
     <string name="wear_assistant">Assistent</string>
-    <string name="wear_assistant_set">Kyllene antwortet auf die Taste</string>
+    <string name="wear_assistant_set">MotherBase antwortet auf die Taste</string>
     <string name="wear_assistant_refused">Nicht gesetzt. Tippe für einen neuen Versuch</string>
-    <string name="wear_assistant_unset">Kyllene als Assistent festlegen</string>
+    <string name="wear_assistant_unset">MotherBase als Assistent festlegen</string>
 </resources>

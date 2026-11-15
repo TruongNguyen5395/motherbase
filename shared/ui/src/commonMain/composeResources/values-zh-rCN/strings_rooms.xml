@@ -52,7 +52,7 @@
     <string name="rooms_mention">提及成员</string>
     <string name="rooms_to">发给 %1$s</string>
     <string name="rooms_everyone">所有人</string>
-    <string name="rooms_file_no_owner">Kyllene 无法判断此文件属于这个网关的哪个机器人。</string>
+    <string name="rooms_file_no_owner">MotherBase 无法判断此文件属于这个网关的哪个机器人。</string>
     <string name="rooms_attachments_unsupported">这个网关不支持房间附件。请更新 Hermes 后使用。</string>
     <string name="rooms_attachments_too_many">每条房间消息最多 %1$d 个附件。</string>
     <string name="rooms_attachment_size">房间文件大小须在 1 字节到 %1$d MB 之间。</string>

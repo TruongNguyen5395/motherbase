@@ -87,7 +87,7 @@ import java.awt.desktop.AppReopenedListener
 import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
 
-private const val TITLE = "Kyllene"
+private const val TITLE = "MotherBase"
 
 /** ⌘ stands where Ctrl does elsewhere. */
 private val mac = System.getProperty("os.name").orEmpty().startsWith("Mac")
@@ -95,7 +95,7 @@ private val mac = System.getProperty("os.name").orEmpty().startsWith("Mac")
 /**
  * macOS's own dialogs (+ attach, Export's Save) stay light Aqua unless told otherwise, whatever the screens show:
  * they follow the system's appearance instead. AWT reads this once as it starts, so it's set before anything else.
- * Kyllene's own theme can't be read that early: it's in storage that may first ask to be unlocked, with a dialog.
+ * MotherBase's own theme can't be read that early: it's in storage that may first ask to be unlocked, with a dialog.
  */
 internal fun followSystemAppearance(osName: String?) {
     if (osName.orEmpty().startsWith("Mac")) System.setProperty("apple.awt.application.appearance", "system")

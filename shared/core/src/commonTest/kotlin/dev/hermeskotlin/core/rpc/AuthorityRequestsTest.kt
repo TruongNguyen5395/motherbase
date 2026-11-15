@@ -58,8 +58,8 @@ class AuthorityRequestsTest {
         val client = connect(transport, authority = false)
         assertFalse(client.sessionAuthority)
 
-        val create = call(client, transport, "session.create", kylleneCreate())
-        assertEquals(kylleneCreate(), create)
+        val create = call(client, transport, "session.create", motherbaseCreate())
+        assertEquals(motherbaseCreate(), create)
         val submit = call(client, transport, "prompt.submit", buildJsonObject {
             put("session_id", "rt1")
             put("text", "hi")
@@ -73,7 +73,7 @@ class AuthorityRequestsTest {
         val client = connect(transport, authority = true)
         assertTrue(client.sessionAuthority)
 
-        val create = call(client, transport, "session.create", kylleneCreate())
+        val create = call(client, transport, "session.create", motherbaseCreate())
 
         // Every key is one tui_gateway/contracts/canonical_sessions.py CanonicalCreateParams declares.
         assertTrue(CANONICAL_CREATE_KEYS.containsAll(create.keys), "${create.keys - CANONICAL_CREATE_KEYS}")
@@ -171,7 +171,7 @@ class AuthorityRequestsTest {
     }
 
     /** A new chat's `session.create` as [dev.hermeskotlin.core.chat.ChatSession] makes it. */
-    private fun kylleneCreate() = buildJsonObject {
+    private fun motherbaseCreate() = buildJsonObject {
         put("profile", "work")
         put("source", "desktop")
         put("cols", 80)

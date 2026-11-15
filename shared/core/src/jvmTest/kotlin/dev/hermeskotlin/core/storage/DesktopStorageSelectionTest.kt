@@ -64,7 +64,7 @@ class DesktopStorageSelectionTest {
     }
 
     private fun fixture(block: suspend (File, File) -> Unit) = runBlocking {
-        val directory = Files.createTempDirectory("kyllene-storage-selection-").toFile()
+        val directory = Files.createTempDirectory("motherbase-storage-selection-").toFile()
         try { block(File(directory, "settings.json"), File(directory, ".flatpak-info")) }
         finally { directory.deleteRecursively() }
     }

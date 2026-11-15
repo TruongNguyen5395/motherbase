@@ -38,7 +38,7 @@ internal class LinuxColorScheme(
     private val stop = CountDownLatch(1)
     /** One answer at a time, in the order the portal gave them: a read at the start can't land after a newer change. */
     private val order = Any()
-    private val worker = thread(name = "kyllene-color-scheme", isDaemon = true) { run() }
+    private val worker = thread(name = "motherbase-color-scheme", isDaemon = true) { run() }
 
     /** Waits up to [millis] for the first answer, or for the failure to get one, so a first frame can have it. */
     fun awaitFirst(millis: Long): Boolean = first.await(millis, TimeUnit.MILLISECONDS)

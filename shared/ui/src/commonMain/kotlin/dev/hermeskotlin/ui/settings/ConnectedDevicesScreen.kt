@@ -47,7 +47,7 @@ import dev.hermeskotlin.wearlink.PebbleLink
 import kotlinx.coroutines.flow.drop
 import org.jetbrains.compose.resources.stringResource
 
-/** Settings › Connected devices: the watches Kyllene talks to, and how. Saved as it changes. */
+/** Settings › Connected devices: the watches MotherBase talks to, and how. Saved as it changes. */
 @Composable
 fun ConnectedDevicesScreen(settings: AppSettings, onUpdate: ((AppSettings) -> AppSettings) -> Unit, onBack: () -> Unit) {
     PlatformBackHandler(enabled = true, onBack = onBack)

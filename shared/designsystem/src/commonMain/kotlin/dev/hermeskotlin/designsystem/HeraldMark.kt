@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 val HeraldBrandBlue = Color(0xFF0053FD)
 
 /**
- * The app mark, the summit at dawn, in its own colors (draw it as an image, never tinted): Mount Kyllene with a
+ * The app mark, the summit at dawn, in its own colors (draw it as an image, never tinted): Mount MotherBase with a
  * lit face, a shaded face and a snowcap, the sun rising off its right shoulder, on a night sky. It is the default
  * launcher icon (ic_launcher_background.xml under ic_launcher_foreground.xml, shapes in launcher_icons.xml) as the
  * launcher shows it: the 108dp adaptive grid's middle 72, square, for the caller to clip to its shape.

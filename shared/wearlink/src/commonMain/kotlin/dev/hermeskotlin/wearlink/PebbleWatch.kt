@@ -11,7 +11,7 @@ enum class PebbleSent {
     /** The watch has it. */
     Sent,
 
-    /** Kyllene isn't the app open on the watch, or the watch is away: nothing gets there until it opens again. */
+    /** MotherBase isn't the app open on the watch, or the watch is away: nothing gets there until it opens again. */
     NotOpen,
 
     /** Lost on the way (a timeout, a NACK): worth another try. */
@@ -20,7 +20,7 @@ enum class PebbleSent {
 
 /**
  * What goes to one Pebble, in order and one message at a time, over [send]. The watch takes a message only while
- * Kyllene is the app open on it, and only about 2 KB at once, so:
+ * MotherBase is the app open on it, and only about 2 KB at once, so:
  *
  * - The turn's updates ([reply]) aren't each sent whole. The newest one wins, and the watch gets only what it lacks:
  *   the reply's text from the end of what the watch acknowledged, a chunk at a time, or again from where it changed when
@@ -64,7 +64,7 @@ class PebbleWatch(
         events.trySend(Event.Message(dict))
     }
 
-    /** Kyllene opened on the watch, which starts with nothing: what it should show goes again. */
+    /** MotherBase opened on the watch, which starts with nothing: what it should show goes again. */
     fun opened() {
         events.trySend(Event.Opened)
     }
@@ -85,7 +85,7 @@ class PebbleWatch(
         events.trySend(Event.Stopped(askId))
     }
 
-    /** Whether Kyllene is open on the watch, as far as the phone knows: read from any thread. */
+    /** Whether MotherBase is open on the watch, as far as the phone knows: read from any thread. */
     val isOpen: Boolean get() = open
 
     // Only the sending coroutine touches these ([open] is only read elsewhere).

@@ -174,7 +174,7 @@ class AttachmentUploads(private val client: HttpClient, private val clock: Clock
 
     companion object {
         /** The folder uploads wait in until they're attached. */
-        const val UPLOADS_FOLDER = ".kyllene-uploads"
+        const val UPLOADS_FOLDER = ".motherbase-uploads"
 
         /** How long the upload may make no progress before it gives up. */
         const val STALL_TIMEOUT_MS = 60_000L
@@ -221,7 +221,7 @@ private class MultipartUpload(
     var failure: AttachmentUploadException? = null
         private set
 
-    private val boundary = "kyllene-" + Random.nextLong().toULong().toString(16) + Random.nextLong().toULong().toString(16)
+    private val boundary = "motherbase-" + Random.nextLong().toULong().toString(16) + Random.nextLong().toULong().toString(16)
 
     override val contentType: ContentType = ContentType.MultiPart.FormData.withParameter("boundary", boundary)
 

@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
 
 class StorageStartupTest {
     @Test fun everyFailurePromptFitsA360PixelDisplayInEveryLanguage() {
-        val folder = "/home/a-much-longer-user-name/.var/app/app.kyllene.Kyllene.Devel/data/herald"
+        val folder = "/home/a-much-longer-user-name/.var/app/app.motherbase.MotherBase.Devel/data/herald"
         // Every prompt that's too wide, not only the first: fonts differ by system, so one run should name them all.
         val tooWide = mutableListOf<String>()
         for (language in LANGUAGES) withLocale(language) {

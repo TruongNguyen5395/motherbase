@@ -21,7 +21,7 @@ data class AgentScreen(val messages: List<String>, val surfaceIds: Set<String>, 
     internal val envelopes: List<A2uiEnvelope?> by lazy { messages.map(A2uiEnvelope::of) }
 
     /**
-     * Why these messages make a layout Kyllene won't draw, in words for the agent; null when they don't. A
+     * Why these messages make a layout MotherBase won't draw, in words for the agent; null when they don't. A
      * component that holds itself, or a screen nested too deep or with too many components, would take the app
      * down as it draws, every time the chat opens.
      */

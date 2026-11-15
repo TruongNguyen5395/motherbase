@@ -13,17 +13,17 @@
     <string name="wear_phone_reconnecting">Újrakapcsolódás</string>
     <string name="wear_phone_not_connected">Nincs kapcsolat</string>
     <string name="wear_phone_not_connected_detail">A telefonod nincs csatlakoztatva.</string>
-    <string name="wear_phone_no_app">A telefonodon lévő Kyllene nem válaszolt. Nyisd meg ott, vagy frissítsd.</string>
-    <string name="wear_phone_signed_out">Előbb jelentkezz be a Kyllene-be a telefonodon.</string>
-    <string name="wear_phone_unreachable">A Kyllene nem éri el a Gateway-edet. Ellenőrizd a telefonodon.</string>
-    <string name="wear_phone_no_answer">A telefonodon lévő Kyllene nem válaszolt. Próbáld újra.</string>
+    <string name="wear_phone_no_app">A telefonodon lévő MotherBase nem válaszolt. Nyisd meg ott, vagy frissítsd.</string>
+    <string name="wear_phone_signed_out">Előbb jelentkezz be a MotherBase-be a telefonodon.</string>
+    <string name="wear_phone_unreachable">A MotherBase nem éri el a Gateway-edet. Ellenőrizd a telefonodon.</string>
+    <string name="wear_phone_no_answer">A telefonodon lévő MotherBase nem válaszolt. Próbáld újra.</string>
     <string name="wear_phone_changed">A telefon megváltozott. Próbáld újra.</string>
     <string name="wear_phone_unreachable_short">Nem sikerült elérni a telefonodat.</string>
     <string name="wear_profile_changed">A telefon profilja megváltozott. Kérlek, próbáld újra.</string>
     <string name="wear_profile_changed_short">A telefon profilja megváltozott. Próbáld újra.</string>
-    <string name="wear_update_for_profiles">Frissítsd a Kyllene-t a telefonodon a profilalapú hívásokhoz.</string>
-    <string name="wear_update_for_bots">Frissítsd a Kyllene-t a telefonodon, hogy botokkal beszélhess.</string>
-    <string name="wear_update_for_bot_calls">Frissítsd a Kyllene-t a telefonodon, hogy botokat hívhass.</string>
+    <string name="wear_update_for_profiles">Frissítsd a MotherBase-t a telefonodon a profilalapú hívásokhoz.</string>
+    <string name="wear_update_for_bots">Frissítsd a MotherBase-t a telefonodon, hogy botokkal beszélhess.</string>
+    <string name="wear_update_for_bot_calls">Frissítsd a MotherBase-t a telefonodon, hogy botokat hívhass.</string>
     <string name="wear_call_target_changed">A hívás célja megváltozott. Koppints újra a Hívásra.</string>
     <string name="wear_default_call_target_changed">Az alapértelmezett hívási cél megváltozott. Koppints újra a Hívásra.</string>
 
@@ -46,7 +46,7 @@
     <string name="wear_waiting_on_phone">Rád vár a telefonodon</string>
     <string name="wear_thinking">Gondolkodik…</string>
     <string name="wear_said">„%1$s”</string>
-    <string name="wear_needs_microphone">A Kyllene-nek mikrofon kell, hogy halljon.</string>
+    <string name="wear_needs_microphone">A MotherBase-nek mikrofon kell, hogy halljon.</string>
     <string name="wear_tap_allow_microphone">Koppints a mikrofon engedélyezéséhez.</string>
     <string name="wear_nothing_heard">Nem hallottam semmit.</string>
     <string name="wear_microphone_failed">Nem sikerült használni a mikrofont.</string>
@@ -95,7 +95,7 @@
     <string name="wear_read_aloud">Felolvasás</string>
     <string name="wear_read_aloud_detail">Minden válasz</string>
     <string name="wear_assistant">Asszisztens</string>
-    <string name="wear_assistant_set">A Kyllene válaszol a gombra</string>
+    <string name="wear_assistant_set">A MotherBase válaszol a gombra</string>
     <string name="wear_assistant_refused">Nincs beállítva. Koppints az újrapróbáláshoz</string>
-    <string name="wear_assistant_unset">A Kyllene beállítása asszisztensként</string>
+    <string name="wear_assistant_unset">A MotherBase beállítása asszisztensként</string>
 </resources>
