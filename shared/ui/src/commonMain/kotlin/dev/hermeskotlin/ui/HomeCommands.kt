@@ -110,8 +110,6 @@ internal fun paletteItems(
         add(PaletteItem(go, newChat, Lucide.SquarePen, keysLabel("Ctrl+N"), "start", commands.newChat))
         add(PaletteItem(go, searchChats, Lucide.Search, keysLabel("Ctrl+Shift+F"), "find history") { commands.fire(Shortcut.SearchChats) })
         for ((page, icon, label) in pages) {
-            // The Inbox goes by a phone's push registration, which a desktop has none of.
-            if (page == SidebarPage.Inbox && isDesktop) continue
             // Without the switch the sidebar stays on the view picked in Settings, so neither side is a place to go.
             if (!modeSwitch && (page == SidebarPage.Chats || page == SidebarPage.Bots)) continue
             add(PaletteItem(go, label, icon, keywords = "sidebar page") { commands.fire(Shortcut.Go(page)) })

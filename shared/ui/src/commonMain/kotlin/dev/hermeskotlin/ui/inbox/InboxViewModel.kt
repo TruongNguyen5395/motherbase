@@ -517,7 +517,7 @@ class InboxViewModel(
             combine(push.status, settings.settings) { status, prefs -> status.state to (prefs?.pushAnywhere == true) }
                 .collect { (status, on) ->
                     val block = when {
-                        actionInboxActive -> null
+                        actionInboxActive || isDesktop -> null
                         !on || status == PushStatus.State.Off -> InboxBlock.PushOff
                         status == PushStatus.State.NotInstalled -> InboxBlock.PushOff
                         else -> null
@@ -1067,7 +1067,7 @@ class InboxViewModel(
         if (connection.state.value !is ConnectionState.Connected) return false
         val prefs = settings.settings.first { it != null }
         if (prefs?.pushAnywhere != true) {
-            _state.update { it.copy(block = InboxBlock.PushOff) }
+            if (!actionInboxActive && !isDesktop) _state.update { it.copy(block = InboxBlock.PushOff) }
             return false
         }
         return true

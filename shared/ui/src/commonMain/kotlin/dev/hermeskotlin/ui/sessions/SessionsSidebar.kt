@@ -718,7 +718,10 @@ fun SessionsSidebar(
                 val icon = navIcon(page)
                 val label = stringResource(navLabel(page))
                 when (page) {
-                    SidebarPage.Inbox -> NavLink(icon, label, badge = inboxUnread) { inboxOpen = true }
+                    SidebarPage.Inbox -> NavLink(icon, label, badge = inboxUnread, selected = pageInMain && inboxOpen) {
+                        closePages()
+                        inboxOpen = true
+                    }
                     SidebarPage.Scheduled -> NavLink(icon, label, selected = pageInMain && scheduledOpen) { closePages(); scheduledOpen = true }
                     SidebarPage.Insights -> NavLink(icon, label, selected = pageInMain && insightsOpen) { closePages(); insightsOpen = true }
                     SidebarPage.Capabilities -> NavLink(icon, label, selected = pageInMain && capabilitiesOpen) { closePages(); capabilitiesOpen = true }
@@ -1704,10 +1707,9 @@ internal val NAV_PAGES = listOf(
 )
 
 /**
- * The pages that can have a button in the sidebar on [desktop] or a phone. The Inbox goes by a phone's push
- * registration (Notifications anywhere), which a desktop has none of, so it would only ever say it can't load.
+ * The pages that can have a button in the sidebar on [desktop] or a phone (Action Inbox works on both over gateway RPC).
  */
-internal fun navPages(desktop: Boolean): List<SidebarPage> = NAV_PAGES.filter { !(desktop && it == SidebarPage.Inbox) }
+internal fun navPages(@Suppress("UNUSED_PARAMETER") desktop: Boolean): List<SidebarPage> = NAV_PAGES
 
 /** The page buttons the sidebar shows, in order, as [settings] leave them; all of them before the settings are read. */
 internal fun shownNavPages(settings: AppSettings?, desktop: Boolean): List<SidebarPage> =

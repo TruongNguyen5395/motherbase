@@ -26,9 +26,9 @@ class NavPagesTest {
     }
 
     @Test
-    fun aDesktopHasNoInbox() {
-        assertEquals(phonePages - SidebarPage.Inbox, shownNavPages(AppSettings(), desktop = true))
-        assertEquals(phonePages - SidebarPage.Inbox, navPages(desktop = true))
+    fun aDesktopIncludesInboxToo() {
+        assertEquals(phonePages, shownNavPages(AppSettings(), desktop = true))
+        assertEquals(phonePages, navPages(desktop = true))
     }
 
     @Test

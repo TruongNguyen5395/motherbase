@@ -1251,17 +1251,19 @@ internal fun FollowView(state: InboxUiState, viewModel: InboxActions) {
                 )
             }
         }
-        state.followingError?.let { error ->
-            item(key = "following-error") { FollowingNotice(error, onRetry = viewModel::chooseJobs) }
-        }
-        item(key = "all") { AllJobsRow(state.following.default, enabled = enabled, onSet = viewModel::setAll) }
-        item(key = "failures") {
-            FailuresRow(state.following.failures, enabled = enabled, onChange = viewModel::setFailures)
-        }
-        item(key = "label") { DayLabel(jobsLabel) }
-        // A job id is only unique in its profile's cron store.
-        items(state.jobs, key = { "${it.profile ?: "default"}/${it.id}" }) { job ->
-            FollowRow(job, state.following.of(job.id), enabled = enabled) { viewModel.setFollow(job, it) }
+        if (!isDesktop || state.followingLoaded || state.canEditFollowing) {
+            state.followingError?.let { error ->
+                item(key = "following-error") { FollowingNotice(error, onRetry = viewModel::chooseJobs) }
+            }
+            item(key = "all") { AllJobsRow(state.following.default, enabled = enabled, onSet = viewModel::setAll) }
+            item(key = "failures") {
+                FailuresRow(state.following.failures, enabled = enabled, onChange = viewModel::setFailures)
+            }
+            item(key = "label") { DayLabel(jobsLabel) }
+            // A job id is only unique in its profile's cron store.
+            items(state.jobs, key = { "${it.profile ?: "default"}/${it.id}" }) { job ->
+                FollowRow(job, state.following.of(job.id), enabled = enabled) { viewModel.setFollow(job, it) }
+            }
         }
     }
 }
