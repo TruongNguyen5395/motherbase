@@ -67,10 +67,11 @@ class MediaApi(
      * preview): up to the gateway's 512 KB cap, with whether it stopped short and whether the file
      * looked binary. [profile] picks the profile's backend when it runs in a sandbox.
      */
-    suspend fun readText(url: GatewayUrl, path: String, profile: String? = null): ApiResult<FileText> = apiCall {
+    suspend fun readText(url: GatewayUrl, path: String, profile: String? = null, sessionId: String? = null): ApiResult<FileText> = apiCall {
         client.get(url.resolve("api/fs/read-text")) {
             parameter("path", path)
             profile?.let { parameter("profile", it) }
+            sessionId?.let { parameter("session_id", it) }
         }
     }.map { response ->
         val body = response.body<ReadTextResponse>()
@@ -82,11 +83,12 @@ class MediaApi(
      * backend like the preview does), falling back to [file] on a gateway without it when no [profile]
      * is asked for.
      */
-    suspend fun download(url: GatewayUrl, path: String, profile: String? = null): ApiResult<ByteArray> {
+    suspend fun download(url: GatewayUrl, path: String, profile: String? = null, sessionId: String? = null): ApiResult<ByteArray> {
         // Streamed and counted: unlike the managed route, /api/fs/download has no size cap of its own.
         val result = client.prepareGet(url.resolve("api/fs/download")) {
             parameter("path", path)
             profile?.let { parameter("profile", it) }
+            sessionId?.let { parameter("session_id", it) }
         }.execute { response ->
             apiCall { response }.let { checked ->
                 if (checked !is ApiResult.Success) return@execute checked.map { ByteArray(0) }

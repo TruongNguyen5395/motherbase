@@ -852,6 +852,7 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                             return next != null
                         },
                         greetingPlaces = greetingPlaces,
+                        onRailWidthChange = if (isDesktop) { width -> sidebarWidthStore.update { it.copy(railWidth = width.value.roundToInt()) } } else null,
                     )
                 }
             }

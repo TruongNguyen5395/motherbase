@@ -892,7 +892,8 @@ class ChatViewModel(
 
     internal suspend fun previewFile(file: GatewayFile, owner: ChatTarget?): FileLoad {
         val gateway = owner?.gateway?.gatewayUrl ?: return FileLoad.Failed(FileProblem.NotConnected)
-        return media.fileLoad(gateway, file, owner.profile)
+        val sessionId = owner.storedSessionId ?: transcript.value.state.storedSessionId.takeIf { owner == target }
+        return media.fileLoad(gateway, file, owner.profile, sessionId)
     }
 
     /**
@@ -903,7 +904,8 @@ class ChatViewModel(
 
     internal suspend fun downloadFile(file: GatewayFile, owner: ChatTarget?): FileDownload {
         val gateway = owner?.gateway?.gatewayUrl ?: return FileDownload.Failed(FileProblem.NotConnected)
-        return media.fileDownload(gateway, file, owner.profile)
+        val sessionId = owner.storedSessionId ?: transcript.value.state.storedSessionId.takeIf { owner == target }
+        return media.fileDownload(gateway, file, owner.profile, sessionId)
     }
 
     /**
@@ -1488,15 +1490,15 @@ class ChatViewModel(
 }
 
 /** The start of gateway [file] for its viewer, read through [profile]; the reason in plain words when it can't be had. */
-internal suspend fun MediaApi.fileLoad(gateway: GatewayUrl, file: GatewayFile, profile: String?): FileLoad =
-    when (val result = readText(gateway, file.path, profile)) {
+internal suspend fun MediaApi.fileLoad(gateway: GatewayUrl, file: GatewayFile, profile: String?, sessionId: String? = null): FileLoad =
+    when (val result = readText(gateway, file.path, profile, sessionId)) {
         is ApiResult.Success -> FileLoad.Ready(result.value)
         else -> FileLoad.Failed(fileError(result))
     }
 
 /** The whole of gateway [file], read through [profile]: for Save, Share and a linked picture. */
-internal suspend fun MediaApi.fileDownload(gateway: GatewayUrl, file: GatewayFile, profile: String?): FileDownload =
-    when (val result = download(gateway, file.path, profile)) {
+internal suspend fun MediaApi.fileDownload(gateway: GatewayUrl, file: GatewayFile, profile: String?, sessionId: String? = null): FileDownload =
+    when (val result = download(gateway, file.path, profile, sessionId)) {
         is ApiResult.Success -> FileDownload.Ready(result.value)
         else -> FileDownload.Failed(fileError(result, whole = true))
     }

@@ -209,6 +209,8 @@ data class AppSettings(
     val zoom: Int = 100,
     /** Desktop: the sidebar's width in dp, as its edge was last dragged to. */
     val sidebarWidth: Int = 304,
+    /** Desktop: the right artifact/preview rail's width in dp, as its edge was last dragged to. */
+    val railWidth: Int = 420,
 )
 
 /** The Pebble's prompts until they're edited. */

@@ -83,6 +83,8 @@ import com.composables.icons.lucide.FileSpreadsheet
 import com.composables.icons.lucide.FileText
 import com.composables.icons.lucide.FileWarning
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Maximize2
+import com.composables.icons.lucide.Minimize2
 import dev.hermeskotlin.ui.shareIcon
 import com.composables.icons.lucide.WrapText
 import com.composeunstyled.Text
@@ -255,6 +257,10 @@ internal fun FileViewer(
     docked: Boolean = false,
     /** Already-loaded file content (e.g. an inline code artifact opened from a reply). */
     preset: FileLoad? = null,
+    /** When [docked], whether this viewer is popped out into a full-screen dialog over the chat. */
+    expanded: Boolean = false,
+    /** When [docked], toggles the full-screen popup dialog; null hides the expand button. */
+    onToggleExpand: (() -> Unit)? = null,
 ) {
     if (file == null) return
     // The files opened from links, the one from the reply first.
@@ -264,15 +270,24 @@ internal fun FileViewer(
     val pages = rememberSaveableStateHolder()
     // What the files below the top one showed, so Back finds a page as tall as it was and its scroll fits.
     val loaded = remember(file) { mutableMapOf<GatewayFile, FileLoad>() }
+    // Keep fetched PDF bytes while open so toggling the full-screen popup doesn't re-download them.
+    val pdfCache = remember(file) { mutableStateMapOf<GatewayFile, ByteArray>() }
+    val cachedDownload: suspend (GatewayFile) -> FileDownload = { target ->
+        pdfCache[target]?.let { FileDownload.Ready(it) } ?: download(target).also { got ->
+            if (got is FileDownload.Ready && target.kind == GatewayFileKind.Pdf) pdfCache[target] = got.bytes
+        }
+    }
     val scope = rememberCoroutineScope()
     val pictures = remember(file) { LinkedPictures(scope) }
     fun pageKey(index: Int) = "$index|${stack[index].path}"
     fun back() {
-        if (stack.size > 1) {
-            pages.removeState(pageKey(stack.lastIndex))
-            stack = stack.dropLast(1)
-        } else {
-            onDismiss()
+        when {
+            stack.size > 1 -> {
+                pages.removeState(pageKey(stack.lastIndex))
+                stack = stack.dropLast(1)
+            }
+            docked && expanded -> onToggleExpand?.invoke()
+            else -> onDismiss()
         }
     }
     val page = @Composable {
@@ -283,15 +298,17 @@ internal fun FileViewer(
                 top,
                 onDismiss = ::back,
                 load = { linked -> load(linked).also { if (it is FileLoad.Ready) loaded[linked] = it } },
-                download = download,
+                download = cachedDownload,
                 preset = loaded[top] ?: initialPreset,
                 canGoBack = stack.size > 1,
+                expanded = docked && expanded,
+                onToggleExpand = onToggleExpand.takeIf { docked },
                 onOpenFile = { linked ->
                     when {
                         // A link to a line of this same file: rendered Markdown has no lines to go to.
                         linked.path == top.path -> Unit
                         // A picture opens in the picture viewer, like one linked from a reply.
-                        linked.kind == GatewayFileKind.Image -> picture = ViewerImage(linked.name, fetch = { download(linked) })
+                        linked.kind == GatewayFileKind.Image -> picture = ViewerImage(linked.name, fetch = { cachedDownload(linked) })
                         else -> stack = stack + linked
                     }
                 },
@@ -300,10 +317,16 @@ internal fun FileViewer(
             )
         }
     }
-    // Docked, Esc steps back as the dialog's Back does: to the file below, then the rail closes.
-    // On the back stack, so a rail opened after a sidebar page closes before it.
-    PlatformBackHandler(enabled = docked) { back() }
-    if (docked) page() else Dialog(onDismissRequest = ::back, properties = fullScreenDialogProperties()) { page() }
+    // Docked, Esc steps back as the dialog's Back does: to the file below, then back to history / closed.
+    PlatformBackHandler(enabled = docked && !expanded) { back() }
+    if (docked && !expanded) {
+        page()
+    } else {
+        Dialog(
+            onDismissRequest = { if (docked && expanded) onToggleExpand?.invoke() else back() },
+            properties = fullScreenDialogProperties(),
+        ) { page() }
+    }
     picture?.let { ImageViewer(it, onDismiss = { picture = null }) }
 }
 
@@ -335,6 +358,8 @@ internal fun FileViewerPage(
     download: suspend (GatewayFile) -> FileDownload,
     preset: FileLoad? = null,
     canGoBack: Boolean = false,
+    expanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
     onOpenFile: (GatewayFile) -> Unit = {},
     onOpenPicture: (ViewerImage) -> Unit = {},
     pictures: LinkedPictures? = null,
@@ -407,7 +432,7 @@ internal fun FileViewerPage(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            IconButton(Lucide.ArrowLeft, contentDescription = stringResource(if (canGoBack) Res.string.common_back else Res.string.chat_close), onClick = onDismiss, tint = Theme[colors][textColor])
+            IconButton(Lucide.ArrowLeft, contentDescription = stringResource(if (canGoBack || expanded) Res.string.common_back else Res.string.chat_close), onClick = onDismiss, tint = Theme[colors][textColor])
             KindTile(kind)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
@@ -438,6 +463,13 @@ internal fun FileViewerPage(
                     withBytes { notice = Notice(actions.save(it, file.name)) }
                 })
                 IconButton(shareIcon, contentDescription = shareNamed(file.name), onClick = { withBytes { actions.share(it, file.name) } })
+            }
+            if (onToggleExpand != null) {
+                IconButton(
+                    if (expanded) Lucide.Minimize2 else Lucide.Maximize2,
+                    contentDescription = stringResource(if (expanded) Res.string.chat_file_collapse else Res.string.chat_file_expand),
+                    onClick = onToggleExpand,
+                )
             }
         }
 

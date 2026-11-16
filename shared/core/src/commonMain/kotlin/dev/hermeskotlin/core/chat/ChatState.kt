@@ -29,6 +29,8 @@ data class ToolActivity(
     val generatedImage: GeneratedImage? = null,
     /** For `phone_show_ui`: the screen the agent drew in the chat. */
     val agentScreen: AgentScreen? = null,
+    /** File paths written or patched by file-modification tools (`write_file`, `patch`, `edit_file`). */
+    val editedFiles: List<String> = emptyList(),
 )
 
 /** Why a tool's output was flagged (`tool.output_risk`): the scanner's finding ids. Advisory; nothing was blocked. */

@@ -141,4 +141,28 @@ class MediaApiFilesTest {
         val api = MediaApi(createHttpClient(MockEngine { respond("x".repeat(1_000), HttpStatusCode.OK) }), maxDownloadBytes = 1_000)
         assertEquals(1_000, assertIs<ApiResult.Success<ByteArray>>(api.download(url, "/ok.bin")).value.size)
     }
+
+    @Test
+    fun workspaceRelativeReadsAndDownloadsForwardSessionId() = runTest {
+        val queries = mutableListOf<String?>()
+        val api = MediaApi(createHttpClient(MockEngine { request ->
+            queries += "${request.url.encodedPath}?profile=${request.url.parameters["profile"]}&session=${request.url.parameters["session_id"]}"
+            if (request.url.encodedPath == "/api/fs/read-text") {
+                respond("""{"text":"ok","byteSize":2,"truncated":false,"binary":false}""", HttpStatusCode.OK, json)
+            } else {
+                respond("pdf", HttpStatusCode.OK)
+            }
+        }))
+
+        assertIs<ApiResult.Success<FileText>>(api.readText(url, "attachments/spec.pdf", profile = "default", sessionId = "s-42"))
+        assertIs<ApiResult.Success<ByteArray>>(api.download(url, "attachments/spec.pdf", profile = "default", sessionId = "s-42"))
+
+        assertEquals(
+            listOf(
+                "/api/fs/read-text?profile=default&session=s-42",
+                "/api/fs/download?profile=default&session=s-42",
+            ),
+            queries,
+        )
+    }
 }

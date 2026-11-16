@@ -90,7 +90,11 @@ class ShownAttachment(
     val gatewayPath: String? = null,
     /** The uploaded image itself, for opening it full size; only for images sent from here. */
     val original: ByteArray? = null,
-)
+) {
+    /** Returns a copy carrying the staged/stored path on the gateway. */
+    fun withGatewayPath(path: String): ShownAttachment =
+        ShownAttachment(key, name, kind, thumbnail, gatewayPath = path, original = original)
+}
 
 /** Desktop's prompt when only images go out (`use-prompt-actions/submit.ts`). */
 internal const val IMAGE_ONLY_PROMPT = "What do you see in this image?"
@@ -121,7 +125,7 @@ internal fun splitAttachmentRefs(text: String, keyPrefix: String): Pair<List<Sho
             val name = path.substringAfterLast('/')
             if (attachments.none { it.name == name }) {
                 val kind = if (name.endsWith(".pdf", ignoreCase = true)) AttachmentKind.Pdf else AttachmentKind.File
-                attachments += ShownAttachment("$keyPrefix-c${attachments.size}", name, kind)
+                attachments += ShownAttachment("$keyPrefix-c${attachments.size}", name, kind, gatewayPath = path)
             }
         }
     }
@@ -132,8 +136,8 @@ internal fun splitAttachmentRefs(text: String, keyPrefix: String): Pair<List<Sho
         if (attachments.any { it.name == name && it.kind != AttachmentKind.Image }) return@filter false
         attachments += when {
             match.groupValues[1] == "image" -> ShownAttachment("$keyPrefix-r${attachments.size}", name, AttachmentKind.Image, gatewayPath = path)
-            name.endsWith(".pdf", ignoreCase = true) -> ShownAttachment("$keyPrefix-r${attachments.size}", name, AttachmentKind.Pdf)
-            else -> ShownAttachment("$keyPrefix-r${attachments.size}", name, AttachmentKind.File)
+            name.endsWith(".pdf", ignoreCase = true) -> ShownAttachment("$keyPrefix-r${attachments.size}", name, AttachmentKind.Pdf, gatewayPath = path)
+            else -> ShownAttachment("$keyPrefix-r${attachments.size}", name, AttachmentKind.File, gatewayPath = path)
         }
         false
     }

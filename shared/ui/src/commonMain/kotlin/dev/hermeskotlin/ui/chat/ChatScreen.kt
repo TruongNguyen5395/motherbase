@@ -25,9 +25,11 @@ import dev.hermeskotlin.ui.isDesktop
 import dev.hermeskotlin.ui.frostedPanel
 import dev.hermeskotlin.ui.stepChat
 import dev.hermeskotlin.core.bots.MentionQuery
+import dev.hermeskotlin.core.chat.ChatArtifacts
 import dev.hermeskotlin.core.chat.PathRefKind
 import dev.hermeskotlin.core.chat.PathRefQuery
 import dev.hermeskotlin.core.chat.completion
+import dev.hermeskotlin.core.chat.extractChatArtifacts
 import dev.hermeskotlin.core.chat.pathRefQuery
 import dev.hermeskotlin.core.chat.screenViews
 import dev.hermeskotlin.core.projects.PathEntry
@@ -248,6 +250,7 @@ import dev.hermeskotlin.ui.bots.BotAvatar
 import dev.hermeskotlin.ui.bots.LocalBotFaces
 import dev.hermeskotlin.ui.bots.DecodedBotAvatar
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.PanelRight
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.RotateCw
@@ -430,6 +433,8 @@ fun ChatScreen(
     onNextChat: (() -> Boolean)? = null,
     /** The projects, profiles and gateways an empty new chat can start in instead, from its greeting. */
     greetingPlaces: GreetingPlaces? = null,
+    /** Persists a dragged desktop right-rail width when non-null. */
+    onRailWidthChange: ((Dp) -> Unit)? = null,
 ) {
     LaunchedEffect(target) { viewModel.open(target) }
     val transcript = viewModel.transcript.collectAsStateWithLifecycle().value
@@ -458,23 +463,22 @@ fun ChatScreen(
     val hasControl = state.control != null
     LaunchedEffect(hasControl) { if (!hasControl) controlOpen = false }
     var viewing by remember { mutableStateOf<ViewerImage?>(null) }
-    var previewing by remember { mutableStateOf<PreviewTarget?>(null) }
+    var previewing by remember(target) { mutableStateOf<PreviewTarget?>(null) }
+    var railExpanded by remember(target) { mutableStateOf(false) }
     var nextArtifactId by remember { mutableLongStateOf(0L) }
-    // On a wide desktop window a file opens in a rail beside the chat, as Hermes Desktop's right panel, which
-    // Ctrl+J puts away and brings back; a picture still opens in the picture viewer.
-    var railShown by remember { mutableStateOf(true) }
-    LaunchedEffect(previewing) { if (previewing != null) railShown = true }
-    // The chat's own width, not the window's: with the sidebar folded away there's room for the rail sooner.
-    var paneWidth by remember { mutableStateOf(0.dp) }
-    val wide = paneWidth >= RAIL_MIN_PANE
-    val docked = previewing?.let { isDesktop && wide && it.dockedEligible } == true
-    val railTarget = previewing.takeIf { docked && railShown }
+    val rightRail = rememberRightRailState()
+    val railScope = rememberCoroutineScope()
+    val railWidth = LocalAppSettings.current.railWidth.dp
+    val artifacts = remember(state.messages) { extractChatArtifacts(state.messages) }
+    LaunchedEffect(target) { if (!rightRail.docked && rightRail.isOpen) rightRail.close() }
+    val docked = previewing?.let { rightRail.docked && it.dockedEligible } == true
     // Over a sheet or a viewer, typing and shortcuts are the dialog's, not the chat's behind it.
     val dialogOpen = modelsOpen || attachOpen || petsOpen || journeyOpen || usageOpen || processesOpen ||
-        checkpointsOpen || controlOpen || viewing != null || (previewing != null && !docked)
-    // Esc in the rail is the viewer's own: back a file, then closed.
-    ShortcutHandler(enabled = keysEnabled && docked) { shortcut ->
-        (shortcut == Shortcut.ToggleRail).also { if (it) railShown = !railShown }
+        checkpointsOpen || controlOpen || viewing != null || (previewing != null && (!docked || railExpanded))
+    ShortcutHandler(enabled = keysEnabled && isDesktop) { shortcut ->
+        (shortcut == Shortcut.ToggleRail).also {
+            if (it) railScope.launch { rightRail.toggle() }
+        }
     }
     var notice by remember { mutableStateOf<String?>(null) }
     // The notices below are set from callbacks, outside composition, so their words are read here first.
@@ -587,7 +591,16 @@ fun ChatScreen(
     val refs = if (isDesktop) refChoices(mention, pathRef, pathEntries) else emptyList()
     val density = LocalDensity.current
     val modelPillBounds = remember { mutableStateOf<Rect?>(null) }
-    Box(Modifier.fillMaxSize().onSizeChanged { paneWidth = with(density) { it.width.toDp() } }) {
+    val openPreviewFile: (GatewayFile) -> Unit = { file ->
+        if (file.kind == GatewayFileKind.Image) {
+            viewing = ViewerImage(file.name, fetch = { viewModel.downloadFile(file) })
+        } else {
+            previewing = PreviewTarget.File(file)
+            railExpanded = false
+            if (rightRail.docked) railScope.launch { rightRail.open() }
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
     CompositionLocalProvider(LocalModelPillBounds provides modelPillBounds) {
     ChatView(
         // A bot's chat is titled "Bot Chat" on the gateway; the bot's name says more.
@@ -647,8 +660,12 @@ fun ChatScreen(
         onOpenControl = viewModel::openControl,
         onViewImage = { viewing = it },
         // The same file again, after Ctrl+J put the rail away, still has to bring it back.
-        onOpenFile = { previewing = PreviewTarget.File(it); railShown = true },
-        onOpenArtifact = { previewing = PreviewTarget.Artifact(it, ++nextArtifactId); railShown = true },
+        onOpenFile = openPreviewFile,
+        onOpenArtifact = {
+            previewing = PreviewTarget.Artifact(it, ++nextArtifactId)
+            railExpanded = false
+            if (rightRail.docked) railScope.launch { rightRail.open() }
+        },
         onNotice = { notice = it },
         wallpaper = rememberChatWallpaper(),
         place = target.gateway.label,
@@ -664,11 +681,42 @@ fun ChatScreen(
         focusComposer = focusComposer,
         keysEnabled = keysEnabled && !dialogOpen,
         attachmentPicker = attachmentPicker.takeIf { isDesktop },
-        rail = railTarget?.let { current ->
-            {
-                key(current) {
-                    PreviewTargetViewer(current, docked = true, onDismiss = { previewing = null }, viewModel = viewModel)
+        rightRailState = rightRail,
+        railWidth = railWidth,
+        onRailWidthChange = onRailWidthChange,
+        railOpen = rightRail.isOpen,
+        onToggleRail = { railScope.launch { rightRail.toggle() } },
+        rail = {
+            val current = previewing
+            if (current != null && docked) {
+                if (railExpanded) {
+                    ArtifactHistoryPanel(
+                        artifacts = artifacts,
+                        onOpenFile = openPreviewFile,
+                        onOpenImage = { viewing = it },
+                        onClose = { railScope.launch { rightRail.close() } },
+                    )
                 }
+                key(current) {
+                    PreviewTargetViewer(
+                        current = current,
+                        docked = true,
+                        expanded = railExpanded,
+                        onToggleExpand = { railExpanded = !railExpanded },
+                        onDismiss = {
+                            previewing = null
+                            railExpanded = false
+                        },
+                        viewModel = viewModel,
+                    )
+                }
+            } else {
+                ArtifactHistoryPanel(
+                    artifacts = artifacts,
+                    onOpenFile = openPreviewFile,
+                    onOpenImage = { viewing = it },
+                    onClose = { railScope.launch { rightRail.close() } },
+                )
             }
         },
     )
@@ -837,7 +885,12 @@ internal fun ChatView(
     keysEnabled: Boolean = true,
     /** Takes files dropped on the chat and pasted into it (the desktop's). */
     attachmentPicker: AttachmentPicker? = null,
-    /** A panel at the right, beside the conversation: the desktop's file rail. */
+    rightRailState: RightRailState = rememberRightRailState(),
+    railWidth: Dp = DEFAULT_RAIL_WIDTH,
+    onRailWidthChange: ((Dp) -> Unit)? = null,
+    railOpen: Boolean = false,
+    onToggleRail: (() -> Unit)? = null,
+    /** A panel at the right, beside the conversation on desktop or sliding over on mobile. */
     rail: (@Composable () -> Unit)? = null,
 ) {
     val canAttach = attachmentPicker != null && connected && attachments.size < OutgoingAttachment.MAX_COUNT
@@ -867,40 +920,31 @@ internal fun ChatView(
             val key = readAloud.key ?: return@LaunchedEffect
             if (state.historyLoaded && state.messages.none { it.key == key }) actions.stopReading()
         }
-        // The rail takes the right of the screen; the conversation centres in what's left.
-        if (rail != null) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .width(RAIL_WIDTH)
-                    .fillMaxHeight()
-                    .background(Theme[colors][background])
-                    .border(1.dp, Theme[colors][stroke]),
-            ) { rail() }
-        }
-        Column(
-            Modifier
-                .padding(end = if (rail != null) RAIL_WIDTH else 0.dp)
-                // A desktop window's chat takes its whole width, so the bar's buttons sit at its edges and the
-                // scrollbar and the wheel work at the window's side; the reading column inside keeps to READING_WIDTH.
-                .then(if (isDesktop) Modifier else Modifier.widthIn(max = READING_WIDTH))
-                .fillMaxSize()
-                // The insets pad the chat only, so the voice screen can reach under the status bar.
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                .imePadding()
-                // Under the voice screen the chat is out of reach, TalkBack included.
-                .then(if (voiceFull) Modifier.clearAndSetSemantics {} else Modifier),
-        ) {
-            TopBar(
-                title = title,
-                titleFace = titleFace,
-                status = chatStatus(state, connected, connectionLabel, place),
-                onOpenSidebar = onOpenSidebar,
-                onNewChat = onNewChat,
-                onOpenMenu = onOpenMenu,
-                sessionsBadge = sessionsBadge,
-                onNextChat = onNextChat,
-            )
+        val chatContent: @Composable (Modifier) -> Unit = { railModifier ->
+            Column(
+                railModifier
+                    // A desktop window's chat takes its whole width, so the bar's buttons sit at its edges and the
+                    // scrollbar and the wheel work at the window's side; the reading column inside keeps to READING_WIDTH.
+                    .then(if (isDesktop) Modifier else Modifier.widthIn(max = READING_WIDTH))
+                    .fillMaxSize()
+                    // The insets pad the chat only, so the voice screen can reach under the status bar.
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                    .imePadding()
+                    // Under the voice screen the chat is out of reach, TalkBack included.
+                    .then(if (voiceFull) Modifier.clearAndSetSemantics {} else Modifier),
+            ) {
+                TopBar(
+                    title = title,
+                    titleFace = titleFace,
+                    status = chatStatus(state, connected, connectionLabel, place),
+                    onOpenSidebar = onOpenSidebar,
+                    onNewChat = onNewChat,
+                    onOpenMenu = onOpenMenu,
+                    sessionsBadge = sessionsBadge,
+                    onNextChat = onNextChat,
+                    railOpen = railOpen,
+                    onToggleRail = onToggleRail,
+                )
             // The composer floats over the conversation, which scrolls on beneath it; its height pads the list.
             var dockHeight by remember { mutableIntStateOf(0) }
             val dockInset = with(LocalDensity.current) { dockHeight.toDp() }
@@ -1253,6 +1297,19 @@ internal fun ChatView(
                     )
                 }
             }
+        }
+        }
+        if (rail != null) {
+            RightRailLayout(
+                state = rightRailState,
+                railWidth = railWidth,
+                onRailWidthChange = onRailWidthChange,
+                swipeEnabled = !isDesktop && !voiceFull,
+                rail = rail,
+                content = chatContent,
+            )
+        } else {
+            chatContent(Modifier)
         }
         AnimatedVisibility(visible = voiceFull, enter = fadeIn(), exit = fadeOut()) {
             val replyText = (state.messages.lastOrNull { it is ChatMessage.Assistant && it.text.isNotBlank() } as? ChatMessage.Assistant)?.text
@@ -1612,6 +1669,8 @@ internal fun TopBar(
     sessionsBadge: SessionsBadge = SessionsBadge(),
     /** A long press on Sessions: the next chat needing the user. */
     onNextChat: (() -> Unit)? = null,
+    railOpen: Boolean = false,
+    onToggleRail: (() -> Unit)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().clearOfWindowControls().padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 8.dp),
@@ -1652,6 +1711,15 @@ internal fun TopBar(
                 trailing()
             } else {
                 BarButton(Lucide.SquarePen, stringResource(Res.string.chat_new_chat), onClick = { onNewChat?.invoke() }, enabled = onNewChat != null, keys = "Ctrl+N")
+                if (onToggleRail != null) {
+                    BarButton(
+                        Lucide.PanelRight,
+                        stringResource(if (railOpen) Res.string.chat_artifacts_hide else Res.string.chat_artifacts_show),
+                        onClick = onToggleRail,
+                        tint = if (railOpen) Theme[colors][accentText] else Theme[colors][textSecondary],
+                        keys = if (isDesktop) "Ctrl+J" else null,
+                    )
+                }
                 // A plain holder: only the click reads it. The desktop's menu hangs from the button.
                 val menuButton = remember { arrayOfNulls<Rect>(1) }
                 BarButton(
@@ -3341,12 +3409,6 @@ internal fun refChoices(mention: MentionQuery?, ref: PathRefQuery?, entries: Lis
 
 private const val MAX_REF_CHOICES = 8
 
-/** How wide the desktop's file rail is. */
-private val RAIL_WIDTH = 420.dp
-
-/** The narrowest chat that docks a file in the rail: room for the rail and a conversation beside it. */
-private val RAIL_MIN_PANE = 880.dp
-
 /** How long typing in a path rests before the gateway is asked for the folder's entries. */
 private const val PATH_COMPLETION_DELAY_MS = 150L
 
@@ -4562,10 +4624,25 @@ private sealed interface PreviewTarget {
 }
 
 @Composable
-private fun PreviewTargetViewer(current: PreviewTarget, docked: Boolean, onDismiss: () -> Unit, viewModel: ChatViewModel) {
+private fun PreviewTargetViewer(
+    current: PreviewTarget,
+    docked: Boolean,
+    expanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
+    onDismiss: () -> Unit,
+    viewModel: ChatViewModel,
+) {
     when (current) {
         is PreviewTarget.File -> if (docked) {
-            FileViewer(current.file, onDismiss = onDismiss, load = viewModel::previewFile, download = viewModel::downloadFile, docked = true)
+            FileViewer(
+                current.file,
+                onDismiss = onDismiss,
+                load = viewModel::previewFile,
+                download = viewModel::downloadFile,
+                docked = true,
+                expanded = expanded,
+                onToggleExpand = onToggleExpand,
+            )
         } else {
             GatewayFileViewer(current.file, onDismiss = onDismiss, load = viewModel::previewFile, download = viewModel::downloadFile)
         }
@@ -4576,6 +4653,8 @@ private fun PreviewTargetViewer(current: PreviewTarget, docked: Boolean, onDismi
             download = { FileDownload.Ready(current.bytes) },
             docked = docked,
             preset = current.load,
+            expanded = expanded,
+            onToggleExpand = onToggleExpand,
         )
     }
 }

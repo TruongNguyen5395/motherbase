@@ -278,7 +278,13 @@ class ChatSession(
             val runtimeId = ensureAttached(client)
             uploadClient = client
             uploadRuntimeId = runtimeId
-            attachments.forEach { a -> upload(client, runtimeId, a, queuedImages, key)?.let { files += it to a.toShown() } }
+            val uploadedPaths = mutableMapOf<String, String>()
+            attachments.forEach { a ->
+                val uploaded = upload(client, runtimeId, a, queuedImages, key)
+                val shown = uploaded.gatewayPath?.let { a.toShown().withGatewayPath(it) } ?: a.toShown()
+                uploaded.gatewayPath?.let { uploadedPaths[a.id] = it }
+                uploaded.refText?.let { files += it to shown }
+            }
             val refs = files.map { (ref, _) -> ref }
             submitted = true
             val result = client.request(
@@ -304,8 +310,14 @@ class ChatSession(
             _state.update { state ->
                 val sent = state.copy(
                     running = true,
-                    messages = state.messages.updateUser(key) {
-                        it.copy(pending = false, queued = status == "queued", rowId = rowId, sentText = sentText)
+                    messages = state.messages.updateUser(key) { u ->
+                        u.copy(
+                            pending = false,
+                            queued = status == "queued",
+                            rowId = rowId,
+                            sentText = sentText,
+                            attachments = u.attachments.map { att -> uploadedPaths[att.key]?.let(att::withGatewayPath) ?: att },
+                        )
                     },
                 )
                 // What streamed before the correction stays above it; the rest of the turn continues below.
@@ -584,15 +596,17 @@ class ChatSession(
      * comes back as the `@file:` reference to put in the prompt, which this returns. Bubble [key] shows
      * how far a large one has gone up.
      */
+    private data class UploadedAttachment(val refText: String?, val gatewayPath: String?)
+
     private suspend fun upload(
         client: JsonRpcClient,
         runtimeId: String,
         attachment: OutgoingAttachment,
         queuedImages: MutableList<String>,
         key: String,
-    ): String? {
+    ): UploadedAttachment {
         val failure = "Couldn't attach ${attachment.name}"
-        suspend fun asFile(): String {
+        suspend fun asFile(): UploadedAttachment {
             val result = client.request(
                 "file.attach",
                 buildJsonObject {
@@ -602,7 +616,8 @@ class ChatSession(
                 },
                 timeoutMs = UPLOAD_TIMEOUT_MS,
             ) as? JsonObject
-            return result.string("ref_text")?.takeIf { result.boolean("attached") == true } ?: throw RpcException(0, failure)
+            val refText = result.string("ref_text")?.takeIf { result.boolean("attached") == true } ?: throw RpcException(0, failure)
+            return UploadedAttachment(refText, result.string("path") ?: result.string("ref_path"))
         }
         if (!attachment.inline) return uploadStaged(client, runtimeId, attachment, key)
         return when (attachment.kind) {
@@ -617,8 +632,8 @@ class ChatSession(
                     timeoutMs = UPLOAD_TIMEOUT_MS,
                 ) as? JsonObject
                 if (result.boolean("attached") != true) throw RpcException(0, result.string("message") ?: failure)
-                result.string("path")?.let(queuedImages::add)
-                null
+                val path = result.string("path")?.also(queuedImages::add)
+                UploadedAttachment(null, path)
             }
             AttachmentKind.Pdf, AttachmentKind.File -> asFile()
         }
@@ -635,7 +650,7 @@ class ChatSession(
         runtimeId: String,
         attachment: OutgoingAttachment,
         key: String,
-    ): String? {
+    ): UploadedAttachment {
         fun show(progress: UploadProgress?) =
             _state.update { it.copy(messages = it.messages.updateUser(key) { u -> u.copy(upload = progress) }) }
         var shown = UploadProgress(attachment.name, 0, attachment.size)
@@ -664,8 +679,9 @@ class ChatSession(
             ) as? JsonObject
             // `uploaded: false` is a file referenced where it is (in the chat's workspace), which has to stay.
             usedInPlace = result.boolean("uploaded")?.not() ?: (result.string("path") == staged.path)
-            return result.string("ref_text")?.takeIf { result.boolean("attached") == true }
+            val refText = result.string("ref_text")?.takeIf { result.boolean("attached") == true }
                 ?: throw RpcException(0, "Couldn't attach ${attachment.name}")
+            return UploadedAttachment(refText, result.string("path") ?: result.string("ref_path") ?: staged.path)
         } finally {
             if (!usedInPlace) {
                 withContext(NonCancellable) {

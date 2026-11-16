@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
@@ -185,6 +186,7 @@ fun ChatWindow(
                                     onOpenChat = { id, title -> onShown(ChatTarget(shown.gateway, id, title, profile = shown.profile)) },
                                     onSwitchProfile = {},
                                     viewModel = chat,
+                                    onRailWidthChange = { width -> koin.get<SettingsStore>().update { it.copy(railWidth = width.value.roundToInt()) } },
                                 )
                             }
                         }
