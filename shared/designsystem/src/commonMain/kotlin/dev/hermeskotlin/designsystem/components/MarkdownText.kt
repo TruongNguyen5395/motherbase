@@ -51,7 +51,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.Copy
+import com.composables.icons.lucide.Eye
 import com.composables.icons.lucide.Lucide
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.composeunstyled.Text
 import com.composeunstyled.theme.Theme
 import androidx.compose.ui.graphics.Color
@@ -349,6 +351,20 @@ private fun DisplayFormula(formula: MathFormula, math: MathStyle) {
  */
 val LocalFileLinks = staticCompositionLocalOf<((String) -> Unit)?> { null }
 
+/** A fenced code block that can be rendered visually (`html`, `svg`, `mermaid`). */
+data class CodeArtifact(val language: String, val content: String)
+
+/** Opens a [CodeArtifact] in the app's preview panel; null shows code blocks with Copy only. */
+val LocalCodePreview = staticCompositionLocalOf<((CodeArtifact) -> Unit)?> { null }
+
+/** Canonical preview language (`html`, `svg`, `mermaid`) for a fenced block's info string, or null. */
+internal fun previewableArtifactLanguage(language: String?): String? = when (language?.trim()?.lowercase()) {
+    "html", "htm" -> "html"
+    "svg" -> "svg"
+    "mermaid", "mmd" -> "mermaid"
+    else -> null
+}
+
 /** A picture a Markdown image links to, as the screen's loader has it. */
 sealed interface MarkdownPicture {
     data object Loading : MarkdownPicture
@@ -514,6 +530,13 @@ private fun CodeBlock(code: String, language: String?, style: TextStyle) {
                 color = Theme[colors][textTertiary],
                 modifier = Modifier.weight(1f),
             )
+            val previewLang = remember(language) { previewableArtifactLanguage(language) }
+            val onPreview = LocalCodePreview.current
+            if (previewLang != null && onPreview != null && shown.isNotBlank()) {
+                HeaderPill(Lucide.Eye, LocalDesignWords.current.preview) {
+                    onPreview(CodeArtifact(previewLang, shown))
+                }
+            }
             CopyPill(code)
         } }
         val scroll = rememberScrollState()
@@ -590,9 +613,15 @@ private fun rememberCopy(text: String): Pair<Boolean, () -> Unit> {
 @Composable
 private fun CopyPill(text: String) {
     val (copied, copy) = rememberCopy(text)
+    val words = LocalDesignWords.current
+    HeaderPill(if (copied) Lucide.Check else Lucide.Copy, if (copied) words.copied else words.copy, copy)
+}
+
+@Composable
+private fun HeaderPill(icon: ImageVector, label: String, onClick: () -> Unit) {
     val tint = Theme[colors][textTertiary]
     UnstyledButton(
-        onClick = copy,
+        onClick = onClick,
         modifier = Modifier.height(40.dp).handCursor().clip(RoundedCornerShape(Theme[radii][radiusSmall])),
         indication = rememberHoverIndication(tint),
         contentPadding = PaddingValues(horizontal = 4.dp),
@@ -602,9 +631,8 @@ private fun CopyPill(text: String) {
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            UnstyledIcon(if (copied) Lucide.Check else Lucide.Copy, contentDescription = null, tint = tint, modifier = Modifier.size(11.dp))
-            val words = LocalDesignWords.current
-            Text(if (copied) words.copied else words.copy, style = Theme[typography][caption], color = tint)
+            UnstyledIcon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(11.dp))
+            Text(label, style = Theme[typography][caption], color = tint)
         }
     }
 }

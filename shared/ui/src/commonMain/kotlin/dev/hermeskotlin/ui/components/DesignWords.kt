@@ -17,6 +17,7 @@ fun rememberDesignWords(): DesignWords = DesignWords(
     dismiss = stringResource(Res.string.app_dismiss),
     copy = stringResource(Res.string.app_copy),
     copied = stringResource(Res.string.app_copied),
+    preview = stringResource(Res.string.chat_file_preview),
     openPicture = stringResource(Res.string.app_open_picture),
     pictureFailed = stringResource(Res.string.app_picture_failed),
 )

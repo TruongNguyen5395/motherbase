@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.animation.core.Animatable
@@ -69,8 +70,11 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Stable
 import dev.hermeskotlin.core.chat.linkFileUris
+import dev.hermeskotlin.core.media.FileText
 import dev.hermeskotlin.core.media.GatewayFile
 import dev.hermeskotlin.core.media.LinkPreview
+import dev.hermeskotlin.designsystem.components.CodeArtifact
+import dev.hermeskotlin.designsystem.components.LocalCodePreview
 import dev.hermeskotlin.designsystem.components.LocalFileLinks
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
@@ -454,7 +458,8 @@ fun ChatScreen(
     val hasControl = state.control != null
     LaunchedEffect(hasControl) { if (!hasControl) controlOpen = false }
     var viewing by remember { mutableStateOf<ViewerImage?>(null) }
-    var previewing by remember { mutableStateOf<GatewayFile?>(null) }
+    var previewing by remember { mutableStateOf<PreviewTarget?>(null) }
+    var nextArtifactId by remember { mutableLongStateOf(0L) }
     // On a wide desktop window a file opens in a rail beside the chat, as Hermes Desktop's right panel, which
     // Ctrl+J puts away and brings back; a picture still opens in the picture viewer.
     var railShown by remember { mutableStateOf(true) }
@@ -462,8 +467,8 @@ fun ChatScreen(
     // The chat's own width, not the window's: with the sidebar folded away there's room for the rail sooner.
     var paneWidth by remember { mutableStateOf(0.dp) }
     val wide = paneWidth >= RAIL_MIN_PANE
-    val docked = previewing?.let { isDesktop && wide && it.kind != GatewayFileKind.Image } == true
-    val railFile = previewing.takeIf { docked && railShown }
+    val docked = previewing?.let { isDesktop && wide && it.dockedEligible } == true
+    val railTarget = previewing.takeIf { docked && railShown }
     // Over a sheet or a viewer, typing and shortcuts are the dialog's, not the chat's behind it.
     val dialogOpen = modelsOpen || attachOpen || petsOpen || journeyOpen || usageOpen || processesOpen ||
         checkpointsOpen || controlOpen || viewing != null || (previewing != null && !docked)
@@ -642,7 +647,8 @@ fun ChatScreen(
         onOpenControl = viewModel::openControl,
         onViewImage = { viewing = it },
         // The same file again, after Ctrl+J put the rail away, still has to bring it back.
-        onOpenFile = { previewing = it; railShown = true },
+        onOpenFile = { previewing = PreviewTarget.File(it); railShown = true },
+        onOpenArtifact = { previewing = PreviewTarget.Artifact(it, ++nextArtifactId); railShown = true },
         onNotice = { notice = it },
         wallpaper = rememberChatWallpaper(),
         place = target.gateway.label,
@@ -658,9 +664,11 @@ fun ChatScreen(
         focusComposer = focusComposer,
         keysEnabled = keysEnabled && !dialogOpen,
         attachmentPicker = attachmentPicker.takeIf { isDesktop },
-        rail = railFile?.let { file ->
+        rail = railTarget?.let { current ->
             {
-                FileViewer(file, onDismiss = { previewing = null }, load = viewModel::previewFile, download = viewModel::downloadFile, docked = true)
+                key(current) {
+                    PreviewTargetViewer(current, docked = true, onDismiss = { previewing = null }, viewModel = viewModel)
+                }
             }
         },
     )
@@ -710,12 +718,11 @@ fun ChatScreen(
         onDismiss = { controlOpen = false },
     )
     // A linked picture opens in the picture viewer, like one the reply delivered. A file docked in the rail has it.
-    GatewayFileViewer(
-        file = previewing.takeIf { !docked },
-        onDismiss = { previewing = null },
-        load = viewModel::previewFile,
-        download = viewModel::downloadFile,
-    )
+    previewing.takeIf { !docked }?.let { current ->
+        key(current) {
+            PreviewTargetViewer(current, docked = false, onDismiss = { previewing = null }, viewModel = viewModel)
+        }
+    }
     viewing?.let { image ->
         CompositionLocalProvider(LocalMediaLoader provides viewModel::loadMedia) {
             ImageViewer(image, onDismiss = { viewing = null })
@@ -806,6 +813,8 @@ internal fun ChatView(
     onViewImage: (ViewerImage) -> Unit,
     /** A tapped link to a file on the gateway. */
     onOpenFile: (GatewayFile) -> Unit = {},
+    /** An inline code block opened as an HTML, SVG or Mermaid artifact. */
+    onOpenArtifact: (CodeArtifact) -> Unit = {},
     onNotice: (String) -> Unit,
     /** The chat background from Settings, drawn behind the conversation (and frosted under the composer). */
     wallpaper: ImageBitmap? = null,
@@ -1081,6 +1090,7 @@ internal fun ChatView(
                             LocalLinkPreviewLoader provides linkPreviewLoader,
                             LocalOpenImage provides onViewImage,
                             LocalFileLinks provides { link -> GatewayFile.fromLink(link)?.let(onOpenFile) },
+                            LocalCodePreview provides onOpenArtifact,
                             LocalNotice provides onNotice,
                             LocalSubagents provides SubagentContext(state.subagents, actions::stopSubagent),
                             LocalAgentScreenChat provides state.storedSessionId,
@@ -4525,3 +4535,47 @@ private fun Modifier.trimEndTop(end: Dp, top: Dp) = layout { measurable, constra
 /** What [trimEndTop] leaves of a [width] by [height] element, never below nothing: the largest text can squeeze one narrower than its trim. */
 internal fun trimmedSize(width: Int, height: Int, end: Int, top: Int): IntSize =
     IntSize((width - end).coerceAtLeast(0), (height - top).coerceAtLeast(0))
+
+private sealed interface PreviewTarget {
+    val dockedEligible: Boolean
+
+    data class File(val file: GatewayFile) : PreviewTarget {
+        override val dockedEligible: Boolean get() = file.kind != GatewayFileKind.Image
+    }
+
+    data class Artifact(val artifact: CodeArtifact, val id: Long) : PreviewTarget {
+        private val ext: String
+            get() = when (artifact.language) {
+                "html" -> "html"
+                "svg" -> "svg"
+                "mermaid" -> "mmd"
+                else -> "txt"
+            }
+
+        val bytes: ByteArray by lazy { artifact.content.encodeToByteArray() }
+        val file: GatewayFile = GatewayFile("Chat artifact/artifact-$id.$ext")
+        val load: FileLoad.Ready by lazy {
+            FileLoad.Ready(FileText(artifact.content, bytes.size.toLong(), truncated = false, binary = false, language = artifact.language))
+        }
+        override val dockedEligible: Boolean get() = true
+    }
+}
+
+@Composable
+private fun PreviewTargetViewer(current: PreviewTarget, docked: Boolean, onDismiss: () -> Unit, viewModel: ChatViewModel) {
+    when (current) {
+        is PreviewTarget.File -> if (docked) {
+            FileViewer(current.file, onDismiss = onDismiss, load = viewModel::previewFile, download = viewModel::downloadFile, docked = true)
+        } else {
+            GatewayFileViewer(current.file, onDismiss = onDismiss, load = viewModel::previewFile, download = viewModel::downloadFile)
+        }
+        is PreviewTarget.Artifact -> FileViewer(
+            current.file,
+            onDismiss = onDismiss,
+            load = { current.load },
+            download = { FileDownload.Ready(current.bytes) },
+            docked = docked,
+            preset = current.load,
+        )
+    }
+}

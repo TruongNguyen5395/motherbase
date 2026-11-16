@@ -880,4 +880,32 @@ class ChatViewModelTest {
         assertEquals(again, vm.readPosition.value?.target)
     }
 
+    @Test
+    fun loadMediaReadsWorkspaceAndProfilePicturesWithManagedFallback() = runTest(dispatcher) {
+        val requests = mutableListOf<String>()
+        val fsBytes = byteArrayOf(1, 2, 3, 4)
+        val managedBytes = byteArrayOf(9, 8, 7)
+        val (vm, _) = viewModel(readState = { request ->
+            val path = request.url.encodedPath
+            val fileParam = request.url.parameters["path"]
+            val profile = request.url.parameters["profile"]
+            requests += "$path|$fileParam|$profile"
+            when {
+                path == "/api/fs/download" && fileParam == "/opt/data/workspace/chart.png" && profile == "scribe" ->
+                    respond(fsBytes, HttpStatusCode.OK)
+                path == "/api/fs/download" && fileParam == "/tmp/cache/shot.png" ->
+                    respond("Not found", HttpStatusCode.NotFound)
+                path == "/api/files/download" && fileParam == "/tmp/cache/shot.png" ->
+                    respond(managedBytes, HttpStatusCode.OK)
+                else -> respond("Not found", HttpStatusCode.NotFound)
+            }
+        })
+        vm.open(ChatTarget(gateway, "s1", "Chat", profile = "scribe"))
+        runCurrent()
+        assertTrue(assertNotNull(vm.loadMedia("/opt/data/workspace/chart.png")).contentEquals(fsBytes))
+        assertTrue(assertNotNull(vm.loadMedia("file:///tmp/cache/shot.png")).contentEquals(managedBytes))
+        assertTrue(requests.any { it == "/api/fs/download|/opt/data/workspace/chart.png|scribe" })
+        assertTrue(requests.any { it == "/api/files/download|/tmp/cache/shot.png|null" })
+    }
+
 }

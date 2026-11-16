@@ -14,6 +14,7 @@ data class DesignWords(
     val dismiss: String = "Dismiss",
     val copy: String = "Copy",
     val copied: String = "Copied",
+    val preview: String = "Preview",
     val openPicture: String = "Open the picture",
     val pictureFailed: String = "Picture couldn’t load",
 )

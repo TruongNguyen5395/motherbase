@@ -32,7 +32,7 @@ import org.jetbrains.compose.resources.stringResource
 
 /** Untrusted widget HTML gets no gateway origin, cookies, storage, native bridge or network. */
 @Composable
-internal actual fun WidgetWebView(html: String, theme: WidgetTheme, name: String, modifier: Modifier, onFailure: (String) -> Unit) {
+internal actual fun WidgetWebView(html: String, theme: WidgetTheme, name: String, modifier: Modifier, onFailure: (String) -> Unit, prewrapped: Boolean) {
     val context = LocalContext.current
     val failure = rememberUpdatedState(onFailure)
     val supported = remember { supportsWidgetIsolation(WebView.getCurrentWebViewPackage()?.versionName) }
@@ -43,7 +43,7 @@ internal actual fun WidgetWebView(html: String, theme: WidgetTheme, name: String
     }
     val failed = rememberUpdatedState(stringResource(Res.string.android_widget_failed))
     val font = remember { widgetFont(context) }
-    val document = remember(html, theme, font) { widgetDocument(html, theme, font) }
+    val document = remember(html, theme, font, prewrapped) { if (prewrapped) html else widgetDocument(html, theme, font) }
     val currentDocument = rememberUpdatedState(document)
     val view = remember { createWidgetWebView(context, name, { currentDocument.value }) { failure.value(failed.value) } }
     DisposableEffect(view) {

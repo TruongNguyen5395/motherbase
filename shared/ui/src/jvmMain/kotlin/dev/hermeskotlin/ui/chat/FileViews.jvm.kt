@@ -22,14 +22,14 @@ internal actual fun rememberPdfOpener(): suspend (ByteArray) -> PdfOpen = { byte
 
 /** A widget in the app's own browser, where the runtime has one; elsewhere it says it can't show. */
 @Composable
-internal actual fun WidgetWebView(html: String, theme: WidgetTheme, name: String, modifier: Modifier, onFailure: (String) -> Unit) {
+internal actual fun WidgetWebView(html: String, theme: WidgetTheme, name: String, modifier: Modifier, onFailure: (String) -> Unit, prewrapped: Boolean) {
     val web = rememberDesktopWeb()
     if (web == null) {
         val failure = rememberUpdatedState(onFailure)
         LaunchedEffect(Unit) { failure.value(getString(Res.string.desktop_widgets_unsupported)) }
         return
     }
-    val document = remember(html, theme) { widgetDocument(html, theme, widgetFont) }
+    val document = remember(html, theme, prewrapped) { if (prewrapped) html else widgetDocument(html, theme, widgetFont) }
     web.Widget(document, name, modifier, keepsWheel = ::widgetKeepsWheel, onFailure = onFailure)
 }
 

@@ -160,4 +160,30 @@ class InlineWidgetTest {
         assertEquals(20_000, testScheduler.currentTime)
         assertTrue(loadWidget(files.copy(load = { FileLoad.Ready(FileText("partial", 900_000, true, false)) }), file) is FileLoad.Failed)
     }
+
+    @Test
+    fun artifactKindsMatchHtmlSvgAndMermaid() {
+        assertEquals(ArtifactKind.Html, artifactKind(GatewayFile("/tmp/report.html")))
+        assertEquals(ArtifactKind.Html, artifactKind(GatewayFile("~/card.HTM")))
+        assertEquals(ArtifactKind.Svg, artifactKind(GatewayFile("/tmp/logo.svg")))
+        assertEquals(ArtifactKind.Mermaid, artifactKind(GatewayFile("/tmp/flow.mmd")))
+        assertEquals(ArtifactKind.Mermaid, artifactKind(GatewayFile("/tmp/flow.mermaid")))
+        assertNull(artifactKind(GatewayFile("/tmp/app.kt")))
+        assertNull(artifactKind(GatewayFile("/tmp/report.pdf")))
+    }
+
+    @Test
+    fun svgAndMermaidDocumentsKeepSandboxAndSafeEscaping() {
+        val svgHtml = svgWidgetHtml("<svg viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\"/></svg>")
+        assertTrue(svgHtml.contains("class=\"svg-sheet\""))
+        assertTrue(svgHtml.contains("<svg viewBox=\"0 0 10 10\">"))
+
+        val diagram = "graph TD\n  A[\"</script><img onerror=alert(1)>\"] --> B"
+        val doc = mermaidDocument(diagram, theme.copy(dark = true), "window.mermaid={};")
+        assertTrue(doc.contains("connect-src 'none'"))
+        assertTrue(doc.contains("securityLevel:'strict'"))
+        assertTrue(doc.contains("theme:'dark'"))
+        assertFalse(doc.contains("\"</script>"))
+        assertTrue(doc.contains("<\\/script>"))
+    }
 }

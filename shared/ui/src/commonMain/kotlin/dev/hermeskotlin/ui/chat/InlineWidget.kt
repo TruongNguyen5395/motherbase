@@ -80,16 +80,21 @@ internal suspend fun loadWidget(files: WidgetFiles, file: GatewayFile): FileLoad
 }
 
 @Composable
-internal fun InlineWidget(item: ReplyMedia, file: GatewayFile, files: WidgetFiles) = key(files.identity, item.source) {
-    var attempt by remember { mutableIntStateOf(0) }
-    var failed by remember(attempt) { mutableStateOf<String?>(null) }
-    val loaded by key(attempt) { produceState<FileLoad>(FileLoad.Loading) { value = loadWidget(files, file) } }
+internal fun rememberWidgetTheme(): WidgetTheme {
     fun css(color: Color) = cssColor(color.toArgb())
-    val theme = WidgetTheme(
+    return WidgetTheme(
         css(Theme[colors][text]), css(Theme[colors][textTertiary]), css(Theme[colors][accent]),
         css(Theme[colors][stroke]), css(Theme[colors][surface]), Theme[colors][background].luminance() < 0.5f,
         Theme[typography][bodySmall].fontSize.value * LocalDensity.current.fontScale,
     )
+}
+
+@Composable
+internal fun InlineWidget(item: ReplyMedia, file: GatewayFile, files: WidgetFiles) = key(files.identity, item.source) {
+    var attempt by remember { mutableIntStateOf(0) }
+    var failed by remember(attempt) { mutableStateOf<String?>(null) }
+    val loaded by key(attempt) { produceState<FileLoad>(FileLoad.Loading) { value = loadWidget(files, file) } }
+    val theme = rememberWidgetTheme()
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
     Column(Modifier.widthIn(max = 420.dp).fillMaxWidth()) {
         ReplyFile(item, download = { downloadWidget(files, file) })
@@ -109,4 +114,11 @@ internal fun InlineWidget(item: ReplyMedia, file: GatewayFile, files: WidgetFile
 }
 
 @Composable
-internal expect fun WidgetWebView(html: String, theme: WidgetTheme, name: String, modifier: Modifier, onFailure: (String) -> Unit)
+internal expect fun WidgetWebView(
+    html: String,
+    theme: WidgetTheme,
+    name: String,
+    modifier: Modifier,
+    onFailure: (String) -> Unit,
+    prewrapped: Boolean = false,
+)

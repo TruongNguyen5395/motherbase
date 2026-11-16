@@ -260,4 +260,11 @@ class ReplyMediaTest {
         val text = "No pictures here, just [a link](https://example.com)."
         assertEquals(text to emptyList(), extractReplyMedia(text))
     }
+
+    @Test
+    fun svgFilesGoAsFilesInsteadOfRasterImages() {
+        val (_, media) = extractReplyMedia("![diagram](/opt/data/diagram.svg) MEDIA:/opt/data/arch.SVG")
+        assertEquals(listOf("/opt/data/diagram.svg", "/opt/data/arch.SVG"), media.map { it.source })
+        assertTrue(media.none { it.isImage })
+    }
 }

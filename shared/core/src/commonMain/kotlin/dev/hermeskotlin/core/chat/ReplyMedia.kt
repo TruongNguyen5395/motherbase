@@ -71,7 +71,8 @@ private val TRAILING_SPACE = Regex("""(?m)[ \t]+$""")
 
 private val BLANK_LINES = Regex("""\n{3,}""")
 
-private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg")
+// Raster pictures the inline decoder draws; SVG opens in FileViewer where it renders visually.
+private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
 
 private fun isImagePath(source: String): Boolean =
     source.startsWith("data:image/") ||

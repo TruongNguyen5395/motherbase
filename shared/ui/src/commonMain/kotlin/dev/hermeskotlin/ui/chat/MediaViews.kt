@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.composables.icons.lucide.Download
+import com.composables.icons.lucide.Eye
 import com.composables.icons.lucide.File
 import com.composables.icons.lucide.Image
 import com.composables.icons.lucide.ImageOff
@@ -65,10 +66,13 @@ import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.chat.ReplyMedia
+import dev.hermeskotlin.core.media.GatewayFile
+import dev.hermeskotlin.core.media.GatewayFileKind
 import dev.hermeskotlin.designsystem.bodySmall
 import dev.hermeskotlin.designsystem.caption
 import dev.hermeskotlin.designsystem.colors
 import dev.hermeskotlin.designsystem.components.IconButton
+import dev.hermeskotlin.designsystem.components.LocalFileLinks
 import dev.hermeskotlin.designsystem.components.Spinner
 import dev.hermeskotlin.designsystem.components.handCursor
 import dev.hermeskotlin.designsystem.label
@@ -210,15 +214,21 @@ internal fun webHost(source: String): String? {
     return source.substringAfter("://").substringBefore('/').substringBefore('?').substringBefore('#').substringAfterLast('@')
 }
 
-/** A delivered file: its name, with Save and Share. */
+/** A delivered file: its name, preview on tap when on the gateway, plus Save and Share. */
 @Composable
 internal fun ReplyFile(item: ReplyMedia, download: (suspend () -> FileDownload)? = null) {
     val load = LocalMediaLoader.current
+    val openFile = LocalFileLinks.current
     val actions = rememberMediaActions()
     val notify = LocalNotice.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    val canPreview = remember(item.source, openFile) {
+        val file = GatewayFile.fromLink(item.source)
+        openFile != null && item.onGateway && file != null && (file.kind.previewable || file.kind == GatewayFileKind.Image)
+    }
+    val openPreview = { openFile?.invoke(item.source); Unit }
 
     fun withBytes(action: suspend (ByteArray) -> Unit) {
         if (busy) return
@@ -247,18 +257,31 @@ internal fun ReplyFile(item: ReplyMedia, download: (suspend () -> FileDownload)?
             .clip(shape)
             .border(1.dp, Theme[colors][stroke], shape)
             .background(Theme[colors][surface])
-            .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = 6.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        UnstyledIcon(Lucide.File, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(22.dp))
-        Column(Modifier.weight(1f)) {
-            Text(item.name, style = Theme[typography][label], color = Theme[colors][textColor], maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(item.name.substringAfterLast('.', stringResource(Res.string.chat_kind_file)).uppercase(), style = Theme[typography][caption], color = Theme[colors][textTertiary])
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+                .then(if (canPreview) Modifier.handCursor().clickable(onClick = openPreview) else Modifier)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            UnstyledIcon(Lucide.File, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(22.dp))
+            Column(Modifier.weight(1f)) {
+                Text(item.name, style = Theme[typography][label], color = Theme[colors][textColor], maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.name.substringAfterLast('.', stringResource(Res.string.chat_kind_file)).uppercase(), style = Theme[typography][caption], color = Theme[colors][textTertiary])
+            }
         }
         if (busy) {
             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Spinner(Modifier.size(18.dp)) }
         } else {
+            if (canPreview) {
+                IconButton(Lucide.Eye, contentDescription = stringResource(Res.string.chat_file_preview), onClick = openPreview)
+            }
             IconButton(Lucide.Download, contentDescription = stringResource(Res.string.chat_save_named, item.name), onClick = { withBytes { notify(actions.save(it, item.name)) } })
             IconButton(shareIcon, contentDescription = shareNamed(item.name), onClick = { withBytes { actions.share(it, item.name) } })
         }

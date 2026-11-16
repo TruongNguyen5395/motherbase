@@ -214,7 +214,7 @@ enum class GatewayFileKind(val label: String) {
             "kt", "kts", "java", "py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "go", "rs", "rb", "php", "c", "h", "cc", "cpp",
             "hpp", "cs", "swift", "m", "scala", "lua", "r", "pl", "sh", "bash", "zsh", "fish", "ps1", "sql", "html", "htm",
             "css", "scss", "less", "vue", "svelte", "xml", "svg", "yaml", "yml", "toml", "ini", "cfg", "conf", "properties",
-            "gradle", "dart", "ex", "exs", "hs", "zig", "nim", "tf", "proto", "graphql", "diff", "patch",
+            "gradle", "dart", "ex", "exs", "hs", "zig", "nim", "tf", "proto", "graphql", "diff", "patch", "mmd", "mermaid",
         )
         internal val CODE_NAMES = setOf("dockerfile", "makefile", "justfile", "procfile", "gemfile", "rakefile")
         private val BINARY = setOf(

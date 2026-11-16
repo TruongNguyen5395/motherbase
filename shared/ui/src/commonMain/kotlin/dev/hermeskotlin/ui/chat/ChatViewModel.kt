@@ -865,7 +865,18 @@ class ChatViewModel(
             source.startsWith("http://") || source.startsWith("https://") -> (media.remote(source) as? ApiResult.Success)?.value
             else -> {
                 val gateway = target?.gateway?.gatewayUrl ?: return null
-                (media.file(gateway, source.removePrefix("file://")) as? ApiResult.Success)?.value
+                val cleanPath = source.removePrefix("file://")
+                val profile = target?.profile
+                val preferFs = profile != null || cleanPath.startsWith("/") || cleanPath.startsWith("~/")
+                val primary = if (preferFs) media.download(gateway, cleanPath, profile) else media.file(gateway, cleanPath)
+                val resolved = if (primary is ApiResult.Success) {
+                    primary
+                } else if (preferFs) {
+                    media.file(gateway, cleanPath)
+                } else {
+                    media.download(gateway, cleanPath, profile)
+                }
+                (resolved as? ApiResult.Success)?.value
             }
         } ?: return null
         if (mediaCache.size >= MAX_CACHED_MEDIA) mediaCache.remove(mediaCache.keys.first())

@@ -3,7 +3,26 @@ package dev.hermeskotlin.ui.chat
 import dev.hermeskotlin.core.chat.ReplyMedia
 import dev.hermeskotlin.core.media.FileText
 import dev.hermeskotlin.core.media.GatewayFile
+import dev.hermeskotlin.ui.resources.Res
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.math.abs
+
+/** Formats opened as live visual artifacts in [FileViewer] instead of plain source text. */
+internal enum class ArtifactKind { Html, Svg, Mermaid }
+
+internal fun artifactKindFor(extensionOrLanguage: String?): ArtifactKind? = when (extensionOrLanguage?.trim()?.lowercase()) {
+    "html", "htm" -> ArtifactKind.Html
+    "svg" -> ArtifactKind.Svg
+    "mmd", "mermaid" -> ArtifactKind.Mermaid
+    else -> null
+}
+
+internal fun artifactKind(file: GatewayFile): ArtifactKind? = artifactKindFor(file.extension)
 
 /** Connection Allowlists, including WebRTC blocking, shipped in Chromium WebView 152. */
 internal fun supportsWidgetIsolation(version: String?): Boolean =
@@ -130,4 +149,54 @@ internal fun widgetDocument(html: String, theme: WidgetTheme, font: String): Str
         "<script>addEventListener('message',function(e){var f=document.querySelector('iframe'),v=e.data&&e.data.heraldReport;" +
         "if(f&&e.source===f.contentWindow&&typeof v==='string'&&/^t?b?\\|[0-9,;-]{0,500}\\|[0-9a-z]{1,8}$/.test(v))document.title='$WIDGET_REPORT'+v})</script>" +
         "</head><body><iframe title=\"HTML widget\" sandbox=\"allow-scripts\" srcdoc=\"$content\"></iframe></body></html>"
+}
+
+/** Light paper container for arbitrary SVGs so dark-ink vector diagrams stay legible on dark themes. */
+internal fun svgWidgetHtml(svg: String): String =
+    "<style>html,body{height:100%}body{margin:0;padding:12px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:auto}" +
+        ".svg-sheet{background:#ffffff;border-radius:10px;padding:14px;box-sizing:border-box;max-width:100%;max-height:100%;overflow:auto;transform-origin:center top}" +
+        ".svg-sheet svg{max-width:100%;height:auto;display:block}</style>" +
+        "<div class=\"svg-sheet\">$svg</div>"
+
+/** Escapes [text] as a JavaScript string literal safe to embed inside an HTML `<script>` element. */
+internal fun safeJsString(text: String): String =
+    Json.encodeToString(text).replace("</", "<\\/").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+
+private val mermaidJsMutex = Mutex()
+private var cachedMermaidJs: String? = null
+
+internal suspend fun loadMermaidJs(): String = cachedMermaidJs ?: mermaidJsMutex.withLock {
+    cachedMermaidJs ?: withContext(Dispatchers.Default) {
+        Res.readBytes("files/mermaid.min.js").decodeToString()
+    }.also { cachedMermaidJs = it }
+}
+
+/**
+ * Complete offline document that renders a Mermaid [diagram] under the same network-blocked CSP as [widgetDocument].
+ * App-owned template: untrusted [diagram] is passed strictly as a JSON string into `mermaid.render` (`securityLevel: 'strict'`).
+ */
+internal fun mermaidDocument(diagram: String, theme: WidgetTheme, mermaidJs: String): String {
+    val mermaidTheme = if (theme.dark) "dark" else "default"
+    val jsDiagram = safeJsString(diagram)
+    return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\">" +
+        "<style>:root{color-scheme:${if (theme.dark) "dark" else "light"};--foreground:${theme.foreground};--muted-foreground:${theme.muted};--accent:${theme.accent};--border:${theme.border};--card:${theme.card}}" +
+        "html,body{margin:0;height:100%;background:transparent;color:var(--foreground);font-family:system-ui,-apple-system,sans-serif;font-size:${theme.fontSize}px}" +
+        "#wrap{box-sizing:border-box;min-height:100%;padding:16px;display:flex;align-items:flex-start;justify-content:center;overflow:auto}" +
+        "#stage{transform-origin:top center;max-width:100%}" +
+        "#stage svg{height:auto;max-width:100%;display:block}" +
+        "#zoom{position:fixed;right:12px;bottom:12px;display:flex;gap:4px;background:var(--card);border:1px solid var(--border);border-radius:999px;padding:3px 6px}" +
+        "#zoom button{background:transparent;border:0;color:var(--foreground);font:inherit;font-size:12px;padding:3px 8px;border-radius:999px;cursor:pointer}" +
+        "#err{color:#ef4444;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px;max-width:100%;overflow:auto}</style>" +
+        "</head><body><div id=\"wrap\"><div id=\"stage\"></div></div>" +
+        "<div id=\"zoom\" hidden><button id=\"z-out\" type=\"button\">-</button><button id=\"z-fit\" type=\"button\">100%</button><button id=\"z-in\" type=\"button\">+</button></div>" +
+        "<script>$mermaidJs</script>" +
+        "<script>(async function(){var st=document.getElementById('stage'),zb=document.getElementById('zoom'),scale=1,src=$jsDiagram;" +
+        "function apply(){var s=st.querySelector('svg');if(!s)return;if(scale===1){s.style.maxWidth='100%';s.style.width='';st.style.transform=''}else{s.style.maxWidth='none';s.style.width='max-content';st.style.transform='scale('+scale+')';st.style.transformOrigin='top left'}}" +
+        "document.getElementById('z-out').onclick=function(){scale=Math.max(0.5,Math.round((scale-0.25)*100)/100);apply()};" +
+        "document.getElementById('z-fit').onclick=function(){scale=1;apply()};" +
+        "document.getElementById('z-in').onclick=function(){scale=Math.min(3,Math.round((scale+0.25)*100)/100);apply()};" +
+        "try{mermaid.initialize({startOnLoad:false,suppressErrorRendering:true,securityLevel:'strict',theme:'$mermaidTheme',fontFamily:'system-ui,-apple-system,sans-serif'});" +
+        "var out=await mermaid.render('mmd-diagram',src);st.innerHTML=out.svg;zb.hidden=false;}catch(e){var pre=document.createElement('pre');pre.id='err';pre.textContent=(e&&e.message?e.message:String(e));st.replaceChildren(pre);}" +
+        "})();</script></body></html>"
 }

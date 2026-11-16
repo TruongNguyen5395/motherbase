@@ -75,6 +75,7 @@ import com.composables.icons.lucide.Braces
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.Copy
 import com.composables.icons.lucide.Download
+import com.composables.icons.lucide.Eye
 import com.composables.icons.lucide.File
 import com.composables.icons.lucide.FileCode
 import com.composables.icons.lucide.FileImage
@@ -252,6 +253,8 @@ internal fun FileViewer(
     download: suspend (GatewayFile) -> FileDownload,
     /** Drawn in place, in the desktop's rail beside the chat, rather than over it. */
     docked: Boolean = false,
+    /** Already-loaded file content (e.g. an inline code artifact opened from a reply). */
+    preset: FileLoad? = null,
 ) {
     if (file == null) return
     // The files opened from links, the one from the reply first.
@@ -274,13 +277,14 @@ internal fun FileViewer(
     }
     val page = @Composable {
         val top = stack.last()
+        val initialPreset = preset.takeIf { stack.size == 1 && top == file }
         pages.SaveableStateProvider(pageKey(stack.lastIndex)) {
             FileViewerPage(
                 top,
                 onDismiss = ::back,
                 load = { linked -> load(linked).also { if (it is FileLoad.Ready) loaded[linked] = it } },
                 download = download,
-                preset = loaded[top],
+                preset = loaded[top] ?: initialPreset,
                 canGoBack = stack.size > 1,
                 onOpenFile = { linked ->
                     when {
@@ -337,6 +341,7 @@ internal fun FileViewerPage(
     openPdf: suspend (ByteArray) -> PdfOpen = rememberPdfOpener(),
 ) {
     val kind = file.kind
+    val artifact = remember(file) { artifactKind(file) }
     // A PDF's whole bytes once fetched for its pages, so Save and Share don't fetch them again.
     var fetched by remember(file) { mutableStateOf<ByteArray?>(null) }
     val result by produceState(preset ?: if (kind.previewable) FileLoad.Loading else null, file, preset) {
@@ -369,7 +374,7 @@ internal fun FileViewerPage(
     val fetching = kind == GatewayFileKind.Pdf && result == FileLoad.Loading
     val ready = (result as? FileLoad.Ready)?.text?.takeUnless { it.binary }
     var wrap by remember(file) { mutableStateOf(false) }
-    var raw by remember(file) { mutableStateOf(false) }
+    var raw by remember(file) { mutableStateOf(file.line != null) }
     val actions = rememberMediaActions()
     val scope = rememberCoroutineScope()
     var busy by remember(file) { mutableStateOf(false) }
@@ -393,7 +398,7 @@ internal fun FileViewerPage(
         }
     }
 
-    val textual = ready != null && kind != GatewayFileKind.Markdown && kind != GatewayFileKind.Table || ready != null && raw
+    val textual = ready != null && (kind != GatewayFileKind.Markdown && kind != GatewayFileKind.Table && artifact == null || raw)
 
     Column(Modifier.fillMaxSize().background(Theme[colors][background]).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
@@ -444,7 +449,7 @@ internal fun FileViewerPage(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 // The switch takes the room the buttons leave: it fills its width and would push them off screen.
-                if (kind == GatewayFileKind.Markdown || kind == GatewayFileKind.Table || kind == GatewayFileKind.Json) {
+                if (kind == GatewayFileKind.Markdown || kind == GatewayFileKind.Table || kind == GatewayFileKind.Json || artifact != null) {
                     val source = stringResource(Res.string.chat_file_source)
                     val shown = stringResource(if (kind == GatewayFileKind.Json) Res.string.chat_file_formatted else Res.string.chat_file_preview)
                     SegmentedControl(
@@ -453,7 +458,7 @@ internal fun FileViewerPage(
                         onSelect = { raw = it },
                         optionLabel = { if (it) source else shown },
                         modifier = Modifier.weight(1f),
-                        optionIcon = { if (it) Lucide.FileCode else kindIcon(kind) },
+                        optionIcon = { if (it) Lucide.FileCode else if (artifact != null) Lucide.Eye else kindIcon(kind) },
                     )
                 } else {
                     Spacer(Modifier.weight(1f))
@@ -527,7 +532,7 @@ internal fun FileViewerPage(
                             LocalFileLinks provides links,
                             LocalMarkdownPictures provides shown,
                         ) {
-                            FileBody(file, kind, ready, raw = raw, wrap = wrap)
+                            FileBody(file, kind, artifact, ready, raw = raw, wrap = wrap)
                         }
                     }
                 }
@@ -609,7 +614,7 @@ private val StackSaver = listSaver<List<GatewayFile>, Any>(
 private const val PICTURE_EDGE = 1600
 
 @Composable
-private fun FileBody(file: GatewayFile, kind: GatewayFileKind, text: FileText, raw: Boolean, wrap: Boolean) {
+private fun FileBody(file: GatewayFile, kind: GatewayFileKind, artifact: ArtifactKind?, text: FileText, raw: Boolean, wrap: Boolean) {
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
     val framed = Modifier.fillMaxSize().clip(shape).background(Theme[colors][well]).border(1.dp, Theme[colors][stroke], shape)
     when {
@@ -623,22 +628,76 @@ private fun FileBody(file: GatewayFile, kind: GatewayFileKind, text: FileText, r
             val table = remember(text) { parseDelimited(text.text, delimiter, truncated = text.truncated) }
             DataTable(table, framed)
         }
-        else -> {
-            // Indented off the main thread: parsing the whole 512 KB preview would stall a frame or more.
-            val formatting = kind == GatewayFileKind.Json && !text.truncated
-            val pretty by produceState<Pair<FileText, String?>?>(null, text, formatting) {
-                value = if (formatting) text to withContext(Dispatchers.Default) { prettyJson(text.text) } else null
-            }
-            val indented = pretty?.takeIf { it.first == text }?.second
-            val shown = if (!raw && indented != null) indented else text.text
-            CodeView(
-                shown,
-                language = text.language ?: languageOf(file),
-                modifier = framed.padding(vertical = 10.dp),
-                focusLine = file.line.takeIf { shown === text.text },
-                wrap = wrap,
-            )
+        artifact != null && !raw -> ArtifactBody(file, artifact, text, framed, shape, wrap)
+        else -> SourceCodeBody(file, kind, text, raw = raw, wrap = wrap, modifier = framed)
+    }
+}
+
+@Composable
+private fun SourceCodeBody(file: GatewayFile, kind: GatewayFileKind, text: FileText, raw: Boolean, wrap: Boolean, modifier: Modifier) {
+    // Indented off the main thread: parsing the whole 512 KB preview would stall a frame or more.
+    val formatting = kind == GatewayFileKind.Json && !text.truncated
+    val pretty by produceState<Pair<FileText, String?>?>(null, text, formatting) {
+        value = if (formatting) text to withContext(Dispatchers.Default) { prettyJson(text.text) } else null
+    }
+    val indented = pretty?.takeIf { it.first == text }?.second
+    val shown = if (!raw && indented != null) indented else text.text
+    CodeView(
+        shown,
+        language = text.language ?: languageOf(file),
+        modifier = modifier.padding(vertical = 10.dp),
+        focusLine = file.line.takeIf { shown === text.text },
+        wrap = wrap,
+    )
+}
+
+@Composable
+private fun ArtifactBody(file: GatewayFile, artifact: ArtifactKind, text: FileText, framed: Modifier, shape: RoundedCornerShape, wrap: Boolean) {
+    val docProblem = remember(text) { widgetProblem(text) }
+    var webFailure by remember(file, text) { mutableStateOf<String?>(null) }
+    val mermaidState by produceState<Pair<Boolean, String?>>(false to null, artifact, file, text) {
+        if (artifact == ArtifactKind.Mermaid && docProblem == null) {
+            value = true to runCatching { loadMermaidJs() }.getOrNull()
+        } else {
+            value = false to null
         }
+    }
+    val (mermaidReady, mermaidJs) = mermaidState
+    val fallbackReason = when {
+        docProblem != null -> fileProblemText(docProblem)
+        webFailure != null -> webFailure
+        artifact == ArtifactKind.Mermaid && mermaidReady && mermaidJs == null -> stringResource(Res.string.chat_widget_unreadable)
+        else -> null
+    }
+    if (fallbackReason != null) {
+        Column(Modifier.fillMaxSize()) {
+            Banner(fallbackReason, tint = Theme[colors][warning], background = Theme[colors][warningSoft])
+            val codeModifier = Modifier.fillMaxWidth().weight(1f).clip(shape).background(Theme[colors][well]).border(1.dp, Theme[colors][stroke], shape)
+            SourceCodeBody(file, GatewayFileKind.Code, text, raw = true, wrap = wrap, modifier = codeModifier)
+        }
+        return
+    }
+    if (artifact == ArtifactKind.Mermaid) {
+        if (!mermaidReady) {
+            Box(framed, contentAlignment = Alignment.Center) { Spinner() }
+            return
+        }
+        val js = mermaidJs ?: return
+        WidgetWebView(
+            remember(text.text, theme, js) { mermaidDocument(text.text, theme, js) },
+            theme,
+            file.name,
+            framed,
+            onFailure = { webFailure = it },
+            prewrapped = true,
+        )
+        return
+    }
+    val theme = rememberWidgetTheme()
+    when (artifact) {
+        ArtifactKind.Html -> WidgetWebView(text.text, theme, file.name, framed, onFailure = { webFailure = it })
+        ArtifactKind.Svg -> WidgetWebView(remember(text.text) { svgWidgetHtml(text.text) }, theme, file.name, framed, onFailure = { webFailure = it })
+        ArtifactKind.Mermaid -> Unit
     }
 }
 

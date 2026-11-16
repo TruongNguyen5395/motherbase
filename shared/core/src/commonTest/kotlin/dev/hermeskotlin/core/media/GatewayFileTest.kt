@@ -123,8 +123,10 @@ class GatewayFileTest {
         listOf("photo.HEIC", "photo.heif", "photo.avif", "favicon.ico", "old.bmp", "scan.tiff", "scan.TIF").forEach {
             assertEquals(GatewayFileKind.Image, GatewayFileKind.of(it), it)
         }
-        // Android has no SVG decoder that Compose can use: it's shown as code.
+        // Android has no SVG decoder that Compose can use: it's shown as code (and previewed in FileViewer).
         assertEquals(GatewayFileKind.Code, GatewayFileKind.of("logo.svg"))
+        assertEquals(GatewayFileKind.Code, GatewayFileKind.of("flow.mmd"))
+        assertEquals(GatewayFileKind.Code, GatewayFileKind.of("flow.mermaid"))
         assertTrue(GatewayFileKind.Code.previewable)
         assertFalse(GatewayFileKind.Other.previewable)
         assertFalse(GatewayFileKind.Image.previewable)
