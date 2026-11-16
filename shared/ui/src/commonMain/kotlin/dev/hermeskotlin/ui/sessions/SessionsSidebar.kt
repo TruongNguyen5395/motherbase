@@ -132,7 +132,6 @@ import org.koin.compose.koinInject
 import dev.hermeskotlin.designsystem.components.LocalOpenModals
 import androidx.compose.runtime.mutableIntStateOf
 import dev.hermeskotlin.core.chat.ChatHost
-import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import com.composables.icons.lucide.Inbox
 import dev.hermeskotlin.core.inbox.InboxApi
