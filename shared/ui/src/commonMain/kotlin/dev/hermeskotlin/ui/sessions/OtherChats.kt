@@ -30,9 +30,9 @@ data class OtherChat(
     val needsYou: Boolean get() = waiting != null || replied
 }
 
-/** What the Sessions button shows: how many other chats wait on the user, and how many have a reply. */
-data class SessionsBadge(val waiting: Int = 0, val replies: Int = 0) {
-    val count: Int get() = waiting + replies
+/** What the Sessions button shows: how many other chats wait on the user, have a reply, or Inbox items need action. */
+data class SessionsBadge(val waiting: Int = 0, val replies: Int = 0, val inbox: Int = 0) {
+    val count: Int get() = waiting + replies + inbox
 
     /** Nothing to show. */
     val none: Boolean get() = count == 0

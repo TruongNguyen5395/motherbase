@@ -251,6 +251,7 @@ data class ActionInboxItem(
     @SerialName("last_draft") val lastDraft: String = "",
     @Transient val bounceError: String? = null,
 ) {
+    val isOpen: Boolean get() = !isRunning && !isReplied && !isError && !hasReply
     val isRunning: Boolean get() = status == "running"
     val isReplied: Boolean get() = status == "replied"
     val isError: Boolean get() = status == "error"
@@ -515,10 +516,26 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
         fun canMarkUnread(run: InboxRun): Boolean = run.at > since
     }
 
+    /** In-memory Action Inbox items observed for a gateway so sidebar/top-bar indicators stay live without opening Inbox. */
+    data class ActionInboxSnapshot(
+        val gatewayUrl: String = "",
+        val items: List<ActionInboxItem> = emptyList(),
+    ) {
+        val openCount: Int get() = items.count { it.isOpen }
+        val repliedCount: Int get() = items.count { it.isReplied }
+        val errorCount: Int get() = items.count { it.isError }
+        val runningCount: Int get() = items.count { it.isRunning }
+        /** Items waiting for the user to inspect, act on, or dismiss (excludes currently running items). */
+        val attentionCount: Int get() = items.count { !it.isRunning }
+    }
+
     private val lock = Mutex()
     private var gateway: String? = null
     private val _state = MutableStateFlow(Snapshot())
     val state: StateFlow<Snapshot> = _state.asStateFlow()
+
+    private val _actionState = MutableStateFlow(ActionInboxSnapshot())
+    val actionState: StateFlow<ActionInboxSnapshot> = _actionState.asStateFlow()
 
     private val _actionInboxUpdates = MutableSharedFlow<String>(extraBufferCapacity = 16)
 
@@ -527,6 +544,11 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
 
     fun notifyActionInboxUpdate(itemId: String) {
         _actionInboxUpdates.tryEmit(itemId)
+    }
+
+    fun setActionItems(gatewayUrl: String, items: List<ActionInboxItem>) {
+        if (gateway != null && gateway != gatewayUrl) return
+        _actionState.value = ActionInboxSnapshot(gatewayUrl = gatewayUrl, items = items)
     }
 
     /** The gateway whose Inbox this is now, or null before the first [bind]. */
@@ -539,6 +561,9 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
         // [bound] moves with [state], not before it: until the new Inbox is read, the last one is still shown.
         gateway = gatewayUrl
         _state.value = Snapshot(saved.runs, saved.read, saved.since, saved.groups)
+        if (_actionState.value.gatewayUrl != gatewayUrl) {
+            _actionState.value = ActionInboxSnapshot(gatewayUrl = gatewayUrl)
+        }
     }
 
     /**
@@ -620,6 +645,7 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
         if (gateway == gatewayUrl) {
             gateway = null
             _state.value = Snapshot()
+            _actionState.value = ActionInboxSnapshot()
         }
     }
 

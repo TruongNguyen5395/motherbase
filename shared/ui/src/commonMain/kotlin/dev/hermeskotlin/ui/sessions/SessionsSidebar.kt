@@ -132,9 +132,16 @@ import org.koin.compose.koinInject
 import dev.hermeskotlin.designsystem.components.LocalOpenModals
 import androidx.compose.runtime.mutableIntStateOf
 import dev.hermeskotlin.core.chat.ChatHost
+import dev.hermeskotlin.core.connection.ConnectionState
+import dev.hermeskotlin.core.connection.GatewayConnection
 import com.composables.icons.lucide.Inbox
+import dev.hermeskotlin.core.inbox.InboxApi
 import dev.hermeskotlin.core.inbox.InboxLink
 import dev.hermeskotlin.core.inbox.InboxStore
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.isActive
 import dev.hermeskotlin.ui.inbox.InboxPage
 import dev.hermeskotlin.ui.inbox.ReportChat
 import androidx.compose.ui.focus.FocusDirection
@@ -423,10 +430,45 @@ fun SessionsSidebar(
     }
     // The badge is this gateway's Inbox: the store is bound here too, so it counts before the Inbox is opened.
     val inboxStore = koinInject<InboxStore>()
+    val inboxApi = koinInject<InboxApi>()
+    val gatewayConnection = koinInject<GatewayConnection>()
     val chatHost = koinInject<ChatHost>()
     LaunchedEffect(gateway) { inboxStore.bind(gateway.gatewayUrl.value) }
     val inboxKept = inboxStore.state.collectAsStateWithLifecycle().value
-    val inboxUnread = if (inboxStore.bound == gateway.gatewayUrl.value) inboxKept.unread else 0
+    val actionSnapshot = inboxStore.actionState.collectAsStateWithLifecycle().value
+    val activeGatewayUrl = gateway.gatewayUrl.value
+    val actionAttention = if (actionSnapshot.gatewayUrl == activeGatewayUrl) actionSnapshot.attentionCount else 0
+    val inboxUnread = (if (inboxStore.bound == activeGatewayUrl) inboxKept.unread else 0) + actionAttention
+    val isConnected = connection is ConnectionState.Connected
+    val currentInboxOpen by rememberUpdatedState(inboxOpen)
+    @OptIn(FlowPreview::class)
+    LaunchedEffect(activeGatewayUrl, isConnected) {
+        if (!isConnected) return@LaunchedEffect
+        suspend fun refreshActionBadge() {
+            runCatching { inboxApi.actionItems() }.onSuccess { items ->
+                inboxStore.setActionItems(activeGatewayUrl, items)
+            }
+        }
+        refreshActionBadge()
+        launch {
+            inboxStore.actionInboxUpdates.collect {
+                refreshActionBadge()
+            }
+        }
+        launch {
+            gatewayConnection.events
+                .filter { it.type == "sessions.changed" || it.type == "cron.changed" }
+                .debounce(1_000)
+                .collect {
+                    if (!currentInboxOpen) refreshActionBadge()
+                }
+        }
+        while (isActive) {
+            val runningNow = inboxStore.actionState.value.let { it.gatewayUrl == activeGatewayUrl && it.runningCount > 0 }
+            delay(if (runningNow) 5_000L else 15_000L)
+            if (!currentInboxOpen) refreshActionBadge()
+        }
+    }
     var capabilitiesOpen by remember { mutableStateOf(false) }
     var configOpen by remember { mutableStateOf(false) }
     // A desktop reads Hermes's config a little after it starts, so Config opens on it rather than on a wait for the
@@ -1798,7 +1840,7 @@ private fun NavTile(link: NavLink, modifier: Modifier = Modifier) {
                 // Large text wraps rather than cutting the name off; the tile grows.
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = isDesktop && link.keys != null),
+                modifier = Modifier.weight(1f, fill = isDesktop && (link.keys != null || link.badge > 0)),
             )
             if (isDesktop && link.keys != null) {
                 Text(keysLabel(link.keys), style = Theme[typography][caption], color = Theme[colors][textTertiary], maxLines = 1)

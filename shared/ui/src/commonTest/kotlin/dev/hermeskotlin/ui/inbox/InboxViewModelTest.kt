@@ -684,6 +684,8 @@ class InboxViewModelTest {
         vm.bind(one)
         vm.loadActionItems()
         assertEquals(1, vm.state.value.actionItems.size)
+        assertEquals(1, store.actionState.value.attentionCount)
+        assertEquals(1, store.actionState.value.openCount)
         val item = vm.state.value.actionItems.single()
         assertEquals("Alex", item.sender)
         assertEquals(3, item.mergedCount)
@@ -696,11 +698,13 @@ class InboxViewModelTest {
         assertEquals(1, vm.state.value.actionItems.size)
         assertEquals("gateway offline", vm.state.value.actionItems.single().bounceError)
         assertFalse(vm.state.value.actionItems.single().isRunning)
+        assertEquals(1, store.actionState.value.attentionCount)
 
         // 2. Submit action succeeds -> stays visible as 'running', push updates to 'replied', duplicate submit locked
         failAct = false
         vm.submitActionItem(vm.state.value.actionItems.single(), "A", "Approved the new drawing.")
         assertTrue(vm.state.value.actionItems.single().isRunning)
+        assertEquals(0, store.actionState.value.attentionCount)
         assertEquals(1, vm.state.value.visibleActionItems.size)
         vm.submitActionItem(vm.state.value.actionItems.single(), "B", "Spam")
         runCurrent()
@@ -709,14 +713,18 @@ class InboxViewModelTest {
         store.notifyActionInboxUpdate("s1:1")
         runCurrent()
         assertTrue(vm.state.value.actionItems.single().isReplied)
+        assertEquals(1, store.actionState.value.attentionCount)
+        assertEquals(1, store.actionState.value.repliedCount)
         assertEquals("Sent Zalo message to Alex.", vm.state.value.actionItems.single().agentReply)
 
         // 3. Dismiss uses pendingUndo and supports undo before 3s
         vm.dismissActionItem(vm.state.value.actionItems.single())
         assertNotNull(vm.state.value.pendingUndo)
+        assertEquals(0, store.actionState.value.attentionCount)
         assertTrue(vm.state.value.visibleActionItems.isEmpty())
         vm.undoPendingAction()
         assertNull(vm.state.value.pendingUndo)
+        assertEquals(1, store.actionState.value.attentionCount)
         assertEquals(1, vm.state.value.visibleActionItems.size)
 
         // 4. Channel sessions load, open hidden session in chat, and reset cleanly

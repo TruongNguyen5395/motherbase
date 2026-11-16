@@ -615,5 +615,20 @@ class InboxTest {
         assertEquals(105, ch.messageCount)
         assertTrue(ch.exists)
         assertEquals("Long session (105 messages)", ch.warning)
+
+        val snap = InboxStore.ActionInboxSnapshot(
+            gatewayUrl = GW,
+            items = listOf(
+                ActionInboxItem(id = "a1:1", status = "open"),
+                ActionInboxItem(id = "a2:1", status = "running"),
+                ActionInboxItem(id = "a3:1", status = "replied", agentReply = "Sent"),
+                ActionInboxItem(id = "a4:1", status = "error", agentReply = "Failed"),
+            ),
+        )
+        assertEquals(1, snap.openCount)
+        assertEquals(1, snap.runningCount)
+        assertEquals(1, snap.repliedCount)
+        assertEquals(1, snap.errorCount)
+        assertEquals(3, snap.attentionCount)
     }
 }

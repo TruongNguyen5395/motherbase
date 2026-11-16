@@ -108,6 +108,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import dev.hermeskotlin.core.inbox.InboxLink
 import dev.hermeskotlin.core.inbox.InboxLinks
+import dev.hermeskotlin.core.inbox.InboxStore
 import dev.hermeskotlin.core.rooms.RoomLinks
 import org.koin.compose.koinInject
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -656,6 +657,12 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
         )
     }
     val sessionsBadge by others.badge.collectAsStateWithLifecycle()
+    val inboxStore = koinInject<InboxStore>()
+    val inboxKept by inboxStore.state.collectAsStateWithLifecycle()
+    val actionSnapshot by inboxStore.actionState.collectAsStateWithLifecycle()
+    val activeGatewayUrl = route.gateway.gatewayUrl.value
+    val inboxBadgeCount = (if (inboxStore.bound == activeGatewayUrl) inboxKept.unread else 0) +
+        (if (actionSnapshot.gatewayUrl == activeGatewayUrl) actionSnapshot.attentionCount else 0)
     val banner by others.banner.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val vibrate = alerts && settings.otherChatsVibrate
@@ -812,6 +819,8 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                 )
                 // Rooms draw their own transcripts, each bot under its own name; only the chat has one speaker.
                 else -> ProvideReplySpeaker(speaker) {
+                    val baseBadge = if (alerts) sessionsBadge else SessionsBadge()
+                    val effectiveBadge = if (sidebar.docked) baseBadge else baseBadge.copy(inbox = inboxBadgeCount)
                     ChatScreen(
                         target = route.target,
                         onOpenSidebar = { scope.launch { sidebar.toggle() } },
@@ -827,7 +836,7 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                         viewModel = chat,
                         // Not while a page or the chat's menu covers it: typing there mustn't land in the composer.
                         keysEnabled = chatShown && !menuOpen,
-                        sessionsBadge = if (alerts) sessionsBadge else SessionsBadge(),
+                        sessionsBadge = effectiveBadge,
                         otherChatBanner = banner.takeIf { alerts && settings.otherChatsBanner && !drawerOver },
                         onOpenOtherChat = { event: OtherChatEvent ->
                             others.dismissBanner(event)

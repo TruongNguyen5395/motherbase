@@ -1495,6 +1495,7 @@ private fun ActionIssueCard(
     val borderColor = when {
         hasBounce -> Theme[colors][danger]
         item.isRunning || item.isReplied -> Theme[colors][accentText].copy(alpha = 0.65f)
+        item.isOpen -> Theme[colors][accentText].copy(alpha = 0.45f)
         else -> Theme[colors][stroke]
     }
     val (tileBg, tileTint) = when {
@@ -1596,6 +1597,17 @@ private fun ActionIssueCard(
                             style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                             color = Theme[colors][danger],
                         )
+                        else -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Box(Modifier.size(7.dp).background(Theme[colors][accent], CircleShape))
+                            Text(
+                                "Needs action",
+                                style = Theme[typography][code].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                                color = Theme[colors][accentText],
+                            )
+                        }
                     }
                 }
             }

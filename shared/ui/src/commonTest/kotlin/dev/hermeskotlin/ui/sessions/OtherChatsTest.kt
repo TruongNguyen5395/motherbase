@@ -58,6 +58,9 @@ class OtherChatsTest {
         assertEquals(3, SessionsBadge(waiting = 1, replies = 2).count)
         assertFalse(SessionsBadge(replies = 2).urgent)
         assertTrue(SessionsBadge(waiting = 1).urgent)
+        assertFalse(SessionsBadge(inbox = 2).none)
+        assertEquals(2, SessionsBadge(inbox = 2).count)
+        assertFalse(SessionsBadge(inbox = 2).urgent)
     }
 
     @Test

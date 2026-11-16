@@ -606,12 +606,14 @@ class InboxViewModel(
             val result = runCatching { api.actionItems() }
             if (gen != generation) return@launch
             result.onSuccess { fetched ->
+                var mergedForStore = emptyList<ActionInboxItem>()
                 _state.update { prev ->
                     val bounceById = prev.actionItems.mapNotNull { item -> item.bounceError?.let { item.id to it } }.toMap()
                     val merged = fetched.map { item ->
                         val bounce = bounceById[item.id]
                         if (bounce != null) item.copy(bounceError = bounce) else item
                     }
+                    mergedForStore = merged.filter { it.id != prev.pendingUndo?.item?.id }
                     val openSheet = prev.selectedActionItem?.let { sel -> merged.firstOrNull { it.id == sel.id } }
                     prev.copy(
                         actionItems = merged,
@@ -620,6 +622,7 @@ class InboxViewModel(
                         selectedActionItem = openSheet,
                     )
                 }
+                store.setActionItems(gw.gatewayUrl.value, mergedForStore)
                 if (fetched.any { it.isRunning }) {
                     ensureActionPolling()
                 }
@@ -654,12 +657,16 @@ class InboxViewModel(
                     val result = runCatching { api.actionItems() }
                     if (gen != generation) break
                     result.onSuccess { fetched ->
+                        val url = gateway?.gatewayUrl?.value
+                        var mergedForStore = emptyList<ActionInboxItem>()
                         _state.update { prev ->
                             val bounceById = prev.actionItems.mapNotNull { x -> x.bounceError?.let { x.id to it } }.toMap()
                             val merged = fetched.map { x -> bounceById[x.id]?.let { err -> x.copy(bounceError = err) } ?: x }
+                            mergedForStore = merged.filter { it.id != prev.pendingUndo?.item?.id }
                             val openSheet = prev.selectedActionItem?.let { sel -> merged.firstOrNull { it.id == sel.id } }
                             prev.copy(actionItems = merged, actionLoading = false, selectedActionItem = openSheet)
                         }
+                        if (url != null) store.setActionItems(url, mergedForStore)
                     }
                 }
                 ticks++
@@ -701,6 +708,7 @@ class InboxViewModel(
                 actionItems = state.actionItems.map { x -> if (x.id == item.id) optimistic else x },
             )
         }
+        gateway?.gatewayUrl?.value?.let { url -> store.setActionItems(url, _state.value.visibleActionItems) }
         viewModelScope.launch {
             val outcome = runCatching {
                 api.actActionItem(
@@ -722,6 +730,7 @@ class InboxViewModel(
                         message = Words.Raw("Error for ${item.sender}: $reason"),
                     )
                 }
+                gateway?.gatewayUrl?.value?.let { url -> store.setActionItems(url, _state.value.visibleActionItems) }
             }
         }
     }
@@ -734,6 +743,7 @@ class InboxViewModel(
         undoJob?.cancel()
         undoJob = null
         _state.update { it.copy(pendingUndo = null) }
+        gateway?.gatewayUrl?.value?.let { url -> store.setActionItems(url, _state.value.visibleActionItems) }
     }
 
     private fun startPendingUndo(nextUndo: PendingInboxUndo) {
@@ -744,6 +754,7 @@ class InboxViewModel(
             viewModelScope.launch { commitUndoNow(existing, gen) }
         }
         _state.update { it.copy(selectedActionItem = null, pendingUndo = nextUndo) }
+        gateway?.gatewayUrl?.value?.let { url -> store.setActionItems(url, _state.value.visibleActionItems) }
         val gen = generation
         undoJob = viewModelScope.launch {
             delay(UNDO_DELAY_MS)
@@ -760,6 +771,7 @@ class InboxViewModel(
         val item = undo.item
         // Optimistically remove from actionItems while committing
         _state.update { it.copy(actionItems = it.actionItems.filter { x -> x.id != item.id }) }
+        gateway?.gatewayUrl?.value?.let { url -> store.setActionItems(url, _state.value.visibleActionItems) }
         val outcome = runCatching {
             when (undo.kind) {
                 PendingUndoKind.Act -> api.actActionItem(
@@ -786,6 +798,7 @@ class InboxViewModel(
                     message = Words.Raw("Restored ${item.sender}: $reason"),
                 )
             }
+            gateway?.gatewayUrl?.value?.let { url -> store.setActionItems(url, _state.value.visibleActionItems) }
         }
     }
 
@@ -798,6 +811,7 @@ class InboxViewModel(
                 actionItems = it.actionItems.filter { x -> x.id != item.id },
             )
         }
+        store.setActionItems(url, _state.value.visibleActionItems)
         viewModelScope.launch {
             runCatching { api.resolveActionItem(item.id, item.mergedIds, reason = "escalated_to_chat") }
             if (gen != generation) return@launch
