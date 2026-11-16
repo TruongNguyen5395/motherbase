@@ -164,39 +164,48 @@ fun linkFileUris(text: String): String {
  */
 internal fun extractLinkedFiles(text: String, generated: List<GeneratedImage> = emptyList()): List<GatewayFile> {
     if (text.isBlank()) return emptyList()
-    val (cleaned, media) = extractReplyMedia(text, generated)
-    val masked = maskCode(cleaned)
+    val echoes = generated.flatMap { it.echoes }.toSet()
+    val normalized = text.replace("\r\n", "\n")
+    val masked = maskCode(normalized)
     val candidates = mutableListOf<Pair<Int, GatewayFile>>()
 
     fun addCandidate(offset: Int, rawDest: String) {
         val trimmed = rawDest.trim().removeSurrounding("<", ">").trim()
         val file = GatewayFile.fromLink(trimmed) ?: return
+        val rawPath = trimmed.removePrefix("file://")
+        if (file.path in echoes || rawPath in echoes || trimmed in echoes) return
         if (!isLikelyGatewayFile(file, trimmed)) return
         candidates += offset to file
     }
 
-    MARKDOWN_FILE_LINK.findAll(masked).forEach { match ->
-        val range = match.groups[1]?.range ?: match.groups[2]?.range ?: return@forEach
-        addCandidate(match.range.first, cleaned.substring(range.first, range.last + 1))
+    fun collectGroup(regex: Regex, groupIndex: Int) {
+        regex.findAll(masked).forEach { match ->
+            val range = match.groups[groupIndex]?.range ?: return@forEach
+            addCandidate(match.range.first, normalized.substring(range.first, range.last + 1))
+        }
     }
-    FILE_AUTOLINK.findAll(masked).forEach { match ->
-        val range = match.groups[1]?.range ?: return@forEach
-        addCandidate(match.range.first, cleaned.substring(range.first, range.last + 1))
+
+    if ("![" in masked) collectGroup(MARKDOWN_IMAGE, 2)
+    if ("::preview" in masked) collectGroup(PREVIEW_DIRECTIVE, 1)
+    if ("MEDIA:" in masked) collectGroup(MEDIA_TOKEN, 1)
+    if ("](" in masked) {
+        MARKDOWN_FILE_LINK.findAll(masked).forEach { match ->
+            val range = match.groups[1]?.range ?: match.groups[2]?.range ?: return@forEach
+            addCandidate(match.range.first, normalized.substring(range.first, range.last + 1))
+        }
     }
+    collectGroup(FILE_AUTOLINK, 1)
     if ("file://" in masked) {
         BARE_FILE_URI.findAll(masked).forEach { match ->
             if (match.groups[1] != null) return@forEach
-            addCandidate(match.range.first, cleaned.substring(match.range.first, match.range.last + 1))
+            addCandidate(match.range.first, normalized.substring(match.range.first, match.range.last + 1))
         }
     }
 
     val seen = LinkedHashMap<String, GatewayFile>()
     candidates.sortedBy { it.first }.forEach { (_, file) ->
+        seen.remove(file.path)
         seen[file.path] = file
-    }
-    media.forEach { item ->
-        val file = GatewayFile.fromLink(item.source) ?: return@forEach
-        if (isLikelyGatewayFile(file, item.source)) seen[file.path] = file
     }
     return seen.values.toList()
 }
