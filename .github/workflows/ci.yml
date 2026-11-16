@@ -62,3 +62,27 @@ jobs:
           grep -Eq '^\.method public executeMacro\(L[^;]+;\[Ljava/lang/String;\)Ljava/lang/String;$' "$smali" || {
             echo '::error::R8 changed the TeX macro method'; exit 1;
           }
+
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: jetbrains
+          java-version: "25"
+          java-package: jdk+jcef
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Desktop JVM tests & compile
+        run: >
+          ./gradlew --no-daemon --continue
+          :shared:core:jvmTest :shared:designsystem:jvmTest :shared:ui:jvmTest
+          :shared:wearlink:jvmTest :desktopApp:jvmTest :desktopApp:compileKotlinJvm

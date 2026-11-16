@@ -67,13 +67,14 @@ jobs:
           cp wearApp/build/outputs/apk/release/wearApp-release.apk "motherbase-wear-$v.apk"
           for file in motherbase-*.apk; do sha256sum "$file" > "$file.sha256"; done
           cat > which-apk.md <<EOF
-          ### MotherBase $v — Android & Wear OS
+          ### MotherBase $v — Android, Wear OS & Windows
 
           | Device | Download |
           |---|---|
           | **Android Phone (64-bit ARM)** | \`motherbase-${v}_arm64-v8a.apk\` |
           | Universal Android APK | \`motherbase-$v.apk\` |
           | **Wear OS Watch** | \`motherbase-wear-$v.apk\` |
+          | **Windows 10 / 11 Desktop** | \`motherbase-desktop-$v.msi\` *(per-user install, no admin required)* |
           EOF
           gh release create "$GITHUB_REF_NAME" "motherbase-$v.apk" "motherbase-$v.apk.sha256" --generate-notes --notes-file which-apk.md --title "MotherBase $GITHUB_REF_NAME"
           for abi in arm64-v8a armeabi-v7a x86_64 x86; do gh release upload "$GITHUB_REF_NAME" "motherbase-${v}_$abi.apk" "motherbase-${v}_$abi.apk.sha256"; done
@@ -82,3 +83,81 @@ jobs:
       - name: Remove the signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks" keystore.properties
+
+  windows:
+    needs: release
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: jetbrains
+          java-version: "25"
+          java-package: jdk+jcef
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Ensure WiX Toolset 3
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            $wixBin = if ($env:WIX) { Join-Path $env:WIX "bin" } else { $null }
+            if ($wixBin -and (Test-Path (Join-Path $wixBin "candle.exe"))) {
+              $wixBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            } else {
+              $wix = Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset*\bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($wix) {
+                $wix.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              } else {
+                choco install wixtoolset -y --no-progress
+                $installed = Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset*\bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $installed) { throw "WiX Toolset 3 installation failed" }
+                $installed.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              }
+            }
+          }
+
+      - name: Test and build Windows MSI
+        env:
+          HERALD_PACKAGING_JDK: ${{ env.JAVA_HOME }}
+        run: >
+          ./gradlew --no-daemon
+          :desktopApp:jvmTest :desktopApp:packageReleaseMsi
+          -PappVersion="${GITHUB_REF_NAME#v}" -PreleasesRepo="$GITHUB_REPOSITORY"
+
+      - name: Sign the MSI
+        shell: pwsh
+        env:
+          CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:CERT) { Write-Output "::warning::No Windows signing certificate: the MSI is unsigned"; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -like "*\x64\*" } | Sort-Object FullName -Descending | Select-Object -First 1
+          $msi = Get-ChildItem desktopApp/build/compose/binaries/main-release/msi -Filter *.msi | Select-Object -First 1
+          try {
+            & $signtool.FullName sign /f $pfx /p $env:CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d MotherBase $msi.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Remove-Item $pfx
+          }
+
+      - name: Upload Windows installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          msi=$(ls desktopApp/build/compose/binaries/main-release/msi/*.msi | head -n 1)
+          [ -f "$msi" ] || { echo "::error::No MSI built under desktopApp/build/compose/binaries/main-release/msi"; exit 1; }
+          cp "$msi" "motherbase-desktop-$v.msi"
+          sha256sum "motherbase-desktop-$v.msi" > "motherbase-desktop-$v.msi.sha256"
+          gh release upload "$GITHUB_REF_NAME" "motherbase-desktop-$v.msi" "motherbase-desktop-$v.msi.sha256"
