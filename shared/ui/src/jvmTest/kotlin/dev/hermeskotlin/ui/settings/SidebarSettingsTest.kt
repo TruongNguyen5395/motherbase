@@ -46,14 +46,14 @@ class SidebarSettingsTest {
     }
 
     @Test
-    fun aDesktopHasNoInboxToHide() = runComposeUiTest {
+    fun aDesktopShowsInboxInSidebarSettings() = runComposeUiTest {
         setContent {
             HermesTheme(ColorScheme.Light) {
                 SidebarPagesView(AppSettings(), onUpdate = {}, onBack = {}, desktop = true)
             }
         }
+        onNodeWithText("Inbox").performScrollTo().assertIsOn()
         onNodeWithText("Scheduled").performScrollTo().assertIsOn()
-        onNodeWithText("Inbox").assertDoesNotExist()
     }
 
     @Test
