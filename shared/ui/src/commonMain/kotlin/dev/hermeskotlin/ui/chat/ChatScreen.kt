@@ -184,6 +184,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -466,10 +467,20 @@ fun ChatScreen(
     var previewing by remember(target) { mutableStateOf<PreviewTarget?>(null) }
     var railExpanded by remember(target) { mutableStateOf(false) }
     var nextArtifactId by remember { mutableLongStateOf(0L) }
+    val chatKey = target.copy(readUpTo = null)
+    val openedFiles = remember(chatKey) { mutableStateListOf<GatewayFile>() }
+    val recordOpenedFile: (GatewayFile) -> Unit = { file ->
+        val path = file.path.trim()
+        if (path.isNotEmpty() && !path.startsWith("Chat artifact/") && openedFiles.none { it.path == path }) {
+            openedFiles.add(0, file.copy(path = path))
+        }
+    }
     val rightRail = rememberRightRailState()
     val railScope = rememberCoroutineScope()
     val railWidth = LocalAppSettings.current.railWidth.dp
-    val artifacts = remember(state.messages) { extractChatArtifacts(state.messages) }
+    val artifacts = remember(state.messages, openedFiles.size) {
+        extractChatArtifacts(state.messages, openedFiles.toList())
+    }
     LaunchedEffect(target) { if (!rightRail.docked && rightRail.isOpen) rightRail.close() }
     val docked = previewing?.let { rightRail.docked && it.dockedEligible } == true
     // Over a sheet or a viewer, typing and shortcuts are the dialog's, not the chat's behind it.
@@ -592,12 +603,20 @@ fun ChatScreen(
     val density = LocalDensity.current
     val modelPillBounds = remember { mutableStateOf<Rect?>(null) }
     val openPreviewFile: (GatewayFile) -> Unit = { file ->
+        recordOpenedFile(file)
         if (file.kind == GatewayFileKind.Image) {
             viewing = ViewerImage(file.name, fetch = { viewModel.downloadFile(file) })
         } else {
             previewing = PreviewTarget.File(file)
             railExpanded = false
             if (rightRail.docked) railScope.launch { rightRail.open() }
+        }
+    }
+    val openArtifactImage: (ViewerImage) -> Unit = { img ->
+        viewing = if (img.bytes == null && img.fetch == null && img.source != null) {
+            ViewerImage(img.name, img.source, fetch = { viewModel.downloadFile(GatewayFile(img.source)) })
+        } else {
+            img
         }
     }
     Box(Modifier.fillMaxSize()) {
@@ -658,7 +677,10 @@ fun ChatScreen(
         onVoiceChat = { startVoiceChat(false) },
         onOpenPets = { petsOpen = true },
         onOpenControl = viewModel::openControl,
-        onViewImage = { viewing = it },
+        onViewImage = { image ->
+            image.source?.let { GatewayFile.fromLink(it) }?.let(recordOpenedFile)
+            viewing = image
+        },
         // The same file again, after Ctrl+J put the rail away, still has to bring it back.
         onOpenFile = openPreviewFile,
         onOpenArtifact = {
@@ -688,15 +710,16 @@ fun ChatScreen(
         onToggleRail = { railScope.launch { rightRail.toggle() } },
         rail = {
             val current = previewing
+            val showHistory: @Composable () -> Unit = {
+                ArtifactHistoryPanel(
+                    artifacts = artifacts,
+                    onOpenFile = openPreviewFile,
+                    onOpenImage = openArtifactImage,
+                    onClose = { railScope.launch { rightRail.close() } },
+                )
+            }
             if (current != null && docked) {
-                if (railExpanded) {
-                    ArtifactHistoryPanel(
-                        artifacts = artifacts,
-                        onOpenFile = openPreviewFile,
-                        onOpenImage = { viewing = it },
-                        onClose = { railScope.launch { rightRail.close() } },
-                    )
-                }
+                if (railExpanded) showHistory()
                 key(current) {
                     PreviewTargetViewer(
                         current = current,
@@ -708,15 +731,11 @@ fun ChatScreen(
                             railExpanded = false
                         },
                         viewModel = viewModel,
+                        onFileOpened = recordOpenedFile,
                     )
                 }
             } else {
-                ArtifactHistoryPanel(
-                    artifacts = artifacts,
-                    onOpenFile = openPreviewFile,
-                    onOpenImage = { viewing = it },
-                    onClose = { railScope.launch { rightRail.close() } },
-                )
+                showHistory()
             }
         },
     )
@@ -768,7 +787,13 @@ fun ChatScreen(
     // A linked picture opens in the picture viewer, like one the reply delivered. A file docked in the rail has it.
     previewing.takeIf { !docked }?.let { current ->
         key(current) {
-            PreviewTargetViewer(current, docked = false, onDismiss = { previewing = null }, viewModel = viewModel)
+            PreviewTargetViewer(
+                current,
+                docked = false,
+                onDismiss = { previewing = null },
+                viewModel = viewModel,
+                onFileOpened = recordOpenedFile,
+            )
         }
     }
     viewing?.let { image ->
@@ -4631,6 +4656,7 @@ private fun PreviewTargetViewer(
     onToggleExpand: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     viewModel: ChatViewModel,
+    onFileOpened: ((GatewayFile) -> Unit)? = null,
 ) {
     when (current) {
         is PreviewTarget.File -> if (docked) {
@@ -4642,9 +4668,16 @@ private fun PreviewTargetViewer(
                 docked = true,
                 expanded = expanded,
                 onToggleExpand = onToggleExpand,
+                onFileOpened = onFileOpened,
             )
         } else {
-            GatewayFileViewer(current.file, onDismiss = onDismiss, load = viewModel::previewFile, download = viewModel::downloadFile)
+            GatewayFileViewer(
+                current.file,
+                onDismiss = onDismiss,
+                load = viewModel::previewFile,
+                download = viewModel::downloadFile,
+                onFileOpened = onFileOpened,
+            )
         }
         is PreviewTarget.Artifact -> FileViewer(
             current.file,
@@ -4655,6 +4688,7 @@ private fun PreviewTargetViewer(
             preset = current.load,
             expanded = expanded,
             onToggleExpand = onToggleExpand,
+            onFileOpened = onFileOpened,
         )
     }
 }

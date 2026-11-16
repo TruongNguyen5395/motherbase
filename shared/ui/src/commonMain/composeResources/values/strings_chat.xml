@@ -62,8 +62,9 @@
     <string name="chat_artifacts_hide">Hide artifacts</string>
     <string name="chat_artifacts_modified">Modified Files</string>
     <string name="chat_artifacts_uploads">Uploads</string>
+    <string name="chat_artifacts_referenced">Referenced</string>
     <string name="chat_artifacts_empty_title">No artifacts yet</string>
-    <string name="chat_artifacts_empty_body">Files created or edited by Hermes and files you upload in this chat will appear here.</string>
+    <string name="chat_artifacts_empty_body">Files edited by Hermes, files you upload, and files linked in this chat will appear here.</string>
     <string name="chat_artifacts_editing">Editing…</string>
     <string name="chat_artifacts_no_preview">Preview unavailable</string>
     <string name="chat_file_copied_part">Copied the part shown. Save gets the whole file.</string>

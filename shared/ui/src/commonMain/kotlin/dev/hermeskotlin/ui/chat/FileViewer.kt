@@ -261,6 +261,8 @@ internal fun FileViewer(
     expanded: Boolean = false,
     /** When [docked], toggles the full-screen popup dialog; null hides the expand button. */
     onToggleExpand: (() -> Unit)? = null,
+    /** Called when navigation inside the viewer opens a linked gateway file or image. */
+    onFileOpened: ((GatewayFile) -> Unit)? = null,
 ) {
     if (file == null) return
     // The files opened from links, the one from the reply first.
@@ -308,11 +310,20 @@ internal fun FileViewer(
                         // A link to a line of this same file: rendered Markdown has no lines to go to.
                         linked.path == top.path -> Unit
                         // A picture opens in the picture viewer, like one linked from a reply.
-                        linked.kind == GatewayFileKind.Image -> picture = ViewerImage(linked.name, fetch = { cachedDownload(linked) })
-                        else -> stack = stack + linked
+                        linked.kind == GatewayFileKind.Image -> {
+                            onFileOpened?.invoke(linked)
+                            picture = ViewerImage(linked.name, fetch = { cachedDownload(linked) })
+                        }
+                        else -> {
+                            onFileOpened?.invoke(linked)
+                            stack = stack + linked
+                        }
                     }
                 },
-                onOpenPicture = { picture = it },
+                onOpenPicture = { img ->
+                    img.source?.let { GatewayFile.fromLink(it) }?.let { onFileOpened?.invoke(it) }
+                    picture = img
+                },
                 pictures = pictures,
             )
         }
@@ -337,12 +348,13 @@ internal fun GatewayFileViewer(
     onDismiss: () -> Unit,
     load: suspend (GatewayFile) -> FileLoad,
     download: suspend (GatewayFile) -> FileDownload,
+    onFileOpened: ((GatewayFile) -> Unit)? = null,
 ) {
     if (file?.kind == GatewayFileKind.Image) {
         val image = remember(file) { ViewerImage(file.name, fetch = { download(file) }) }
         ImageViewer(image, onDismiss)
     } else {
-        FileViewer(file, onDismiss, load, download)
+        FileViewer(file, onDismiss, load, download, onFileOpened = onFileOpened)
     }
 }
 

@@ -23,6 +23,7 @@ import com.composeunstyled.theme.ColorScheme
 import dev.hermeskotlin.core.chat.AttachmentKind
 import dev.hermeskotlin.core.chat.ChatArtifacts
 import dev.hermeskotlin.core.chat.ModifiedFileArtifact
+import dev.hermeskotlin.core.chat.ReferencedFileArtifact
 import dev.hermeskotlin.core.chat.ShownAttachment
 import dev.hermeskotlin.core.chat.UploadArtifact
 import dev.hermeskotlin.core.media.FileText
@@ -101,6 +102,10 @@ class ArtifactSidebarAndPdfTest {
                 UploadArtifact(ShownAttachment("u1", "brief.pdf", AttachmentKind.Pdf, gatewayPath = "attachments/brief.pdf")),
                 UploadArtifact(ShownAttachment("u2", "shot.png", AttachmentKind.Image, gatewayPath = "/opt/data/shot.png")),
             ),
+            referencedFiles = listOf(
+                ReferencedFileArtifact("/opt/prev/legacy.md", "legacy.md", "/opt/prev", line = 42),
+                ReferencedFileArtifact("/opt/prev/diagram.png", "diagram.png", "/opt/prev"),
+            ),
         )
         setContent {
             HermesTheme(ColorScheme.Dark) {
@@ -117,11 +122,14 @@ class ArtifactSidebarAndPdfTest {
         waitForIdle()
         onNodeWithText("Modified Files").assertIsDisplayed()
         onNodeWithText("Uploads").assertIsDisplayed()
+        onNodeWithText("Referenced").assertIsDisplayed()
         onNodeWithText("out.pdf").performClick()
         onNodeWithText("brief.pdf").performClick()
         onNodeWithText("shot.png").performClick()
-        assertEquals(listOf("/opt/data/out.pdf", "attachments/brief.pdf"), openedFiles)
-        assertEquals(listOf("/opt/data/shot.png"), openedImages)
+        onNodeWithText("legacy.md").performClick()
+        onNodeWithText("diagram.png").performClick()
+        assertEquals(listOf("/opt/data/out.pdf", "attachments/brief.pdf", "/opt/prev/legacy.md"), openedFiles)
+        assertEquals(listOf("/opt/data/shot.png", "/opt/prev/diagram.png"), openedImages)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package dev.hermeskotlin.core.chat
 
+import dev.hermeskotlin.core.media.GatewayFile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -25,12 +26,21 @@ data class UploadArtifact(
     val canPreview: Boolean get() = attachment.gatewayPath != null || attachment.original != null
 }
 
+/** A pre-existing gateway file linked in chat replies/prompts or opened in the viewer during this chat. */
+data class ReferencedFileArtifact(
+    val path: String,
+    val name: String,
+    val folder: String,
+    val line: Int? = null,
+)
+
 /** Per-conversation artifact history shown in the right sidebar. */
 data class ChatArtifacts(
     val modifiedFiles: List<ModifiedFileArtifact> = emptyList(),
     val uploads: List<UploadArtifact> = emptyList(),
+    val referencedFiles: List<ReferencedFileArtifact> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = modifiedFiles.isEmpty() && uploads.isEmpty()
+    val isEmpty: Boolean get() = modifiedFiles.isEmpty() && uploads.isEmpty() && referencedFiles.isEmpty()
 }
 
 private val FILE_EDIT_TOOLS = setOf("write_file", "patch", "edit_file", "append_file")
@@ -79,38 +89,110 @@ private fun parseObject(element: JsonElement?): JsonObject? = when (element) {
     else -> null
 }
 
+private data class SplitArtifactPath(
+    val raw: String,
+    val normalized: String,
+    val name: String,
+    val folder: String,
+)
+
+private fun splitArtifactPath(rawPath: String): SplitArtifactPath? {
+    val trimmed = rawPath.trim()
+    if (trimmed.isEmpty()) return null
+    val normalized = trimmed.trimEnd('/', '\\').replace('\\', '/')
+    if (normalized.isEmpty()) return null
+    val name = normalized.substringAfterLast('/').ifEmpty { trimmed }
+    val folder = normalized.substringBeforeLast('/', "")
+    return SplitArtifactPath(raw = trimmed, normalized = normalized, name = name, folder = folder)
+}
+
 /**
- * Collects per-conversation [ModifiedFileArtifact]s (newest first, deduped by path) and [UploadArtifact]s
- * (newest first, deduped by gateway path or local attachment key) from loaded [messages].
+ * Collects per-conversation [ModifiedFileArtifact]s, [UploadArtifact]s, and [ReferencedFileArtifact]s
+ * (newest first, cross-deduped so modified and uploaded files do not repeat under referenced files)
+ * from loaded [messages] and any additionally [openedFiles].
  */
-fun extractChatArtifacts(messages: List<ChatMessage>): ChatArtifacts {
+fun extractChatArtifacts(
+    messages: List<ChatMessage>,
+    openedFiles: List<GatewayFile> = emptyList(),
+): ChatArtifacts {
     val modified = mutableListOf<ModifiedFileArtifact>()
     val seenModified = mutableSetOf<String>()
     val uploads = mutableListOf<UploadArtifact>()
-    val seenUploads = mutableSetOf<String>()
+    val seenUploadKeys = mutableSetOf<String>()
+    val seenUploadPaths = mutableSetOf<String>()
 
     messages.asReversed().forEach { message ->
         when (message) {
             is ChatMessage.Assistant -> message.tools.asReversed().forEach { tool ->
                 if (tool.failed || tool.editedFiles.isEmpty()) return@forEach
                 tool.editedFiles.asReversed().forEach { rawPath ->
-                    val path = rawPath.trim()
-                    if (path.isNotEmpty() && seenModified.add(path)) {
-                        val normalized = path.trimEnd('/', '\\').replace('\\', '/')
-                        val name = normalized.substringAfterLast('/').ifEmpty { path }
-                        val folder = normalized.substringBeforeLast('/', "")
-                        modified += ModifiedFileArtifact(path = path, name = name, folder = folder, running = tool.running)
+                    val parts = splitArtifactPath(rawPath) ?: return@forEach
+                    if (seenModified.add(parts.normalized)) {
+                        modified += ModifiedFileArtifact(
+                            path = parts.raw,
+                            name = parts.name,
+                            folder = parts.folder,
+                            running = tool.running,
+                        )
                     }
                 }
             }
             is ChatMessage.User -> message.attachments.asReversed().forEach { attachment ->
-                val dedupKey = attachment.gatewayPath?.trim()?.takeIf { it.isNotEmpty() } ?: attachment.key
-                if (seenUploads.add(dedupKey)) {
+                val gatewayNorm = attachment.gatewayPath?.let(::splitArtifactPath)?.normalized
+                val dedupKey = gatewayNorm ?: attachment.key
+                if (seenUploadKeys.add(dedupKey)) {
+                    if (gatewayNorm != null) seenUploadPaths += gatewayNorm
                     uploads += UploadArtifact(attachment)
                 }
             }
             else -> Unit
         }
     }
-    return ChatArtifacts(modifiedFiles = modified, uploads = uploads)
+
+    val seenReferenced = (seenModified + seenUploadPaths).toMutableSet()
+    val fromMessages = mutableListOf<ReferencedFileArtifact>()
+    messages.asReversed().forEach { message ->
+        val linked = when (message) {
+            is ChatMessage.Assistant -> {
+                val generated = message.tools.mapNotNull { it.generatedImage }
+                extractLinkedFiles(message.text, generated)
+            }
+            is ChatMessage.User -> extractLinkedFiles(message.text)
+            else -> emptyList()
+        }
+        linked.asReversed().forEach { file ->
+            val parts = splitArtifactPath(file.path) ?: return@forEach
+            if (seenReferenced.add(parts.normalized)) {
+                fromMessages += ReferencedFileArtifact(
+                    path = parts.raw,
+                    name = parts.name,
+                    folder = parts.folder,
+                    line = file.line,
+                )
+            }
+        }
+    }
+
+    val extraOpened = buildList {
+        openedFiles.forEach { file ->
+            if (file.path.startsWith("Chat artifact/")) return@forEach
+            val parts = splitArtifactPath(file.path) ?: return@forEach
+            if (seenReferenced.add(parts.normalized)) {
+                add(
+                    ReferencedFileArtifact(
+                        path = parts.raw,
+                        name = parts.name,
+                        folder = parts.folder,
+                        line = file.line,
+                    ),
+                )
+            }
+        }
+    }
+
+    return ChatArtifacts(
+        modifiedFiles = modified,
+        uploads = uploads,
+        referencedFiles = extraOpened + fromMessages,
+    )
 }

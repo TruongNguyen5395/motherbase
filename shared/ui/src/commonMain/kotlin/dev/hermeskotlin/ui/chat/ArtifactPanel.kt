@@ -47,6 +47,7 @@ import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.chat.AttachmentKind
 import dev.hermeskotlin.core.chat.ChatArtifacts
 import dev.hermeskotlin.core.chat.ModifiedFileArtifact
+import dev.hermeskotlin.core.chat.ReferencedFileArtifact
 import dev.hermeskotlin.core.chat.UploadArtifact
 import dev.hermeskotlin.core.media.GatewayFile
 import dev.hermeskotlin.core.media.GatewayFileKind
@@ -78,6 +79,7 @@ import dev.hermeskotlin.ui.resources.chat_artifacts_empty_body
 import dev.hermeskotlin.ui.resources.chat_artifacts_empty_title
 import dev.hermeskotlin.ui.resources.chat_artifacts_modified
 import dev.hermeskotlin.ui.resources.chat_artifacts_no_preview
+import dev.hermeskotlin.ui.resources.chat_artifacts_referenced
 import dev.hermeskotlin.ui.resources.chat_artifacts_title
 import dev.hermeskotlin.ui.resources.chat_artifacts_uploads
 import dev.hermeskotlin.ui.resources.chat_close
@@ -87,7 +89,8 @@ import dev.hermeskotlin.ui.resources.chat_kind_picture
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Right-sidebar history listing per-conversation [ModifiedFileArtifact]s and [UploadArtifact]s.
+ * Right-sidebar history listing per-conversation [ModifiedFileArtifact]s, [UploadArtifact]s, and
+ * [ReferencedFileArtifact]s.
  * Clicking a previewable entry switches to [FileViewer] (or opens [ImageViewer] for images).
  */
 @Composable
@@ -146,17 +149,13 @@ internal fun ArtifactHistoryPanel(
                     SectionHeader(stringResource(Res.string.chat_artifacts_modified), artifacts.modifiedFiles.size)
                 }
                 items(artifacts.modifiedFiles, key = { "mod|${it.path}" }) { entry ->
-                    val file = GatewayFile(entry.path)
-                    ArtifactRow(
+                    FileArtifactRow(
+                        file = GatewayFile(entry.path),
                         name = entry.name,
                         subtitle = if (entry.running) stringResource(Res.string.chat_artifacts_editing) else entry.folder.ifEmpty { "/" },
-                        icon = kindIcon(file.kind),
                         running = entry.running,
-                        enabled = true,
-                        onClick = {
-                            if (file.kind == GatewayFileKind.Image) onOpenImage(ViewerImage(entry.name, source = entry.path))
-                            else onOpenFile(file)
-                        },
+                        onOpenFile = onOpenFile,
+                        onOpenImage = onOpenImage,
                     )
                 }
             }
@@ -195,8 +194,46 @@ internal fun ArtifactHistoryPanel(
                     )
                 }
             }
+
+            if (artifacts.referencedFiles.isNotEmpty()) {
+                item(key = "header-referenced") {
+                    if (artifacts.modifiedFiles.isNotEmpty() || artifacts.uploads.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                    SectionHeader(stringResource(Res.string.chat_artifacts_referenced), artifacts.referencedFiles.size)
+                }
+                items(artifacts.referencedFiles, key = { "ref|${it.path}" }) { entry ->
+                    FileArtifactRow(
+                        file = GatewayFile(entry.path, entry.line),
+                        name = entry.name,
+                        subtitle = entry.folder.ifEmpty { "/" },
+                        onOpenFile = onOpenFile,
+                        onOpenImage = onOpenImage,
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun FileArtifactRow(
+    file: GatewayFile,
+    name: String,
+    subtitle: String,
+    running: Boolean = false,
+    onOpenFile: (GatewayFile) -> Unit,
+    onOpenImage: (ViewerImage) -> Unit,
+) {
+    ArtifactRow(
+        name = name,
+        subtitle = subtitle,
+        icon = kindIcon(file.kind),
+        running = running,
+        enabled = true,
+        onClick = {
+            if (file.kind == GatewayFileKind.Image) onOpenImage(ViewerImage(name, source = file.path))
+            else onOpenFile(file)
+        },
+    )
 }
 
 @Composable

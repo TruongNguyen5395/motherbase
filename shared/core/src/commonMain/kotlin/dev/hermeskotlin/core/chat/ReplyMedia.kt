@@ -1,6 +1,7 @@
 package dev.hermeskotlin.core.chat
 
 import dev.hermeskotlin.core.media.GatewayFile
+import dev.hermeskotlin.core.media.GatewayFileKind
 
 /**
  * A picture or file a reply points at: a Markdown image (`![alt](src)`) or a `MEDIA:<path>` delivery
@@ -132,13 +133,18 @@ fun extractReplyMedia(text: String, generated: List<GeneratedImage> = emptyList(
     return cleaned to media.values.filterNot { it.gatewayPath in echoes || it.source in echoes }
 }
 
-/**
- * A link already written (group 1: a `[label](dest)` link or a `<...>` autolink), or else a bare `file://`
- * URI in prose (not inside a web address), trailing sentence punctuation left out of it.
- */
+/** A link already written (Markdown link or `<...>` autolink), paired with standalone `file://` prose detection. */
 private val BARE_FILE_URI = Regex(
     """(\[[^\]\n]*]\([^)\n]*\)|<[^<>\s]+>)|(?<![<(\[\w/=#&?])file://[^\s<>()\[\]`]+?(?=[.,;:!?'"]*(?:\s|$))""",
 )
+
+/** Inline Markdown link (`[label](dest)` or `[label](<dest>)`), excluding `!` images already parsed as media. */
+private val MARKDOWN_FILE_LINK = Regex(
+    """(?<!!)\[[^\]\n]*]\(\s*(?:<([^<>\r\n]+)>|((?=[^\s\)>])[^\(\)\s<>]*(?:\([^\(\)\s]*\)[^\(\)\s<>]*)*))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)""",
+)
+
+/** Angle-bracketed autolink pointing to a local file URI, absolute path, or `~/` path. */
+private val FILE_AUTOLINK = Regex("""<((?:file://|/|~/)[^<>\s]+)>""")
 
 /**
  * [text] with each bare `file://` URI outside code made a Markdown autolink (`<file:///x>`), so a tap
@@ -148,6 +154,57 @@ private val BARE_FILE_URI = Regex(
 fun linkFileUris(text: String): String {
     if ("file://" !in text) return text
     return BARE_FILE_URI.replaceOutsideCode(text) { groups -> if (groups[1].isNotEmpty()) groups[0] else "<${groups[0]}>" }
+}
+
+/**
+ * Extracts gateway files explicitly referenced outside code blocks in [text]: `MEDIA:` / `::preview` /
+ * Markdown images (via [extractReplyMedia]), `[label](dest)` Markdown links, `<...>` file autolinks, and
+ * bare `file://` URIs. Preserves first-mention order and filters out directories, API routes without extensions,
+ * and [generated] sandbox echoes.
+ */
+internal fun extractLinkedFiles(text: String, generated: List<GeneratedImage> = emptyList()): List<GatewayFile> {
+    if (text.isBlank()) return emptyList()
+    val (cleaned, media) = extractReplyMedia(text, generated)
+    val masked = maskCode(cleaned)
+    val candidates = mutableListOf<Pair<Int, GatewayFile>>()
+
+    fun addCandidate(offset: Int, rawDest: String) {
+        val trimmed = rawDest.trim().removeSurrounding("<", ">").trim()
+        val file = GatewayFile.fromLink(trimmed) ?: return
+        if (!isLikelyGatewayFile(file, trimmed)) return
+        candidates += offset to file
+    }
+
+    MARKDOWN_FILE_LINK.findAll(masked).forEach { match ->
+        val range = match.groups[1]?.range ?: match.groups[2]?.range ?: return@forEach
+        addCandidate(match.range.first, cleaned.substring(range.first, range.last + 1))
+    }
+    FILE_AUTOLINK.findAll(masked).forEach { match ->
+        val range = match.groups[1]?.range ?: return@forEach
+        addCandidate(match.range.first, cleaned.substring(range.first, range.last + 1))
+    }
+    if ("file://" in masked) {
+        BARE_FILE_URI.findAll(masked).forEach { match ->
+            if (match.groups[1] != null) return@forEach
+            addCandidate(match.range.first, cleaned.substring(match.range.first, match.range.last + 1))
+        }
+    }
+
+    val seen = LinkedHashMap<String, GatewayFile>()
+    candidates.sortedBy { it.first }.forEach { (_, file) ->
+        seen[file.path] = file
+    }
+    media.forEach { item ->
+        val file = GatewayFile.fromLink(item.source) ?: return@forEach
+        if (isLikelyGatewayFile(file, item.source)) seen[file.path] = file
+    }
+    return seen.values.toList()
+}
+
+private fun isLikelyGatewayFile(file: GatewayFile, rawDest: String): Boolean {
+    if (file.path.endsWith("/") || file.path == "/" || file.path == "~/" || file.path.endsWith(":/")) return false
+    if (rawDest.startsWith("file://", ignoreCase = true)) return true
+    return file.extension.isNotEmpty() || file.name.lowercase() in GatewayFileKind.CODE_NAMES
 }
 
 /**
