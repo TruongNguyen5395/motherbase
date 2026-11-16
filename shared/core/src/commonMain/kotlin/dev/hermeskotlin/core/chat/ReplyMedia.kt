@@ -74,8 +74,12 @@ private val BLANK_LINES = Regex("""\n{3,}""")
 // Raster pictures the inline decoder draws; SVG opens in FileViewer where it renders visually.
 private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
 
+private fun isSvgPath(source: String): Boolean =
+    source.startsWith("data:image/svg+xml") ||
+        source.substringBefore('?').substringAfterLast('.', "").equals("svg", ignoreCase = true)
+
 private fun isImagePath(source: String): Boolean =
-    source.startsWith("data:image/") ||
+    (source.startsWith("data:image/") && !isSvgPath(source)) ||
         source.substringBefore('?').substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
 
 private fun nameOf(source: String, alt: String = ""): String =
@@ -99,7 +103,7 @@ fun extractReplyMedia(text: String, generated: List<GeneratedImage> = emptyList(
     val media = LinkedHashMap<String, ReplyMedia>()
     var cleaned = MARKDOWN_IMAGE.replaceOutsideCode(text.replace("\r\n", "\n")) { groups ->
         val source = groups[2]
-        media.getOrPut(source) { ReplyMedia(source, nameOf(source, groups[1]), isImage = true) }
+        media.getOrPut(source) { ReplyMedia(source, nameOf(source, groups[1]), isImage = !isSvgPath(source)) }
         ""
     }
     cleaned = PREVIEW_DIRECTIVE.replaceOutsideCode(cleaned) { groups ->

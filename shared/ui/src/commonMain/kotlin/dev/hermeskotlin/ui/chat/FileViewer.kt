@@ -677,6 +677,7 @@ private fun ArtifactBody(file: GatewayFile, artifact: ArtifactKind, text: FileTe
         }
         return
     }
+    val theme = rememberWidgetTheme()
     if (artifact == ArtifactKind.Mermaid) {
         if (!mermaidReady) {
             Box(framed, contentAlignment = Alignment.Center) { Spinner() }
@@ -693,7 +694,6 @@ private fun ArtifactBody(file: GatewayFile, artifact: ArtifactKind, text: FileTe
         )
         return
     }
-    val theme = rememberWidgetTheme()
     when (artifact) {
         ArtifactKind.Html -> WidgetWebView(text.text, theme, file.name, framed, onFailure = { webFailure = it })
         ArtifactKind.Svg -> WidgetWebView(remember(text.text) { svgWidgetHtml(text.text) }, theme, file.name, framed, onFailure = { webFailure = it })
