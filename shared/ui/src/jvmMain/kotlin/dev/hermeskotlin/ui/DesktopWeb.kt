@@ -3,7 +3,7 @@ package dev.hermeskotlin.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import org.koin.compose.getKoin
+import org.koin.core.context.GlobalContext
 
 /**
  * A browser the desktop app lends the shared screens when the runtime it runs on has one (JetBrains Runtime's
@@ -28,6 +28,6 @@ interface DesktopWeb {
 /** The app's [DesktopWeb], or null where the runtime has no browser. */
 @Composable
 internal fun rememberDesktopWeb(): DesktopWeb? {
-    val koin = getKoin()
+    val koin = GlobalContext.getOrNull() ?: return null
     return remember(koin) { koin.getOrNull<DesktopWeb>() }
 }
