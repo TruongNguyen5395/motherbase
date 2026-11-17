@@ -14,10 +14,10 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class ChatOptionsTest {
+class ReplyInteractionTest {
 
     @Test
-    fun parsesSingleAndMultipleModesWithAliasesAndDeduping() {
+    fun parsesSingleAndMultipleChoicesWithAliasesAndDeduping() {
         val singleArgs = HermesJson.parseToJsonElement(
             """
             {
@@ -30,14 +30,14 @@ class ChatOptionsTest {
             }
             """.trimIndent(),
         )
-        val single = QuickChoiceGroup.from(OFFER_CHOICES_TOOL, singleArgs)
+        val single = assertIs<ReplyInteraction.Choices>(ReplyInteraction.from(OFFER_CHOICES_TOOL, singleArgs))
         assertEquals(
-            QuickChoiceGroup(
+            ReplyInteraction.Choices(
                 question = "Pick a deployment target",
                 multiSelect = false,
                 options = listOf(
-                    QuickChoiceOption(label = "Staging", description = "Verify first", value = "Staging"),
-                    QuickChoiceOption(label = "Production", description = null, value = "Deploy straight to production"),
+                    ReplyInteraction.Option(label = "Staging", description = "Verify first", value = "Staging"),
+                    ReplyInteraction.Option(label = "Production", description = null, value = "Deploy straight to production"),
                 ),
             ),
             single,
@@ -51,27 +51,27 @@ class ChatOptionsTest {
             }
             """.trimIndent(),
         )
-        val multi = QuickChoiceGroup.from(OFFER_CHOICES_TOOL, multiArgs)
-        assertTrue(multi!!.multiSelect)
+        val multi = assertIs<ReplyInteraction.Choices>(ReplyInteraction.from(OFFER_CHOICES_TOOL, multiArgs))
+        assertTrue(multi.multiSelect)
         assertEquals(listOf("Unit tests", "UI tests", "Docs"), multi.options.map { it.label })
         assertEquals("Update README", multi.options.last().description)
     }
 
     @Test
-    fun resultFailureSuppressesChoicesAndFormatQuickChoiceReplyFormatsBoth() {
+    fun resultFailureSuppressesChoicesAndFormatsSelectedReplies() {
         val args = HermesJson.parseToJsonElement("""{"options":[{"label":"Proceed"}]}""")
         val failedResult = HermesJson.parseToJsonElement("""{"ok":false,"error":"not supported"}""")
-        assertNull(QuickChoiceGroup.from(OFFER_CHOICES_TOOL, args, failedResult))
+        assertNull(ReplyInteraction.from(OFFER_CHOICES_TOOL, args, failedResult))
 
-        val one = listOf(QuickChoiceOption("Keep SQLite", value = "Keep SQLite for now"))
-        assertEquals("Keep SQLite for now", formatQuickChoiceReply(one))
+        val one = listOf(ReplyInteraction.Option("Keep SQLite", value = "Keep SQLite for now"))
+        assertEquals("Keep SQLite for now", formatInteractionChoices(one))
 
         val many = listOf(
-            QuickChoiceOption("Tests", value = "Run tests"),
-            QuickChoiceOption("Lint", value = "Run lint"),
+            ReplyInteraction.Option("Tests", value = "Run tests"),
+            ReplyInteraction.Option("Lint", value = "Run lint"),
         )
-        assertEquals("- Run tests\n- Run lint", formatQuickChoiceReply(many))
-        assertEquals("", formatQuickChoiceReply(emptyList()))
+        assertEquals("- Run tests\n- Run lint", formatInteractionChoices(many))
+        assertEquals("", formatInteractionChoices(emptyList()))
     }
 
     @Test
@@ -99,7 +99,7 @@ class ChatOptionsTest {
         ).fold(ChatState()) { state, event -> state.reduce(event) }
 
         val reply = assertIs<ChatMessage.Assistant>(okState.messages.last())
-        val choices = reply.tools.single().quickChoices!!
+        val choices = assertIs<ReplyInteraction.Choices>(reply.tools.single().interaction)
         assertFalse(choices.multiSelect)
         assertEquals("Continue?", choices.question)
         assertEquals(listOf("Yes", "No"), choices.options.map { it.label })
@@ -123,7 +123,7 @@ class ChatOptionsTest {
                 seq = null,
             ),
         ).fold(ChatState()) { state, event -> state.reduce(event) }
-        assertNull(assertIs<ChatMessage.Assistant>(failedState.messages.last()).tools.single().quickChoices)
+        assertNull(assertIs<ChatMessage.Assistant>(failedState.messages.last()).tools.single().interaction)
     }
 
     @Test
@@ -157,7 +157,7 @@ class ChatOptionsTest {
             ),
         )
         val reply = assertIs<ChatMessage.Assistant>(messages.last())
-        val choices = reply.tools.single().quickChoices!!
+        val choices = assertIs<ReplyInteraction.Choices>(reply.tools.single().interaction)
         assertTrue(choices.multiSelect)
         assertEquals("Select modules", choices.question)
         assertEquals(listOf("Alpha" to "Use Alpha", "Beta" to "Beta"), choices.options.map { it.label to it.value })

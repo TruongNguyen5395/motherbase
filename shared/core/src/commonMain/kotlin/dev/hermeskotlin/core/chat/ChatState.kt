@@ -29,8 +29,8 @@ data class ToolActivity(
     val generatedImage: GeneratedImage? = null,
     /** For `phone_show_ui`: the screen the agent drew in the chat. */
     val agentScreen: AgentScreen? = null,
-    /** For `offer_choices`: clickable single-choice or multiple-choice quick replies. */
-    val quickChoices: QuickChoiceGroup? = null,
+    /** For `motherbase-interact` tools (e.g. `offer_choices`): non-blocking interactive reply controls. */
+    val interaction: ReplyInteraction? = null,
     /** File paths written or patched by file-modification tools (`write_file`, `patch`, `edit_file`). */
     val editedFiles: List<String> = emptyList(),
 )

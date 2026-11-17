@@ -48,7 +48,7 @@ fun ChatState.reduce(event: GatewayEvent, now: Double? = null): ChatState {
                 running = true,
                 input = ToolDetails.input(payload?.get("args"), payload.string("args_text")),
                 agentScreen = AgentScreen.from(toolName, payload?.get("args")),
-                quickChoices = QuickChoiceGroup.from(toolName, payload?.get("args")),
+                interaction = ReplyInteraction.from(toolName, payload?.get("args")),
                 editedFiles = extractEditedFilePaths(toolName, payload?.get("args")),
             ).let { if (it.name == DELEGATE_TOOL) it.copy(tasks = delegatedTasks(payload?.get("args"), null)) else it }
             withOpenReply { reply -> reply.copy(tools = reply.tools.filterNot { it.id == id } + tool) }
@@ -76,17 +76,17 @@ fun ChatState.reduce(event: GatewayEvent, now: Double? = null): ChatState {
                         delegationIds = if (it.name != DELEGATE_TOOL) it.delegationIds else delegationIds(payload?.get("result") ?: payload?.get("result_text")),
                         generatedImage = if (it.name != IMAGE_GENERATE_TOOL) null else GeneratedImage.from(payload?.get("result")),
                         agentScreen = it.agentScreen ?: AgentScreen.from(it.name, payload?.get("args")),
-                        quickChoices = run {
+                        interaction = run {
                             val resultEl = (payload?.get("result") ?: payload?.get("result_text"))?.takeUnless { it is JsonNull }
                             if (resultEl != null) {
-                                QuickChoiceGroup.from(
+                                ReplyInteraction.from(
                                     toolName = it.name,
                                     args = payload?.get("args"),
                                     result = resultEl,
-                                    knownOfferChoices = it.quickChoices != null,
+                                    knownInteractiveTool = it.interaction != null,
                                 )
                             } else {
-                                it.quickChoices ?: QuickChoiceGroup.from(it.name, payload?.get("args"))
+                                it.interaction ?: ReplyInteraction.from(it.name, payload?.get("args"))
                             }
                         },
                         editedFiles = extractEditedFilePaths(it.name, payload?.get("args"), payload?.get("result")).ifEmpty { it.editedFiles },
@@ -404,7 +404,7 @@ fun historyToMessages(rows: List<SessionMessage>, liveSessionId: String? = null,
                         delegationIds = if (call.name == DELEGATE_TOOL) delegationIds(result) else emptyList(),
                         generatedImage = if (storedToolName(call.name, call.arguments) == IMAGE_GENERATE_TOOL) GeneratedImage.from(result) else null,
                         agentScreen = AgentScreen.from(call.name, call.arguments),
-                        quickChoices = QuickChoiceGroup.from(call.name, call.arguments, result),
+                        interaction = ReplyInteraction.from(call.name, call.arguments, result),
                         editedFiles = extractEditedFilePaths(call.name, call.arguments, result),
                     )
                 }

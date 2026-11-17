@@ -241,8 +241,8 @@ import com.composables.icons.lucide.CloudOff
 import com.composables.icons.lucide.Lightbulb
 import com.composables.icons.lucide.ListEnd
 import com.composables.icons.lucide.Info
+import dev.hermeskotlin.core.chat.INTERACTIVE_REPLY_TOOLS
 import dev.hermeskotlin.core.chat.MESSAGE_AGENT_TOOL
-import dev.hermeskotlin.core.chat.OFFER_CHOICES_TOOL
 import dev.hermeskotlin.core.chat.toolInProgress
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.bots.handle
@@ -1196,7 +1196,7 @@ internal fun ChatView(
                                     canReadAloud = hasSpeechPlayback && !voiceOn && !dictation.active,
                                     found = found,
                                     running = state.running,
-                                    onFillChoice = { text ->
+                                    onInteractionFill = { text ->
                                         actions.fillComposer(text)
                                         runCatching { composerFocus.requestFocus() }
                                     },
@@ -1995,12 +1995,12 @@ private fun Messages(
     /** The message Find in chat is on, by its key, marked with an outline. */
     found: String? = null,
     running: Boolean = false,
-    onFillChoice: ((String) -> Unit)? = null,
+    onInteractionFill: ((String) -> Unit)? = null,
 ) {
     var confirm by remember { mutableStateOf<Pair<MessageChange, String>?>(null) }
     val lastPrompt = messages.lastOrNull { it is ChatMessage.User }?.key
     val lastReply = messages.lastOrNull { it is ChatMessage.Assistant && it.text.isNotBlank() }?.key
-    val activeChoiceReplyKey = if (!running && editing == null) {
+    val activeInteractionReplyKey = if (!running && editing == null) {
         messages.lastOrNull { it is ChatMessage.User || it is ChatMessage.Assistant }?.let { (it as? ChatMessage.Assistant)?.key }
     } else {
         null
@@ -2243,10 +2243,10 @@ private fun Messages(
                                     reading = message.key == reading,
                                     onReadAloud = if (canReadAloud) ({ text -> actions.readAloud(message.key, text) }) else null,
                                     onStopReading = actions::stopReading,
-                                    showQuickChoices = message.key == activeChoiceReplyKey,
-                                    quickChoiceSendEnabled = connected,
-                                    onSendChoice = actions::sendPrompt,
-                                    onFillChoice = onFillChoice,
+                                    showInteraction = message.key == activeInteractionReplyKey,
+                                    interactionSendEnabled = connected,
+                                    onInteractionSend = actions::sendPrompt,
+                                    onInteractionFill = onInteractionFill,
                                 )
                             }
                             // An answer to another bot's message folds under it; never while it's still being written.
@@ -2926,19 +2926,19 @@ internal fun AssistantReply(
     /** Reads the reply's text, as shown, aloud; null when it can't be now. */
     onReadAloud: ((String) -> Unit)? = null,
     onStopReading: () -> Unit = {},
-    showQuickChoices: Boolean = false,
-    quickChoiceSendEnabled: Boolean = true,
-    onSendChoice: ((String) -> Unit)? = null,
-    onFillChoice: ((String) -> Unit)? = null,
+    showInteraction: Boolean = false,
+    interactionSendEnabled: Boolean = true,
+    onInteractionSend: ((String) -> Unit)? = null,
+    onInteractionFill: ((String) -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
     val showReasoning = settings.showReasoning && message.reasoning.isNotBlank()
-    // Messages to other bots and non-blocking quick choices render outside the tool summary row.
+    // Messages to other bots and non-blocking interactive tools render outside the tool summary row.
     val listedTools = message.tools.filter {
-        it.name != MESSAGE_AGENT_TOOL && it.name != OFFER_CHOICES_TOOL && it.quickChoices == null
+        it.name != MESSAGE_AGENT_TOOL && it.name !in INTERACTIVE_REPLY_TOOLS && it.interaction == null
     }
-    val quickChoices = if (showQuickChoices && !message.streaming) {
-        message.tools.mapNotNull { it.quickChoices }.lastOrNull()
+    val interaction = if (showInteraction && !message.streaming) {
+        message.tools.mapNotNull { it.interaction }.lastOrNull()
     } else {
         null
     }
@@ -3010,13 +3010,13 @@ internal fun AssistantReply(
         }
         if (settings.showLinkPreviews && !message.streaming) LinkPreviewCards(text)
         if (media.isNotEmpty()) ReplyMediaList(media)
-        if (quickChoices != null && onSendChoice != null && onFillChoice != null) {
-            QuickChoicesCard(
+        if (interaction != null && onInteractionSend != null && onInteractionFill != null) {
+            ReplyInteractionCard(
                 replyKey = message.key,
-                group = quickChoices,
-                sendEnabled = quickChoiceSendEnabled,
-                onSend = onSendChoice,
-                onFill = onFillChoice,
+                interaction = interaction,
+                sendEnabled = interactionSendEnabled,
+                onSend = onInteractionSend,
+                onFill = onInteractionFill,
             )
         }
         when (message.outcome) {

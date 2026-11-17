@@ -21,8 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.composeunstyled.theme.ColorScheme
 import dev.hermeskotlin.core.chat.ChatMessage
 import dev.hermeskotlin.core.chat.OFFER_CHOICES_TOOL
-import dev.hermeskotlin.core.chat.QuickChoiceGroup
-import dev.hermeskotlin.core.chat.QuickChoiceOption
+import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.chat.ToolActivity
 import dev.hermeskotlin.core.settings.AppSettings
 import dev.hermeskotlin.designsystem.HermesTheme
@@ -34,18 +33,18 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
-class QuickChoicesTest {
+class ReplyInteractionUiTest {
 
     @Test
     fun singleChoiceTapSendsAndEditOrLongPressFillsComposer() = runDesktopComposeUiTest(width = 640, height = 480) {
         val sent = mutableListOf<String>()
         val filled = mutableListOf<String>()
-        val group = QuickChoiceGroup(
+        val interaction = ReplyInteraction.Choices(
             question = "Next step?",
             multiSelect = false,
             options = listOf(
-                QuickChoiceOption("Keep SQLite", description = "Zero ops", value = "Keep SQLite for now"),
-                QuickChoiceOption("Migrate to Postgres"),
+                ReplyInteraction.Option("Keep SQLite", description = "Zero ops", value = "Keep SQLite for now"),
+                ReplyInteraction.Option("Migrate to Postgres"),
             ),
         )
 
@@ -54,9 +53,9 @@ class QuickChoicesTest {
                 CompositionLocalProvider(LocalDesktopLayout provides true) {
                     ProvideAppWords {
                         Box(Modifier.width(420.dp)) {
-                            QuickChoicesCard(
+                            ReplyInteractionCard(
                                 replyKey = "reply-1",
-                                group = group,
+                                interaction = interaction,
                                 sendEnabled = true,
                                 onSend = { sent += it },
                                 onFill = { filled += it },
@@ -71,15 +70,15 @@ class QuickChoicesTest {
         onNodeWithText("Keep SQLite").assertIsDisplayed()
         onNodeWithText("Zero ops").assertIsDisplayed()
 
-        onNodeWithTag("quick_choice_option_0").performClick()
+        onNodeWithTag("interaction_choice_option_0").performClick()
         waitForIdle()
         assertEquals(listOf("Keep SQLite for now"), sent)
 
-        onNodeWithTag("quick_choice_edit_1").performClick()
+        onNodeWithTag("interaction_choice_edit_1").performClick()
         waitForIdle()
         assertEquals(listOf("Migrate to Postgres"), filled)
 
-        onNodeWithTag("quick_choice_option_0").performTouchInput { longClick() }
+        onNodeWithTag("interaction_choice_option_0").performTouchInput { longClick() }
         waitForIdle()
         assertEquals(listOf("Migrate to Postgres", "Keep SQLite for now"), filled)
     }
@@ -89,13 +88,13 @@ class QuickChoicesTest {
         val sent = mutableListOf<String>()
         val filled = mutableListOf<String>()
         var connected by mutableStateOf(true)
-        val group = QuickChoiceGroup(
+        val interaction = ReplyInteraction.Choices(
             question = "Which checks should run?",
             multiSelect = true,
             options = listOf(
-                QuickChoiceOption("Unit tests", value = "Run unit tests"),
-                QuickChoiceOption("UI tests", value = "Run UI tests"),
-                QuickChoiceOption("Docs check"),
+                ReplyInteraction.Option("Unit tests", value = "Run unit tests"),
+                ReplyInteraction.Option("UI tests", value = "Run UI tests"),
+                ReplyInteraction.Option("Docs check"),
             ),
         )
 
@@ -104,9 +103,9 @@ class QuickChoicesTest {
                 CompositionLocalProvider(LocalDesktopLayout provides true) {
                     ProvideAppWords {
                         Box(Modifier.width(420.dp)) {
-                            QuickChoicesCard(
+                            ReplyInteractionCard(
                                 replyKey = "reply-2",
-                                group = group,
+                                interaction = interaction,
                                 sendEnabled = connected,
                                 onSend = { sent += it },
                                 onFill = { filled += it },
@@ -117,39 +116,39 @@ class QuickChoicesTest {
             }
         }
         waitForIdle()
-        onNodeWithTag("quick_choices_send").assertIsNotEnabled()
-        onNodeWithTag("quick_choices_edit").assertIsNotEnabled()
+        onNodeWithTag("interaction_choices_send").assertIsNotEnabled()
+        onNodeWithTag("interaction_choices_edit").assertIsNotEnabled()
 
-        onNodeWithTag("quick_choice_option_0").performClick()
-        onNodeWithTag("quick_choice_option_2").performClick()
+        onNodeWithTag("interaction_choice_option_0").performClick()
+        onNodeWithTag("interaction_choice_option_2").performClick()
         waitForIdle()
 
         onNodeWithText("Send (2)").assertIsDisplayed()
-        onNodeWithTag("quick_choices_send").assertIsEnabled()
-        onNodeWithTag("quick_choices_edit").assertIsEnabled()
+        onNodeWithTag("interaction_choices_send").assertIsEnabled()
+        onNodeWithTag("interaction_choices_edit").assertIsEnabled()
 
-        onNodeWithTag("quick_choices_edit").performClick()
+        onNodeWithTag("interaction_choices_edit").performClick()
         waitForIdle()
         assertEquals(listOf("- Run unit tests\n- Docs check"), filled)
 
-        onNodeWithTag("quick_choices_send").performClick()
+        onNodeWithTag("interaction_choices_send").performClick()
         waitForIdle()
         assertEquals(listOf("- Run unit tests\n- Docs check"), sent)
 
         connected = false
         waitForIdle()
-        onNodeWithTag("quick_choices_send").assertIsNotEnabled()
-        onNodeWithTag("quick_choices_edit").assertIsEnabled()
+        onNodeWithTag("interaction_choices_send").assertIsNotEnabled()
+        onNodeWithTag("interaction_choices_edit").assertIsEnabled()
     }
 
     @Test
-    fun assistantReplyHidesOfferChoicesToolPillAndGuardsVisibilityByTurnState() = runDesktopComposeUiTest(width = 640, height = 480) {
-        var showQuick by mutableStateOf(true)
+    fun assistantReplyHidesInteractiveToolPillAndGuardsVisibilityByTurnState() = runDesktopComposeUiTest(width = 640, height = 480) {
+        var showInteraction by mutableStateOf(true)
         var streaming by mutableStateOf(false)
-        val group = QuickChoiceGroup(
+        val interaction = ReplyInteraction.Choices(
             question = "Approve?",
             multiSelect = false,
-            options = listOf(QuickChoiceOption("Yes"), QuickChoiceOption("No")),
+            options = listOf(ReplyInteraction.Option("Yes"), ReplyInteraction.Option("No")),
         )
 
         setContent {
@@ -170,17 +169,17 @@ class QuickChoicesTest {
                                             id = "tool-1",
                                             name = OFFER_CHOICES_TOOL,
                                             running = false,
-                                            quickChoices = group,
+                                            interaction = interaction,
                                         ),
                                     ),
                                 ),
                                 onBranch = null,
                                 onRegenerate = null,
                                 last = true,
-                                showQuickChoices = showQuick,
-                                quickChoiceSendEnabled = true,
-                                onSendChoice = {},
-                                onFillChoice = {},
+                                showInteraction = showInteraction,
+                                interactionSendEnabled = true,
+                                onInteractionSend = {},
+                                onInteractionFill = {},
                             )
                         }
                     }
@@ -188,17 +187,17 @@ class QuickChoicesTest {
             }
         }
         waitForIdle()
-        onNodeWithTag("quick_choices_card").assertIsDisplayed()
+        onNodeWithTag("reply_interaction_card").assertIsDisplayed()
         onNodeWithText("Yes").assertIsDisplayed()
         assertTrue(onNodeWithText("Ran 1 tool").let { runCatching { it.assertIsDisplayed() }.isFailure })
 
         streaming = true
         waitForIdle()
-        onNodeWithTag("quick_choices_card").assertDoesNotExist()
+        onNodeWithTag("reply_interaction_card").assertDoesNotExist()
 
         streaming = false
-        showQuick = false
+        showInteraction = false
         waitForIdle()
-        onNodeWithTag("quick_choices_card").assertDoesNotExist()
+        onNodeWithTag("reply_interaction_card").assertDoesNotExist()
     }
 }

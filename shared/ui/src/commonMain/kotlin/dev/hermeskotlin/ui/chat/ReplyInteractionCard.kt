@@ -8,7 +8,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,9 +40,8 @@ import com.composeunstyled.Text
 import com.composeunstyled.UnstyledButton
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
-import dev.hermeskotlin.core.chat.QuickChoiceGroup
-import dev.hermeskotlin.core.chat.QuickChoiceOption
-import dev.hermeskotlin.core.chat.formatQuickChoiceReply
+import dev.hermeskotlin.core.chat.ReplyInteraction
+import dev.hermeskotlin.core.chat.formatInteractionChoices
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.accentSoft
 import dev.hermeskotlin.designsystem.accentText
@@ -70,32 +68,27 @@ import dev.hermeskotlin.designsystem.textTertiary
 import dev.hermeskotlin.designsystem.typography
 import dev.hermeskotlin.ui.isDesktop
 import dev.hermeskotlin.ui.resources.Res
-import dev.hermeskotlin.ui.resources.chat_quick_choice_edit
-import dev.hermeskotlin.ui.resources.chat_quick_choice_edit_short
-import dev.hermeskotlin.ui.resources.chat_quick_choice_multi_hint
-import dev.hermeskotlin.ui.resources.chat_quick_choice_send
-import dev.hermeskotlin.ui.resources.chat_quick_choice_send_count
+import dev.hermeskotlin.ui.resources.chat_interaction_edit
+import dev.hermeskotlin.ui.resources.chat_interaction_edit_short
+import dev.hermeskotlin.ui.resources.chat_interaction_multi_hint
+import dev.hermeskotlin.ui.resources.chat_interaction_send
+import dev.hermeskotlin.ui.resources.chat_interaction_send_count
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Non-blocking quick-reply choices attached below the active assistant reply.
- * Single choice sends immediately on click/tap, or inserts into the composer on edit/long-press.
- * Multiple choice lets the user toggle selections before sending or editing together.
+ * Shared container for non-blocking interactive reply widgets (`motherbase-interact`) attached below
+ * the active assistant reply. Dispatches rendering by [ReplyInteraction] subtype.
  */
 @Composable
-internal fun QuickChoicesCard(
+internal fun ReplyInteractionCard(
     replyKey: String,
-    group: QuickChoiceGroup,
+    interaction: ReplyInteraction,
     sendEnabled: Boolean,
     onSend: (String) -> Unit,
     onFill: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val containerShape = RoundedCornerShape(Theme[radii][radiusLarge])
-    var selectedMask by rememberSaveable(replyKey, group.options.size, group.multiSelect) {
-        mutableIntStateOf(0)
-    }
-
     Column(
         modifier
             .fillMaxWidth()
@@ -104,105 +97,128 @@ internal fun QuickChoicesCard(
             .background(Theme[colors][surface], containerShape)
             .border(1.dp, Theme[colors][stroke], containerShape)
             .padding(10.dp)
-            .testTag("quick_choices_card"),
+            .testTag("reply_interaction_card"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (!group.question.isNullOrBlank() || group.multiSelect) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!group.question.isNullOrBlank()) {
-                    Text(
-                        group.question.orEmpty(),
-                        style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
-                        color = Theme[colors][textSecondary],
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (group.multiSelect) {
-                    Text(
-                        stringResource(Res.string.chat_quick_choice_multi_hint),
-                        style = Theme[typography][caption],
-                        color = Theme[colors][textTertiary],
-                    )
-                }
+        when (interaction) {
+            is ReplyInteraction.Choices -> ChoicesInteractionContent(
+                replyKey = replyKey,
+                choices = interaction,
+                sendEnabled = sendEnabled,
+                onSend = onSend,
+                onFill = onFill,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChoicesInteractionContent(
+    replyKey: String,
+    choices: ReplyInteraction.Choices,
+    sendEnabled: Boolean,
+    onSend: (String) -> Unit,
+    onFill: (String) -> Unit,
+) {
+    var selectedMask by rememberSaveable(replyKey, choices.options.size, choices.multiSelect) {
+        mutableIntStateOf(0)
+    }
+
+    if (!choices.question.isNullOrBlank() || choices.multiSelect) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!choices.question.isNullOrBlank()) {
+                Text(
+                    choices.question.orEmpty(),
+                    style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
+                    color = Theme[colors][textSecondary],
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (choices.multiSelect) {
+                Text(
+                    stringResource(Res.string.chat_interaction_multi_hint),
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textTertiary],
+                )
             }
         }
+    }
 
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            group.options.forEachIndexed { index, option ->
-                val isSelected = (selectedMask and (1 shl index)) != 0
-                if (group.multiSelect) {
-                    MultiChoiceRow(
-                        index = index,
-                        option = option,
-                        selected = isSelected,
-                        onToggle = { selectedMask = selectedMask xor (1 shl index) },
-                    )
-                } else {
-                    SingleChoiceRow(
-                        index = index,
-                        option = option,
-                        sendEnabled = sendEnabled,
-                        onSend = { onSend(option.value) },
-                        onFill = { onFill(option.value) },
-                    )
-                }
-            }
-        }
-
-        if (group.multiSelect) {
-            val chosen = remember(group.options, selectedMask) {
-                group.options.filterIndexed { i, _ -> (selectedMask and (1 shl i)) != 0 }
-            }
-            val replyText = remember(chosen) { formatQuickChoiceReply(chosen) }
-            val sendText = if (chosen.isEmpty()) {
-                stringResource(Res.string.chat_quick_choice_send)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        choices.options.forEachIndexed { index, option ->
+            val isSelected = (selectedMask and (1 shl index)) != 0
+            if (choices.multiSelect) {
+                MultiChoiceOptionRow(
+                    index = index,
+                    option = option,
+                    selected = isSelected,
+                    onToggle = { selectedMask = selectedMask xor (1 shl index) },
+                )
             } else {
-                stringResource(Res.string.chat_quick_choice_send_count, chosen.size)
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(top = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    text = stringResource(Res.string.chat_quick_choice_edit_short),
-                    onClick = { onFill(replyText) },
-                    modifier = Modifier.testTag("quick_choices_edit"),
-                    variant = ButtonVariant.Outline,
-                    size = ButtonSize.Small,
-                    enabled = chosen.isNotEmpty(),
-                    leadingIcon = Lucide.Pencil,
-                )
-                Button(
-                    text = sendText,
-                    onClick = { onSend(replyText) },
-                    modifier = Modifier.testTag("quick_choices_send"),
-                    variant = ButtonVariant.Primary,
-                    size = ButtonSize.Small,
-                    enabled = sendEnabled && chosen.isNotEmpty(),
-                    leadingIcon = Lucide.Send,
+                SingleChoiceOptionRow(
+                    index = index,
+                    option = option,
+                    sendEnabled = sendEnabled,
+                    onSend = { onSend(option.value) },
+                    onFill = { onFill(option.value) },
                 )
             }
+        }
+    }
+
+    if (choices.multiSelect) {
+        val chosen = remember(choices.options, selectedMask) {
+            choices.options.filterIndexed { i, _ -> (selectedMask and (1 shl i)) != 0 }
+        }
+        val replyText = remember(chosen) { formatInteractionChoices(chosen) }
+        val sendText = if (chosen.isEmpty()) {
+            stringResource(Res.string.chat_interaction_send)
+        } else {
+            stringResource(Res.string.chat_interaction_send_count, chosen.size)
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                text = stringResource(Res.string.chat_interaction_edit_short),
+                onClick = { onFill(replyText) },
+                modifier = Modifier.testTag("interaction_choices_edit"),
+                variant = ButtonVariant.Outline,
+                size = ButtonSize.Small,
+                enabled = chosen.isNotEmpty(),
+                leadingIcon = Lucide.Pencil,
+            )
+            Button(
+                text = sendText,
+                onClick = { onSend(replyText) },
+                modifier = Modifier.testTag("interaction_choices_send"),
+                variant = ButtonVariant.Primary,
+                size = ButtonSize.Small,
+                enabled = sendEnabled && chosen.isNotEmpty(),
+                leadingIcon = Lucide.Send,
+            )
         }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SingleChoiceRow(
+private fun SingleChoiceOptionRow(
     index: Int,
-    option: QuickChoiceOption,
+    option: ReplyInteraction.Option,
     sendEnabled: Boolean,
     onSend: () -> Unit,
     onFill: () -> Unit,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
     val rowInteraction = remember { MutableInteractionSource() }
-    val editLabel = stringResource(Res.string.chat_quick_choice_edit)
+    val editLabel = stringResource(Res.string.chat_interaction_edit)
     val rowHeight = if (isDesktop) 36.dp else MinTouchTarget
     val editButtonSize = if (isDesktop) 32.dp else 40.dp
 
@@ -232,7 +248,7 @@ private fun SingleChoiceRow(
                 )
                 .alpha(if (sendEnabled) 1f else 0.55f)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                .testTag("quick_choice_option_$index"),
+                .testTag("interaction_choice_option_$index"),
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
@@ -260,7 +276,7 @@ private fun SingleChoiceRow(
                     .size(editButtonSize)
                     .clip(btnShape)
                     .handCursor()
-                    .testTag("quick_choice_edit_$index"),
+                    .testTag("interaction_choice_edit_$index"),
             ) {
                 UnstyledIcon(
                     Lucide.Pencil,
@@ -274,9 +290,9 @@ private fun SingleChoiceRow(
 }
 
 @Composable
-private fun MultiChoiceRow(
+private fun MultiChoiceOptionRow(
     index: Int,
-    option: QuickChoiceOption,
+    option: ReplyInteraction.Option,
     selected: Boolean,
     onToggle: () -> Unit,
 ) {
@@ -303,7 +319,7 @@ private fun MultiChoiceRow(
             )
             .semantics { this.selected = selected }
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .testTag("quick_choice_option_$index"),
+            .testTag("interaction_choice_option_$index"),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
