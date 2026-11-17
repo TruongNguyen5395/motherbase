@@ -518,8 +518,6 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
 
         /** Whether [run] can be marked unread: it came after the Inbox started, so the read set is what says. */
         fun canMarkUnread(run: InboxRun): Boolean = run.at > since
-
-        internal fun toSaved() = Saved(runs, read, since, groups, dismissed)
     }
 
     /** In-memory Action Inbox items observed for a gateway so sidebar/top-bar indicators stay live without opening Inbox. */
@@ -675,6 +673,8 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
             _actionState.value = ActionInboxSnapshot()
         }
     }
+
+    private fun Snapshot.toSaved() = Saved(runs, read, since, groups, dismissed)
 
     private suspend fun edit(url: String, change: (Snapshot) -> Snapshot) = lock.withLock {
         if (gateway != url) return@withLock
