@@ -974,6 +974,13 @@ class ChatViewModel(
         nextPrompt.used()
     }
 
+    override fun fillComposer(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        val existing = composer.text.toString()
+        composer.setTextAndPlaceCursorAtEnd(if (existing.isBlank()) trimmed else "${existing.trimEnd()}\n\n$trimmed")
+    }
+
     override fun dismissSuggestedReply() = nextPrompt.dismiss()
 
     private fun isSlashQuery(text: String): Boolean = '\n' !in text && SlashCommand.looksLikeCommand(text) || text == "/"

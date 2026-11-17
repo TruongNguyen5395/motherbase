@@ -242,6 +242,7 @@ import com.composables.icons.lucide.Lightbulb
 import com.composables.icons.lucide.ListEnd
 import com.composables.icons.lucide.Info
 import dev.hermeskotlin.core.chat.MESSAGE_AGENT_TOOL
+import dev.hermeskotlin.core.chat.OFFER_CHOICES_TOOL
 import dev.hermeskotlin.core.chat.toolInProgress
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.bots.handle
@@ -1194,6 +1195,11 @@ internal fun ChatView(
                                     // The voice chat and dictation have the speaker and the microphone.
                                     canReadAloud = hasSpeechPlayback && !voiceOn && !dictation.active,
                                     found = found,
+                                    running = state.running,
+                                    onFillChoice = { text ->
+                                        actions.fillComposer(text)
+                                        runCatching { composerFocus.requestFocus() }
+                                    },
                                 )
                             }
                         }
@@ -1988,10 +1994,17 @@ private fun Messages(
     canReadAloud: Boolean = true,
     /** The message Find in chat is on, by its key, marked with an outline. */
     found: String? = null,
+    running: Boolean = false,
+    onFillChoice: ((String) -> Unit)? = null,
 ) {
     var confirm by remember { mutableStateOf<Pair<MessageChange, String>?>(null) }
     val lastPrompt = messages.lastOrNull { it is ChatMessage.User }?.key
     val lastReply = messages.lastOrNull { it is ChatMessage.Assistant && it.text.isNotBlank() }?.key
+    val activeChoiceReplyKey = if (!running && editing == null) {
+        messages.lastOrNull { it is ChatMessage.User || it is ChatMessage.Assistant }?.let { (it as? ChatMessage.Assistant)?.key }
+    } else {
+        null
+    }
     val faces = LocalBotFaces.current
     val partners = remember(messages, faces) { messages.map { exchangePartner(it, faces) } }
     // The rewind rules read only the messages.
@@ -2230,6 +2243,10 @@ private fun Messages(
                                     reading = message.key == reading,
                                     onReadAloud = if (canReadAloud) ({ text -> actions.readAloud(message.key, text) }) else null,
                                     onStopReading = actions::stopReading,
+                                    showQuickChoices = message.key == activeChoiceReplyKey,
+                                    quickChoiceSendEnabled = connected,
+                                    onSendChoice = actions::sendPrompt,
+                                    onFillChoice = onFillChoice,
                                 )
                             }
                             // An answer to another bot's message folds under it; never while it's still being written.
@@ -2909,11 +2926,22 @@ internal fun AssistantReply(
     /** Reads the reply's text, as shown, aloud; null when it can't be now. */
     onReadAloud: ((String) -> Unit)? = null,
     onStopReading: () -> Unit = {},
+    showQuickChoices: Boolean = false,
+    quickChoiceSendEnabled: Boolean = true,
+    onSendChoice: ((String) -> Unit)? = null,
+    onFillChoice: ((String) -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
     val showReasoning = settings.showReasoning && message.reasoning.isNotBlank()
-    // Messages to other bots get their own line below, so they aren't listed again among the tools.
-    val listedTools = message.tools.filter { it.name != MESSAGE_AGENT_TOOL }
+    // Messages to other bots and non-blocking quick choices render outside the tool summary row.
+    val listedTools = message.tools.filter {
+        it.name != MESSAGE_AGENT_TOOL && it.name != OFFER_CHOICES_TOOL && it.quickChoices == null
+    }
+    val quickChoices = if (showQuickChoices && !message.streaming) {
+        message.tools.mapNotNull { it.quickChoices }.lastOrNull()
+    } else {
+        null
+    }
     val showTools = settings.showToolActivity && listedTools.isNotEmpty()
     // Pictures and files the reply delivered show as themselves, not as Markdown a renderer can't load.
     // Pictures image_generate made show where it ran, as on Desktop: the model may never name them.
@@ -2982,6 +3010,15 @@ internal fun AssistantReply(
         }
         if (settings.showLinkPreviews && !message.streaming) LinkPreviewCards(text)
         if (media.isNotEmpty()) ReplyMediaList(media)
+        if (quickChoices != null && onSendChoice != null && onFillChoice != null) {
+            QuickChoicesCard(
+                replyKey = message.key,
+                group = quickChoices,
+                sendEnabled = quickChoiceSendEnabled,
+                onSend = onSendChoice,
+                onFill = onFillChoice,
+            )
+        }
         when (message.outcome) {
             TurnOutcome.Error -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 UnstyledIcon(Lucide.CircleAlert, contentDescription = null, tint = Theme[colors][danger], modifier = Modifier.size(16.dp))

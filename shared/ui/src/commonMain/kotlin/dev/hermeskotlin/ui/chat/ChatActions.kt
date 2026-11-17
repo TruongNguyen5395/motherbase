@@ -60,6 +60,9 @@ interface ChatActions {
     /** Puts the suggested next message in the composer, to look over and send. */
     fun useSuggestedReply(reply: SuggestedReply) {}
 
+    /** Puts [text] into the composer (preserving any existing draft) so the user can edit before sending. */
+    fun fillComposer(text: String) {}
+
     /** Closes the suggested next message. */
     fun dismissSuggestedReply() {}
 

@@ -560,6 +560,11 @@
     <string name="chat_suggestion">Suggested reply</string>
     <string name="chat_suggestion_use">Put in the composer</string>
     <string name="chat_suggestion_dismiss">Dismiss the suggestion</string>
+    <string name="chat_quick_choice_edit">Edit in composer</string>
+    <string name="chat_quick_choice_edit_short">Edit</string>
+    <string name="chat_quick_choice_multi_hint">Select one or more</string>
+    <string name="chat_quick_choice_send">Send</string>
+    <string name="chat_quick_choice_send_count">Send (%1$d)</string>
     <string name="chat_ref_file">A file</string>
     <string name="chat_ref_folder">A folder</string>
     <string name="chat_mention">Mention %1$s</string>

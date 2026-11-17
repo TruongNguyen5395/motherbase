@@ -908,4 +908,17 @@ class ChatViewModelTest {
         assertTrue(requests.any { it == "/api/files/download|/tmp/cache/shot.png|null" })
     }
 
+    @Test
+    fun fillComposerPreservesExistingDraftAndTrims() = runTest(dispatcher) {
+        val (vm, _) = viewModel()
+        vm.fillComposer("   ")
+        assertEquals("", vm.composer.text.toString())
+
+        vm.fillComposer("  Keep SQLite  ")
+        assertEquals("Keep SQLite", vm.composer.text.toString())
+
+        vm.fillComposer("Also run tests")
+        assertEquals("Keep SQLite\n\nAlso run tests", vm.composer.text.toString())
+    }
+
 }
