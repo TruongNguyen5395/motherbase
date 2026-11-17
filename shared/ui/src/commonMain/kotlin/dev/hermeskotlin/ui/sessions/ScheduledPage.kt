@@ -7,12 +7,27 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.key
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.text.AnnotatedString
 import com.composables.icons.lucide.AppWindow
+import com.composables.icons.lucide.Copy
+import com.composables.icons.lucide.FileText
+import dev.hermeskotlin.core.inbox.keepLineBreaks
+import dev.hermeskotlin.core.profiles.Profile
 import dev.hermeskotlin.designsystem.rememberHoverIndication
+import dev.hermeskotlin.designsystem.components.BottomSheet
+import dev.hermeskotlin.designsystem.components.Chip
+import dev.hermeskotlin.designsystem.components.MarkdownText
+import dev.hermeskotlin.designsystem.components.SheetHeader
+import dev.hermeskotlin.designsystem.components.verticalScrollWithBar
+import dev.hermeskotlin.ui.components.messageTime
+import dev.hermeskotlin.ui.components.uses24HourClock
 
 import dev.hermeskotlin.designsystem.components.handCursor
 
@@ -133,6 +148,7 @@ internal fun ScheduledPage(
     onOpenRun: (SessionSummary) -> Unit,
     onSessionExpired: () -> Unit,
     owner: RoutineOwner? = null,
+    profiles: List<Profile> = emptyList(),
     /** Opens a run in a window of its own (a desktop's Ctrl+click or menu), where one can open. */
     onPopOutRun: ((SessionSummary) -> Unit)? = null,
     // Each bot's routines keep their own page state, apart from the full list's.
@@ -172,7 +188,8 @@ internal fun ScheduledPage(
         }
     }
 
-    PlatformBackHandler(enabled = visible && job != null && state.editor == null) { viewModel.closeJob() }
+    PlatformBackHandler(enabled = visible && state.openOutput != null) { viewModel.closeRunOutput() }
+    PlatformBackHandler(enabled = visible && state.openOutput == null && job != null && state.editor == null) { viewModel.closeJob() }
     PlatformBackHandler(enabled = visible && state.editor != null) { leaveEditor {} }
 
     val editorPane: (@Composable () -> Unit)? = state.editor?.let { editor ->
@@ -196,13 +213,14 @@ internal fun ScheduledPage(
                 state,
                 viewModel,
                 // A run opened from here is the one marked when the page comes back, as the page is put away for it.
-                selectedId = selectedId ?: viewModel.lastOpenedRun,
+                selectedId = state.openOutput?.run?.id ?: selectedId ?: viewModel.lastOpenedRun,
                 onBack = onBack,
                 onOpenRun = { run ->
                     viewModel.lastOpenedRun = run.id
                     onOpenRun(run)
                 },
                 owner = owner,
+                profiles = profiles,
                 editorPane = editorPane,
                 leaveEditor = leaveEditor,
                 onPopOutRun = onPopOutRun?.let { popOut ->
@@ -236,6 +254,7 @@ internal fun ScheduledPage(
 interface ScheduledActions {
     fun refresh()
     fun newJob()
+    fun setProfileFilter(profile: String?) {}
     fun openJob(jobId: String)
     fun closeJob()
     fun editJob()
@@ -244,6 +263,8 @@ interface ScheduledActions {
     fun askDelete()
     fun cancelDelete()
     fun deleteJob()
+    fun openRunOutput(job: CronJob, run: SessionSummary) {}
+    fun closeRunOutput() {}
 }
 
 /** The jobs list and a job's page, apart from the view model, so previews can draw them from sample data. */
@@ -255,6 +276,7 @@ internal fun ScheduledView(
     onBack: () -> Unit,
     onOpenRun: (SessionSummary) -> Unit,
     owner: RoutineOwner? = null,
+    profiles: List<Profile> = emptyList(),
     /** The open editor, if any: beside the list on a wide desktop page, else the page itself. */
     editorPane: (@Composable () -> Unit)? = null,
     /** Runs what leaves the editor (another job picked, a new one started) once it's put away. */
@@ -263,6 +285,8 @@ internal fun ScheduledView(
 ) {
     val job = state.openJob
     val routines = owner != null
+    val profileNames = remember(profiles) { profiles.associate { it.name to it.label } }
+    val profileLabel: (String) -> String = { id -> profileNames[id] ?: id }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // A desktop page wide enough for both lists the jobs on the left and the open one on the right, as a
         // desktop mail or task app does, so a job is a click away from the next one without a trip back. With no
@@ -274,7 +298,7 @@ internal fun ScheduledView(
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     Box(Modifier.width(SPLIT_LIST_WIDTH).fillMaxHeight()) {
                         // A new job being written isn't the one that was open: nothing in the list is marked.
-                        JobsList(state, actions, owner, openId = job?.id?.takeIf { state.editor?.isNew != true }, leaveEditor = leaveEditor, start = 14.dp, end = 8.dp)
+                        JobsList(state, actions, owner, openId = job?.id?.takeIf { state.editor?.isNew != true }, leaveEditor = leaveEditor, profileLabel = profileLabel, start = 14.dp, end = 8.dp)
                     }
                     Box(Modifier.width(1.dp).fillMaxHeight().padding(bottom = PageFoot).background(Theme[colors][stroke]))
                     Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -303,7 +327,7 @@ internal fun ScheduledView(
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.semantics { heading() },
                                         )
-                                        job.statusLine().takeIf { it.isNotEmpty() }?.let {
+                                        job.statusLine(profile = if (routines) null else job.profile?.let(profileLabel)).takeIf { it.isNotEmpty() }?.let {
                                             Text(it, style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp), color = Theme[colors][textTertiary], maxLines = 1)
                                         }
                                     }
@@ -311,7 +335,17 @@ internal fun ScheduledView(
                                 }
                                 // Each job's runs scroll from their own top.
                                 key(job.id) {
-                                    JobDetail(job, state, actions, owner, selectedId, onOpenRun, onPopOutRun, Modifier.weight(1f).fillMaxWidth(), start = 20.dp)
+                                    JobDetail(
+                                        job,
+                                        state,
+                                        actions,
+                                        owner,
+                                        selectedId,
+                                        onOpenRun = { run -> if (run.isCronOutput) actions.openRunOutput(job, run) else onOpenRun(run) },
+                                        onPopOutRun = onPopOutRun,
+                                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                                        start = 20.dp,
+                                    )
                                 }
                             }
                         }
@@ -323,17 +357,32 @@ internal fun ScheduledView(
         } else if (job == null) {
             Column(Modifier.fillMaxSize()) {
                 JobsHeader(state, actions, owner, onBack, leaveEditor)
-                Box(Modifier.weight(1f).fillMaxWidth()) { JobsList(state, actions, owner, openId = null, leaveEditor = leaveEditor) }
+                Box(Modifier.weight(1f).fillMaxWidth()) { JobsList(state, actions, owner, openId = null, leaveEditor = leaveEditor, profileLabel = profileLabel) }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                SubpageHeader(job.displayName, onBack = actions::closeJob, subtitle = job.statusLine().ifEmpty { null }) {
+                SubpageHeader(
+                    job.displayName,
+                    onBack = actions::closeJob,
+                    subtitle = job.statusLine(profile = if (routines) null else job.profile?.let(profileLabel)).ifEmpty { null },
+                ) {
                     JobActions(routines, state.busy, actions)
                 }
-                JobDetail(job, state, actions, owner, selectedId, onOpenRun, onPopOutRun, Modifier.weight(1f).fillMaxWidth())
+                JobDetail(
+                    job,
+                    state,
+                    actions,
+                    owner,
+                    selectedId,
+                    onOpenRun = { run -> if (run.isCronOutput) actions.openRunOutput(job, run) else onOpenRun(run) },
+                    onPopOutRun = onPopOutRun,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
             }
         }
     }
+
+    CronOutputSheet(state.openOutput, onClose = actions::closeRunOutput)
 
     Dialog(
         visible = state.confirmingDelete,
@@ -355,7 +404,7 @@ private val SPLIT_LIST_WIDTH = 320.dp
 
 @Composable
 private fun JobsHeader(state: ScheduledUiState, actions: ScheduledActions, owner: RoutineOwner?, onBack: () -> Unit, leaveEditor: (() -> Unit) -> Unit) {
-    val count = state.jobs.size
+    val count = state.shownJobs.size
     SubpageHeader(
         owner?.let { stringResource(Res.string.sessions_bot_routines, it.label) } ?: stringResource(Res.string.sessions_nav_scheduled),
         onBack = onBack,
@@ -395,10 +444,15 @@ private fun JobsList(
     owner: RoutineOwner?,
     openId: String?,
     leaveEditor: (() -> Unit) -> Unit,
+    profileLabel: (String) -> String = { it },
     start: Dp = 14.dp,
     end: Dp = 14.dp,
 ) {
     val routines = owner != null
+    val profiles = state.availableProfiles
+    val multiProfile = !routines && profiles.size >= 2
+    val activeFilter = state.shownProfileFilter
+    val shownJobs = state.shownJobs
     when {
         state.loading -> ListSkeleton()
         state.error != null -> EmptyState(
@@ -432,38 +486,78 @@ private fun JobsList(
                 edit = stringResource(Res.string.sessions_edit),
                 delete = stringResource(Res.string.sessions_delete),
             )
-            ScrollbarBox(list, Modifier.fillMaxSize(), bottomInset = PageFoot) {
-                LazyColumn(
-                    Modifier.fillMaxSize().arrowFocus(),
-                    state = list,
-                    contentPadding = PaddingValues(start = start, end = end, bottom = PageFoot),
-                    verticalArrangement = Arrangement.spacedBy(if (isDesktop) 6.dp else 8.dp),
-                ) {
-                    items(state.jobs, key = { it.id }) { item ->
-                        // The job page's own actions, from a right-click on the desktop: each opens the job and
-                        // acts on it there, so what it did (a run started, the delete to confirm) is in sight.
-                        // The action waits with the opening, so a "Discard changes?" asked first can't aim it at the
-                        // job still open.
-                        val openThen = { then: () -> Unit ->
-                            leaveEditor {
-                                actions.openJob(item.id)
-                                then()
+            Column(Modifier.fillMaxSize()) {
+                if (multiProfile) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(start = start, end = end, top = 2.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Chip(
+                            stringResource(Res.string.sessions_profile_all),
+                            selected = activeFilter == null,
+                            onClick = { actions.setProfileFilter(null) },
+                            count = state.jobs.size,
+                        )
+                        profiles.forEach { profileId ->
+                            Chip(
+                                profileLabel(profileId),
+                                selected = activeFilter == profileId,
+                                onClick = { actions.setProfileFilter(profileId) },
+                                count = state.jobs.count { it.profile == profileId },
+                            )
+                        }
+                    }
+                }
+                if (shownJobs.isEmpty()) {
+                    EmptyState(
+                        Lucide.CalendarClock,
+                        stringResource(Res.string.sessions_no_jobs_in_profile),
+                        stringResource(Res.string.sessions_no_jobs_detail),
+                    )
+                } else {
+                    ScrollbarBox(list, Modifier.weight(1f).fillMaxWidth(), bottomInset = PageFoot) {
+                        LazyColumn(
+                            Modifier.fillMaxSize().arrowFocus(),
+                            state = list,
+                            contentPadding = PaddingValues(start = start, end = end, bottom = PageFoot),
+                            verticalArrangement = Arrangement.spacedBy(if (isDesktop) 6.dp else 8.dp),
+                        ) {
+                            items(shownJobs, key = { "${it.profile ?: "default"}/${it.id}" }) { item ->
+                                // The job page's own actions, from a right-click on the desktop: each opens the job and
+                                // acts on it there, so what it did (a run started, the delete to confirm) is in sight.
+                                // The action waits with the opening, so a "Discard changes?" asked first can't aim it at the
+                                // job still open.
+                                val openThen = { then: () -> Unit ->
+                                    leaveEditor {
+                                        actions.openJob(item.id)
+                                        then()
+                                    }
+                                }
+                                val open = { openThen {} }
+                                // While a change is on its way, only Open, as the job page's own buttons wait too.
+                                val words = menuWords
+                                JobRow(
+                                    item,
+                                    selected = item.id == openId,
+                                    profileBadge = if (multiProfile) item.profile?.let(profileLabel) else null,
+                                    onClick = open,
+                                    menu = {
+                                        val opening = listOf(RowMenuItem(words.open, Lucide.CalendarClock, run = open))
+                                        if (state.busy) opening else opening + listOf(
+                                            RowMenuItem(words.runNow, Lucide.Zap) { openThen(actions::runNow) },
+                                            RowMenuItem(if (item.paused) words.resume else words.pause, if (item.paused) Lucide.Play else Lucide.Pause) {
+                                                openThen(actions::togglePaused)
+                                            },
+                                            RowMenuItem(words.edit, Lucide.Pencil) { openThen(actions::editJob) },
+                                            RowMenuItem(words.delete, Lucide.Trash2, destructive = true) { openThen(actions::askDelete) },
+                                        )
+                                    },
+                                )
                             }
                         }
-                        val open = { openThen {} }
-                        // While a change is on its way, only Open, as the job page's own buttons wait too.
-                        val words = menuWords
-                        JobRow(item, selected = item.id == openId, onClick = open, menu = {
-                            val opening = listOf(RowMenuItem(words.open, Lucide.CalendarClock, run = open))
-                            if (state.busy) opening else opening + listOf(
-                                RowMenuItem(words.runNow, Lucide.Zap) { openThen(actions::runNow) },
-                                RowMenuItem(if (item.paused) words.resume else words.pause, if (item.paused) Lucide.Play else Lucide.Pause) {
-                                    openThen(actions::togglePaused)
-                                },
-                                RowMenuItem(words.edit, Lucide.Pencil) { openThen(actions::editJob) },
-                                RowMenuItem(words.delete, Lucide.Trash2, destructive = true) { openThen(actions::askDelete) },
-                            )
-                        })
                     }
                 }
             }
@@ -523,7 +617,12 @@ private fun JobDetail(
                 }
                 state.runs.isEmpty() -> item(key = "runs-empty") { ListNotice(stringResource(Res.string.sessions_no_runs)) }
                 else -> items(state.runs, key = { it.id }) { run ->
-                    RunRow(run, selected = run.id == selectedId, onOpen = { onOpenRun(run) }, onPopOut = onPopOutRun?.let { { it(run) } })
+                    RunRow(
+                        run,
+                        selected = run.id == selectedId,
+                        onOpen = { onOpenRun(run) },
+                        onPopOut = onPopOutRun?.takeIf { !run.isCronOutput }?.let { { it(run) } },
+                    )
                 }
             }
         }
@@ -542,7 +641,13 @@ private val CronJob.tone: JobTone
 
 /** A ringed card: a tinted tile, the name and schedule, and when it runs next (or that it failed or waits). */
 @Composable
-private fun JobRow(job: CronJob, selected: Boolean = false, onClick: () -> Unit, menu: () -> List<RowMenuItem>) {
+private fun JobRow(
+    job: CronJob,
+    selected: Boolean = false,
+    profileBadge: String? = null,
+    onClick: () -> Unit,
+    menu: () -> List<RowMenuItem>,
+) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
     var menuOpen by remember { mutableStateOf(false) }
     RowContextMenu(menuOpen, onDismiss = { menuOpen = false }, items = menu)
@@ -571,8 +676,10 @@ private fun JobRow(job: CronJob, selected: Boolean = false, onClick: () -> Unit,
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(job.displayName, style = Theme[typography][body].copy(fontWeight = FontWeight.Medium), color = Theme[colors][text], maxLines = 1, overflow = TextOverflow.Ellipsis)
-            job.scheduleDisplay.takeIf { it.isNotBlank() && it != "?" }?.let {
-                Text(readableScheduleText(it), style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp), color = Theme[colors][textTertiary], maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val scheduleText = job.scheduleDisplay.takeIf { it.isNotBlank() && it != "?" }?.let { readableScheduleText(it) }
+            val subline = listOfNotNull(profileBadge, scheduleText).joinToString(" · ")
+            if (subline.isNotEmpty()) {
+                Text(subline, style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp), color = Theme[colors][textTertiary], maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         if (next != null) {
@@ -653,17 +760,24 @@ private fun JobSummary(job: CronJob, deliversTo: String?, busy: Boolean, onRunNo
     }
 }
 
-/** A run: a disc (a spinner while it runs), when, what it said, and how many messages. */
+/** A run: a disc (a spinner while it runs), when, what it said, and how many messages (or Script / Failed). */
 @Composable
 private fun RunRow(run: SessionSummary, selected: Boolean, onOpen: () -> Unit, onPopOut: (() -> Unit)?) {
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
     var menuOpen by remember { mutableStateOf(false) }
+    val scriptOutput = run.isCronOutput
+    val failedOutput = run.isCronOutputFailure
+    val rowIcon = when {
+        failedOutput -> Lucide.TriangleAlert
+        scriptOutput -> Lucide.FileText
+        else -> Lucide.MessageSquare
+    }
     if (isDesktop) {
         val openWord = stringResource(Res.string.sessions_open)
         val windowWord = stringResource(Res.string.sessions_open_in_new_window)
         RowContextMenu(menuOpen, onDismiss = { menuOpen = false }, items = {
             listOfNotNull(
-                RowMenuItem(openWord, Lucide.MessageSquare, run = onOpen),
+                RowMenuItem(openWord, rowIcon, run = onOpen),
                 onPopOut?.let { RowMenuItem(windowWord, Lucide.AppWindow, run = it) },
             )
         })
@@ -672,6 +786,12 @@ private fun RunRow(run: SessionSummary, selected: Boolean, onOpen: () -> Unit, o
     // A Ctrl-click (⌘ on a Mac) opens the run in a window of its own, as it does a chat in the sidebar, so the
     // page stays where it is.
     val windowInfo = LocalWindowInfo.current
+    val (tileBg, tileTint) = when {
+        run.isActive -> Theme[colors][accentSoft] to Theme[colors][accentText]
+        failedOutput -> Theme[colors][dangerSoft] to Theme[colors][danger]
+        scriptOutput -> Theme[colors][surface2] to Theme[colors][textSecondary]
+        else -> Theme[colors][surface2] to Theme[colors][textTertiary]
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -692,12 +812,12 @@ private fun RunRow(run: SessionSummary, selected: Boolean, onOpen: () -> Unit, o
         Box(
             Modifier
                 .size(28.dp)
-                .background(Theme[colors][if (run.isActive) accentSoft else surface2], CircleShape)
+                .background(tileBg, CircleShape)
                 .clearAndSetSemantics { if (run.isActive) contentDescription = runningWord },
             contentAlignment = Alignment.Center,
         ) {
-            if (run.isActive) Spinner(Modifier.size(13.dp), color = Theme[colors][accentText])
-            else UnstyledIcon(Lucide.MessageSquare, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(13.dp))
+            if (run.isActive) Spinner(Modifier.size(13.dp), color = tileTint)
+            else UnstyledIcon(rowIcon, contentDescription = null, tint = tileTint, modifier = Modifier.size(13.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(
@@ -709,11 +829,88 @@ private fun RunRow(run: SessionSummary, selected: Boolean, onOpen: () -> Unit, o
                 Text(it.trim(), style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp), color = Theme[colors][textTertiary], maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        if (run.messageCount > 0) {
-            Text(
+        when {
+            run.messageCount > 0 -> Text(
                 pluralStringResource(Res.plurals.sessions_run_messages, run.messageCount, run.messageCount),
                 style = Theme[typography][code].copy(fontSize = 11.5.sp),
                 color = Theme[colors][textMuted],
+            )
+            failedOutput -> Text(
+                stringResource(Res.string.sessions_run_badge_failed),
+                style = Theme[typography][code].copy(fontSize = 11.sp),
+                color = Theme[colors][danger],
+            )
+            scriptOutput -> Text(
+                stringResource(Res.string.sessions_run_badge_script),
+                style = Theme[typography][code].copy(fontSize = 11.sp),
+                color = Theme[colors][textMuted],
+            )
+        }
+    }
+}
+
+@Composable
+private fun CronOutputSheet(output: CronOutputRun?, onClose: () -> Unit) {
+    var shown by remember { mutableStateOf(output) }
+    if (output != null) shown = output
+    @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
+    var copied by remember(shown?.run?.id) { mutableStateOf(false) }
+
+    BottomSheet(visible = output != null, onDismiss = onClose) {
+        val current = shown ?: return@BottomSheet
+        val timeText = current.run.activityAt?.let { messageTime(it, uses24HourClock()) }
+        val subtitle = listOfNotNull(
+            current.status ?: stringResource(Res.string.sessions_run_output_title),
+            timeText,
+        ).joinToString(" · ")
+        SheetHeader(title = current.job.displayName, subtitle = subtitle)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 520.dp)
+                .verticalScrollWithBar()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (current.loading) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Spinner(Modifier.size(14.dp), color = Theme[colors][accentText])
+                    Text(stringResource(Res.string.sessions_run_output_loading), style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
+                }
+            }
+            if (current.text.isNotBlank()) {
+                CopyableOnDesktop {
+                    MarkdownText(remember(current.text) { keepLineBreaks(current.text) })
+                }
+            } else if (!current.loading) {
+                Text(stringResource(Res.string.sessions_run_output_empty), style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (current.text.isNotBlank()) {
+                Button(
+                    stringResource(if (copied) Res.string.sessions_run_output_copied else Res.string.sessions_run_output_copy),
+                    onClick = {
+                        clipboard.setText(AnnotatedString(current.text))
+                        copied = true
+                    },
+                    variant = ButtonVariant.Secondary,
+                    size = ButtonSize.Small,
+                    leadingIcon = Lucide.Copy,
+                )
+            }
+            Button(
+                stringResource(Res.string.sessions_run_output_close),
+                onClick = onClose,
+                variant = ButtonVariant.Ghost,
+                size = ButtonSize.Small,
             )
         }
     }
@@ -727,7 +924,8 @@ private fun runAge(activityAt: Double?): String {
 }
 
 @Composable
-private fun CronJob.statusLine(): String = listOfNotNull(
+private fun CronJob.statusLine(profile: String? = null): String = listOfNotNull(
+    profile?.takeIf { it.isNotBlank() },
     scheduleDisplay.takeIf { it.isNotBlank() && it != "?" }?.let { readableScheduleText(it) },
     when {
         paused -> stringResource(Res.string.sessions_job_paused)

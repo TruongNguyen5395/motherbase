@@ -239,6 +239,12 @@ interface InboxActions {
     /** Every run of [filter]'s folder counts as read, those paged in from further back too. */
     fun markFolderRead(filter: InboxFilter)
 
+    /** Hides [run] from the local Inbox on this device. */
+    fun dismissRun(run: InboxRun) {}
+
+    /** Hides every read run currently matching [filter] from the local Inbox on this device. */
+    fun clearReadRuns(filter: InboxFilter = InboxFilter.All) {}
+
     /** A new chat in [run]'s profile with the whole report attached, to ask about it. */
     fun ask(run: InboxRun)
 
@@ -1025,6 +1031,8 @@ class InboxViewModel(
             if (!quiet) older = emptyList()
             store.replace(url, runs, complete = runs.size < InboxApi.PAGE)
             if (gen != generation) return
+            val dismissed = if (store.bound == url) store.state.value.dismissed else emptySet()
+            if (dismissed.isNotEmpty()) older = older.filterNot { it.key in dismissed }
             _state.update {
                 it.copy(
                     // The store holds another gateway's Inbox when it moved meanwhile: this one's runs stay.
@@ -1050,7 +1058,8 @@ class InboxViewModel(
 
     override fun loadMore() {
         val s = _state.value
-        if (gateway == null || !s.more || s.loadingMore || moreJob?.isActive == true) return
+        val url = gateway?.gatewayUrl?.value ?: return
+        if (!s.more || s.loadingMore || moreJob?.isActive == true) return
         val before = pageCursor(s.runs) ?: return
         val gen = generation
         _state.update { it.copy(loadingMore = true, moreError = null) }
@@ -1062,7 +1071,11 @@ class InboxViewModel(
                 return@launch
             }
             result.onSuccess { page ->
-                val (added, more) = pageIn(_state.value.runs, page, InboxApi.PAGE)
+                val dismissed = if (store.bound == url) store.state.value.dismissed else emptySet()
+                val visiblePage = if (dismissed.isEmpty()) page else page.filterNot { it.key in dismissed }
+                val (added, _) = pageIn(_state.value.runs, visiblePage, InboxApi.PAGE)
+                val known = _state.value.runs.mapTo(mutableSetOf()) { it.key }
+                val more = page.size >= InboxApi.PAGE && page.any { it.key !in known }
                 older = (older + added).distinctBy { it.key }
                 // Onto the runs shown, which are this gateway's: the shared store may hold another's.
                 _state.update { it.copy(runs = withOlder(it.runs), loadingMore = false, more = more) }
@@ -1202,6 +1215,40 @@ class InboxViewModel(
     private suspend fun markRead(url: String, runs: List<InboxRun>) {
         store.markRead(url, runs)
         notices.runsRead(url, runs.map { it.key })
+    }
+
+    override fun dismissRun(run: InboxRun) = dismissBatch(listOf(run), words(Res.string.inbox_dismissed_report))
+
+    override fun clearReadRuns(filter: InboxFilter) {
+        val s = _state.value
+        val targets = s.runs.filtered(filter, s.groups).filter { !s.isUnread(it) }
+        if (targets.isEmpty()) return
+        val notice = words(if (targets.size == 1) Res.string.inbox_cleared_one else Res.string.inbox_cleared_many, targets.size)
+        dismissBatch(targets, notice)
+    }
+
+    private fun dismissBatch(targets: List<InboxRun>, notice: Words) {
+        val url = gateway?.gatewayUrl?.value ?: return
+        if (targets.isEmpty()) return
+        val keys = targets.mapTo(mutableSetOf()) { it.key }
+        older = older.filterNot { it.key in keys }
+        if (_state.value.open?.key in keys) openJob?.cancel()
+        val gen = generation
+        _state.update { state ->
+            val closeOpen = state.open?.key in keys
+            state.copy(
+                open = if (closeOpen) null else state.open,
+                openLoading = if (closeOpen) false else state.openLoading,
+                openNote = if (closeOpen) null else state.openNote,
+            )
+        }
+        viewModelScope.launch {
+            bindJob?.join()
+            if (gen != generation) return@launch
+            store.dismissRuns(url, targets)
+            notices.runsRead(url, keys)
+            if (gen == generation) _state.update { it.copy(message = notice) }
+        }
     }
 
     override fun ask(run: InboxRun) = fetchWhole(run, ask = true) { url, whole, note ->

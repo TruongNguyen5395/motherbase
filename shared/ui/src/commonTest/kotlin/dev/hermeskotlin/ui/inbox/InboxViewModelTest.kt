@@ -750,4 +750,43 @@ class InboxViewModelTest {
         assertTrue(openChat.draft!!.text!!.contains("Send new drawing"))
         assertEquals("Drawing details", openChat.draft!!.attachments.single().bytes.decodeToString())
     }
+
+    @Test
+    fun dismissRunAndClearReadRemoveCronReportsAndKeepThemHidden() = runTest(dispatcher) {
+        val rUnread = run("a", 3_000L)
+        val rRead1 = run("a", 2_000L)
+        val rRead2 = run("b", 1_000L)
+        val socket = PluginGateway(CoroutineScope(dispatcher)) { arg ->
+            when {
+                arg.startsWith("inbox ") -> """{"ok":true,"runs":${runsJson(rUnread, rRead1, rRead2)}}"""
+                else -> """{"ok":true}"""
+            }
+        }
+        val vm = viewModel(socket)
+        store.bind(one.gatewayUrl.value, now = 0L)
+        store.markRead(one.gatewayUrl.value, listOf(rRead1, rRead2))
+        vm.bind(one)
+        vm.setVisible(true)
+        vm.state.first { it.runs.size == 3 }
+
+        // Dismiss a single run while it is open -> closes viewer, drops run, clears notice
+        vm.open(rRead1)
+        vm.dismissRun(rRead1)
+        runCurrent()
+        assertNull(vm.state.value.open)
+        assertEquals(listOf(rUnread.key, rRead2.key), vm.state.value.runs.map { it.key })
+
+        // Clear remaining read reports -> leaves unread intact
+        vm.clearReadRuns(InboxFilter.All)
+        runCurrent()
+        assertEquals(listOf(rUnread.key), vm.state.value.runs.map { it.key })
+        assertTrue(rUnread.key !in store.state.value.dismissed)
+        assertEquals(setOf(rRead1.key, rRead2.key), store.state.value.dismissed)
+
+        // Gateway refresh returning the old list does not bring dismissed items back
+        vm.setVisible(false)
+        vm.setVisible(true)
+        runCurrent()
+        assertEquals(listOf(rUnread.key), vm.state.value.runs.map { it.key })
+    }
 }

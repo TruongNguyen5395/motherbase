@@ -631,4 +631,28 @@ class InboxTest {
         assertEquals(1, snap.errorCount)
         assertEquals(3, snap.attentionCount)
     }
+
+    @Test
+    fun dismissedRunsStayHiddenAcrossRefreshesPushesAndRestarts() = runTest {
+        val disk = InMemoryKeyValueStore()
+        val store = InboxStore(disk)
+        store.bind(GW, now = 0)
+        val first = run(job = "a", at = 100)
+        val second = run(job = "b", at = 200)
+        store.replace(GW, listOf(second, first), complete = true)
+
+        store.dismiss(GW, first)
+        assertEquals(listOf(second.key), store.state.value.runs.map { it.key })
+
+        // Gateway lists both again and a push delivers the dismissed run -> stays hidden.
+        store.replace(GW, listOf(second, first), complete = true)
+        store.receive(GW, first)
+        assertEquals(listOf(second.key), store.state.value.runs.map { it.key })
+
+        // Reloading from persistence preserves dismissed keys.
+        val reopened = InboxStore(disk)
+        reopened.bind(GW, now = 0)
+        reopened.replace(GW, listOf(second, first), complete = true)
+        assertEquals(listOf(second.key), reopened.state.value.runs.map { it.key })
+    }
 }

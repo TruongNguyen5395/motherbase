@@ -143,6 +143,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.isActive
 import dev.hermeskotlin.ui.inbox.InboxPage
 import dev.hermeskotlin.ui.inbox.ReportChat
+import dev.hermeskotlin.ui.reportChatProfile
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.Key
@@ -598,8 +599,9 @@ fun SessionsSidebar(
     val popOut: (SessionSummary) -> Unit = { s ->
         // Opening a window preserves the unread boundary too.
         val readUpTo = viewModel.readUpTo(s)
-        val popped = shortcutBus.fire(Shortcut.PopOut(ChatTarget(gateway, s.id, s.displayTitle, profile = profile, readUpTo = readUpTo)))
-        if (!popped) openHere(s) else if (s.id == selectedId) onNewChat(null)
+        val targetProfile = s.profile?.let { reportChatProfile(it, profile, roster?.takeIf { r -> r.launchKnown }?.launch) } ?: profile
+        val popped = shortcutBus.fire(Shortcut.PopOut(ChatTarget(gateway, s.id, s.displayTitle, profile = targetProfile, readUpTo = readUpTo)))
+        if (!popped) openHere(s) else if (s.id == selectedId && targetProfile == profile) onNewChat(null)
     }
     // A chat a window of its own shows comes forward there, so no chat runs in two windows at once.
     val windowed by chatHost.sideChats.collectAsStateWithLifecycle()
@@ -711,6 +713,7 @@ fun SessionsSidebar(
                 onBack = { scheduledOpen = false },
                 onOpenRun = open,
                 onSessionExpired = onSessionExpired,
+                profiles = roster?.profiles.orEmpty(),
                 onPopOutRun = popOut.takeIf { isDesktop },
             )
             bot != null -> ScheduledPage(

@@ -270,6 +270,16 @@
         <item quantity="one">%1$d msg</item>
         <item quantity="other">%1$d msgs</item>
     </plurals>
+    <string name="sessions_profile_all">All</string>
+    <string name="sessions_no_jobs_in_profile">No scheduled jobs in this profile.</string>
+    <string name="sessions_run_badge_script">Script</string>
+    <string name="sessions_run_badge_failed">Failed</string>
+    <string name="sessions_run_output_title">Run output</string>
+    <string name="sessions_run_output_loading">Loading full output…</string>
+    <string name="sessions_run_output_empty">This run left no saved output.</string>
+    <string name="sessions_run_output_copy">Copy output</string>
+    <string name="sessions_run_output_copied">Output copied</string>
+    <string name="sessions_run_output_close">Close</string>
     <string name="sessions_delivers_to">Delivers to %1$s</string>
     <string name="sessions_delivery_local">Local (save only)</string>
     <string name="sessions_delivery_bot_chat">%1$s’s chat</string>

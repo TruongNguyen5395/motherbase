@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CronApiTest {
@@ -173,5 +174,33 @@ class CronApiTest {
         assertEquals("", job("""{"kind":"once","run_at":"2026-10-04T09:00:00+03:00"}""", "once at 2026-10-04 09:00").editableSchedule)
         // A legacy job that stored the schedule as a plain string still loads.
         assertEquals("0 7 * * *", job("\"0 7 * * *\"", "0 7 * * *").editableSchedule)
+    }
+
+    @Test
+    fun runsKeepProfileAndRecognizeSyntheticCronOutputRows() = runTest {
+        val api = CronApi(createHttpClient(MockEngine {
+            respond(
+                """{"runs":[
+                    {"id":"local-agent-1","source":"cron","profile":"3tnsolution","title":"Report","started_at":20.0,"message_count":12},
+                    {"id":"cron_output:c4f8ecec2753:2026-11-17_02-00-31","source":"cron_output","title":"COMPLETED · # Cron Job: Backup **Status:** silent","preview":"# Cron Job: Backup **Status:** silent","started_at":10.0,"message_count":0},
+                    {"id":"cron_output:1b2e645d7ca7:exec:0","source":"cron_output","title":"FAILED · gateway offline","preview":"gateway offline","started_at":5.0,"message_count":0}
+                ],"limit":50}""",
+                HttpStatusCode.OK, json,
+            )
+        }))
+
+        val runs = assertIs<ApiResult.Success<List<SessionSummary>>>(api.runs(url, "c4f8ecec2753", profile = "default")).value
+
+        assertEquals("3tnsolution", runs[0].profile)
+        assertFalse(runs[0].isCronOutput)
+        assertNull(runs[0].cronOutputRunName)
+
+        assertTrue(runs[1].isCronOutput)
+        assertFalse(runs[1].isCronOutputFailure)
+        assertEquals("2026-11-17_02-00-31", runs[1].cronOutputRunName)
+
+        assertTrue(runs[2].isCronOutput)
+        assertTrue(runs[2].isCronOutputFailure)
+        assertNull(runs[2].cronOutputRunName)
     }
 }

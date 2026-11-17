@@ -39,7 +39,7 @@ val uiModule = module {
     viewModel { params -> OtherChatsViewModel(params.get(), get(), get(), get()) }
     viewModelOf(::BotsViewModel)
     viewModelOf(::RoomsViewModel)
-    viewModelOf(::ScheduledViewModel)
+    viewModel { ScheduledViewModel(get(), get(), getOrNull()) }
     viewModel { InboxViewModel(get(), get(), get(), get(), get(), get(), getOrNull<InboxNotices>() ?: NoInboxNotices) }
     viewModelOf(::CapabilitiesViewModel)
     viewModelOf(::SkillsHubViewModel)

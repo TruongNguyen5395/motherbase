@@ -715,6 +715,7 @@ private object PreviewConfigActions : ConfigActions {
 private object PreviewScheduledActions : ScheduledActions {
     override fun refresh() = Unit
     override fun newJob() = Unit
+    override fun setProfileFilter(profile: String?) = Unit
     override fun openJob(jobId: String) = Unit
     override fun closeJob() = Unit
     override fun editJob() = Unit
@@ -723,6 +724,8 @@ private object PreviewScheduledActions : ScheduledActions {
     override fun askDelete() = Unit
     override fun cancelDelete() = Unit
     override fun deleteJob() = Unit
+    override fun openRunOutput(job: dev.hermeskotlin.core.cron.CronJob, run: dev.hermeskotlin.core.sessions.SessionSummary) = Unit
+    override fun closeRunOutput() = Unit
 }
 
 private class PreviewRoomActions : RoomActions {

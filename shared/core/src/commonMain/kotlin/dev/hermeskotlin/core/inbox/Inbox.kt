@@ -501,19 +501,25 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
         /** Runs read before this (unix seconds) count as read: the Inbox's first look isn't a pile of unread. */
         @SerialName("since") val since: Long = 0,
         val groups: InboxGroups = InboxGroups(),
-    )
+        val dismissed: Set<String> = emptySet(),
+    ) {
+        fun toSnapshot() = Snapshot(runs.filterNot { it.key in dismissed }, read, since, groups, dismissed)
+    }
 
     data class Snapshot(
         val runs: List<InboxRun> = emptyList(),
         val read: Set<String> = emptySet(),
         val since: Long = 0,
         val groups: InboxGroups = InboxGroups(),
+        val dismissed: Set<String> = emptySet(),
     ) {
         fun isUnread(run: InboxRun): Boolean = run.key !in read && run.at > since
         val unread: Int get() = runs.count(::isUnread)
 
         /** Whether [run] can be marked unread: it came after the Inbox started, so the read set is what says. */
         fun canMarkUnread(run: InboxRun): Boolean = run.at > since
+
+        internal fun toSaved() = Saved(runs, read, since, groups, dismissed)
     }
 
     /** In-memory Action Inbox items observed for a gateway so sidebar/top-bar indicators stay live without opening Inbox. */
@@ -560,7 +566,7 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
         val saved = loadOrStart(gatewayUrl, now)
         // [bound] moves with [state], not before it: until the new Inbox is read, the last one is still shown.
         gateway = gatewayUrl
-        _state.value = Snapshot(saved.runs, saved.read, saved.since, saved.groups)
+        _state.value = saved.toSnapshot()
         if (_actionState.value.gatewayUrl != gatewayUrl) {
             _actionState.value = ActionInboxSnapshot(gatewayUrl = gatewayUrl)
         }
@@ -574,13 +580,17 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
      */
     suspend fun receive(gatewayUrl: String, run: InboxRun): InboxGroups = lock.withLock {
         if (gateway == gatewayUrl) {
-            val next = _state.value.let { s -> s.copy(runs = mergeIn(run, s.runs)) }
+            val current = _state.value
+            if (run.key in current.dismissed) return@withLock current.groups
+            val next = current.copy(runs = mergeIn(run, current.runs))
             _state.value = next
-            save(gatewayUrl, Saved(next.runs, next.read, next.since, next.groups))
+            save(gatewayUrl, next.toSaved())
             next.groups
         } else {
             val saved = loadOrStart(gatewayUrl, run.at - 1)
-            save(gatewayUrl, saved.copy(runs = mergeIn(run, saved.runs)))
+            if (run.key !in saved.dismissed) {
+                save(gatewayUrl, saved.copy(runs = mergeIn(run, saved.runs)))
+            }
             saved.groups
         }
     }
@@ -593,7 +603,7 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
      * whether the list holds every run the gateway has for this phone (it came back shorter than asked for).
      */
     suspend fun replace(gatewayUrl: String, runs: List<InboxRun>, complete: Boolean) = edit(gatewayUrl) { s ->
-        s.copy(runs = mergeListed(s.runs, runs, complete).take(MAX_KEPT))
+        s.copy(runs = mergeListed(s.runs, runs.filterNot { it.key in s.dismissed }, complete).take(MAX_KEPT))
     }
 
     /** Drops the kept runs [keep] says no to: what a phone stopped following no longer shows. */
@@ -602,7 +612,24 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
     }
 
     /** A run that came by push, or was read in full: added, or put in place of its shorter copy. */
-    suspend fun add(gatewayUrl: String, run: InboxRun) = edit(gatewayUrl) { s -> s.copy(runs = mergeIn(run, s.runs)) }
+    suspend fun add(gatewayUrl: String, run: InboxRun) = edit(gatewayUrl) { s ->
+        if (run.key in s.dismissed) s else s.copy(runs = mergeIn(run, s.runs))
+    }
+
+    /** Hides [run] from the local Inbox on this device so gateway refreshes do not bring it back. */
+    suspend fun dismiss(gatewayUrl: String, run: InboxRun) = dismissRuns(gatewayUrl, listOf(run))
+
+    /** Hides all [runs] from the local Inbox on this device. */
+    suspend fun dismissRuns(gatewayUrl: String, runs: Collection<InboxRun>) {
+        if (runs.isEmpty()) return
+        val keys = runs.mapTo(mutableSetOf()) { it.key }
+        edit(gatewayUrl) { s ->
+            s.copy(
+                runs = s.runs.filterNot { it.key in keys },
+                dismissed = trimKeys(s.dismissed + keys, MAX_DISMISSED),
+            )
+        }
+    }
 
     suspend fun markRead(gatewayUrl: String, run: InboxRun) = markRead(gatewayUrl, listOf(run))
 
@@ -624,7 +651,7 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
         if (gateway == gatewayUrl) {
             val next = _state.value.let { s -> s.copy(read = trimRead(s.read + keys)) }
             _state.value = next
-            save(gatewayUrl, Saved(next.runs, next.read, next.since, next.groups))
+            save(gatewayUrl, next.toSaved())
         } else {
             val saved = load(gatewayUrl) ?: return@withLock
             save(gatewayUrl, saved.copy(read = trimRead(saved.read + keys)))
@@ -653,7 +680,7 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
         if (gateway != url) return@withLock
         val next = change(_state.value)
         _state.value = next
-        save(url, Saved(next.runs, next.read, next.since, next.groups))
+        save(url, next.toSaved())
     }
 
     private fun merge(runs: List<InboxRun>): List<InboxRun> =
@@ -689,6 +716,7 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
             read = part("read", SetSerializer(String.serializer()), emptySet()),
             since = part("since", Long.serializer(), 0L),
             groups = part("groups", InboxGroups.serializer(), InboxGroups()),
+            dismissed = part("dismissed", SetSerializer(String.serializer()), emptySet()),
         )
     }
 
@@ -701,6 +729,9 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
         /** The most runs remembered as read: past it, the oldest go first. */
         const val MAX_READ = 1_000
 
+        /** The most dismissed run keys kept per gateway so refreshes stay clean without unbounded storage growth. */
+        const val MAX_DISMISSED = 1_000
+
         /** Where [gatewayUrl]'s Inbox is kept. */
         fun keyFor(gatewayUrl: String) = "inbox.v1.$gatewayUrl"
 
@@ -709,8 +740,10 @@ class InboxStore(private val store: KeyValueStore, private val work: CoroutineCo
          * not forgotten just because it left the kept list: it may come back in a later list, or a page further
          * back, and must not show as unread again.
          */
-        fun trimRead(read: Set<String>): Set<String> =
-            if (read.size <= MAX_READ) read else read.sortedByDescending { it.substringAfterLast('/') }.take(MAX_READ).toSet()
+        fun trimRead(read: Set<String>): Set<String> = trimKeys(read, MAX_READ)
+
+        private fun trimKeys(keys: Set<String>, limit: Int): Set<String> =
+            if (keys.size <= limit) keys else keys.sortedByDescending { it.substringAfterLast('/') }.take(limit).toSet()
 
         /**
          * The kept runs once the gateway listed [listed] (newest first): every listed run, with the longer text of

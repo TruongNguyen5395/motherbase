@@ -42,6 +42,8 @@ data class SessionSummary(
     @Serializable(with = LenientBooleanSerializer::class) val unread: Boolean = false,
     /** Shared read watermark; null on untracked chats/older gateways, zero for explicit mark-unread. */
     @SerialName("last_read_at") val lastReadAt: Double? = null,
+    /** Owning profile name when returned by cross-profile endpoints (such as cron job run lists). */
+    val profile: String? = null,
 ) {
     /** What a list shows as the name: the title, else the first prompt, else a placeholder. */
     val displayTitle: String
@@ -53,7 +55,34 @@ data class SessionSummary(
 
     /** Latest activity in epoch seconds, falling back to when the session started. */
     val activityAt: Double? get() = lastActive ?: startedAt
+
+    /** True for synthetic cron run rows (script-only `no_agent`, failed, or pruned runs) with no SessionDB chat. */
+    val isCronOutput: Boolean
+        get() = source == CRON_OUTPUT_SOURCE || id.startsWith(CRON_OUTPUT_PREFIX)
+
+    /** Output file stem (`YYYY-MM-DD_HH-MM-SS`) encoded in a `cron_output:<jobId>:<stem>` id, or null for synthetic `:latest` / `:exec:` rows. */
+    val cronOutputRunName: String?
+        get() {
+            if (!id.startsWith(CRON_OUTPUT_PREFIX)) return null
+            val rest = id.removePrefix(CRON_OUTPUT_PREFIX)
+            val stamp = rest.substringAfter(':', missingDelimiterValue = "")
+            return stamp.takeIf { CRON_OUTPUT_STAMP.matches(it) }
+        }
+
+    /** True when a synthetic `cron_output:` row represents an unsuccessful execution status. */
+    val isCronOutputFailure: Boolean
+        get() {
+            if (!isCronOutput) return false
+            val head = title?.trim()?.substringBefore('·')?.trim()?.uppercase() ?: return false
+            return head in CRON_OUTPUT_FAILURE_LABELS
+        }
 }
+
+private val CRON_OUTPUT_STAMP = Regex("""^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$""")
+private val CRON_OUTPUT_FAILURE_LABELS = setOf("FAILED", "MISSED", "CANCELLED", "DELIVERY FAILED")
+
+const val CRON_OUTPUT_SOURCE = "cron_output"
+const val CRON_OUTPUT_PREFIX = "cron_output:"
 
 /**
  * What a stored session has used so far, from its row (`GET /api/sessions/{id}`). The gateway keeps

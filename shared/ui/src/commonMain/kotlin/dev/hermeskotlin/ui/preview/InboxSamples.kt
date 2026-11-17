@@ -136,6 +136,8 @@ internal object PreviewInboxActions : InboxActions {
     override fun markAllRead() {}
     override fun setRead(run: InboxRun, read: Boolean) {}
     override fun markFolderRead(filter: InboxFilter) {}
+    override fun dismissRun(run: InboxRun) {}
+    override fun clearReadRuns(filter: InboxFilter) {}
     override fun ask(run: InboxRun) {}
     override fun continueChat(run: InboxRun) {}
     override fun copy(run: InboxRun) {}

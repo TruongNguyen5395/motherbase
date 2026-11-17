@@ -730,7 +730,12 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                 selectedId = openSessionId.takeIf { mainPage.content == null },
                 visible = sidebar.isOpen,
                 onOpenSession = { session, readUpTo ->
-                    if (session.id != openSessionId) app.openSession(session.id, session.displayTitle, readUpTo)
+                    val targetProfile = session.profile?.let { owner ->
+                        reportChatProfile(owner, chatsProfile, profileRoster?.takeIf { it.launchKnown }?.launch)
+                    }
+                    if (session.id != openSessionId || (session.profile != null && targetProfile != route.target.profile)) {
+                        app.openSession(session.id, session.displayTitle, readUpTo, profile = targetProfile)
+                    }
                     closeDrawerToChat()
                 },
                 onNewChat = { project ->

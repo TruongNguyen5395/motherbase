@@ -14,8 +14,11 @@ import dev.hermeskotlin.core.cron.isRoutineOf
 import dev.hermeskotlin.core.cron.routineTitle
 import dev.hermeskotlin.core.gateway.GatewayUrl
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.inbox.InboxApi
+import dev.hermeskotlin.core.inbox.InboxRun
 import dev.hermeskotlin.core.network.ApiResult
 import dev.hermeskotlin.core.network.errorMessage
+import dev.hermeskotlin.core.profiles.ProfilesApi
 import dev.hermeskotlin.core.sessions.SessionSummary
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -32,15 +35,26 @@ import kotlinx.coroutines.launch
 import dev.hermeskotlin.ui.resources.*
 import org.jetbrains.compose.resources.StringResource
 
+data class CronOutputRun(
+    val job: CronJob,
+    val run: SessionSummary,
+    val status: String?,
+    val text: String,
+    val loading: Boolean = false,
+)
+
 data class ScheduledUiState(
     val jobs: List<CronJob> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null,
+    val profileFilter: String? = null,
     /** The job whose page is open; null shows the job list. */
     val openJobId: String? = null,
     val runs: List<SessionSummary> = emptyList(),
     val runsLoading: Boolean = false,
     val runsError: String? = null,
+    /** Output viewer for synthetic `cron_output:` runs that have no chat session. */
+    val openOutput: CronOutputRun? = null,
     /** A pause, resume or run-now request is in flight. */
     val busy: Boolean = false,
     val message: Said? = null,
@@ -52,6 +66,12 @@ data class ScheduledUiState(
     val confirmingDelete: Boolean = false,
 ) {
     val openJob: CronJob? get() = jobs.firstOrNull { it.id == openJobId }
+    val availableProfiles: List<String>
+        get() = jobs.mapNotNull { it.profile?.takeIf(String::isNotBlank) }.distinct()
+    val shownProfileFilter: String?
+        get() = profileFilter?.takeIf { it in availableProfiles }
+    val shownJobs: List<CronJob>
+        get() = shownProfileFilter?.let { p -> jobs.filter { it.profile == p } } ?: jobs
 }
 
 /** The job form's state outside its three text fields, which live on the view model. */
@@ -80,6 +100,7 @@ internal val LOCAL_DELIVERY = DeliveryTarget(id = "local", name = "Local (save o
 class ScheduledViewModel(
     private val api: CronApi,
     private val connection: GatewayConnection,
+    private val inboxApi: InboxApi? = null,
 ) : ViewModel(), ScheduledActions {
 
     val name = TextFieldState()
@@ -94,6 +115,7 @@ class ScheduledViewModel(
 
     private var gateway: SavedGateway? = null
     private var runsJob: Job? = null
+    private var outputJob: Job? = null
 
     /** The bot whose routines these are; null for every scheduled job. */
     private var owner: RoutineOwner? = null
@@ -107,6 +129,8 @@ class ScheduledViewModel(
 
     fun bind(gateway: SavedGateway, owner: RoutineOwner? = null) {
         if (this.gateway == gateway && this.owner == owner) return
+        runsJob?.cancel()
+        outputJob?.cancel()
         this.gateway = gateway
         this.owner = owner
         editorGeneration++
@@ -139,14 +163,44 @@ class ScheduledViewModel(
         _state.value.openJobId?.let(::loadRuns)
     }
 
+    override fun setProfileFilter(profile: String?) = _state.update { it.copy(profileFilter = profile) }
+
     override fun openJob(jobId: String) {
-        _state.update { it.copy(openJobId = jobId, runs = emptyList(), runsError = null) }
+        outputJob?.cancel()
+        _state.update { it.copy(openJobId = jobId, runs = emptyList(), runsError = null, openOutput = null) }
         loadRuns(jobId)
     }
 
     override fun closeJob() {
         runsJob?.cancel()
-        _state.update { it.copy(openJobId = null, runs = emptyList(), runsLoading = false, runsError = null) }
+        outputJob?.cancel()
+        _state.update { it.copy(openJobId = null, runs = emptyList(), runsLoading = false, runsError = null, openOutput = null) }
+    }
+
+    override fun openRunOutput(job: CronJob, run: SessionSummary) {
+        outputJob?.cancel()
+        val (status, fallbackText) = formatCronOutputFallback(run)
+        val initial = CronOutputRun(job = job, run = run, status = status, text = fallbackText, loading = inboxApi != null && run.cronOutputRunName != null)
+        _state.update { it.copy(openOutput = initial) }
+        val runName = run.cronOutputRunName ?: return
+        val reader = inboxApi ?: return
+        val targetBot = job.profile ?: ProfilesApi.DEFAULT
+        outputJob = viewModelScope.launch {
+            val full = runCatching {
+                reader.read(InboxRun(bot = targetBot, job = job.id, run = runName, label = job.displayName, at = (run.activityAt ?: 0.0).toLong()))
+            }.getOrNull()
+            _state.update { state ->
+                val current = state.openOutput
+                if (current == null || current.run.id != run.id) return@update state
+                val body = full?.text?.takeIf { it.isNotBlank() } ?: current.text
+                state.copy(openOutput = current.copy(text = body, loading = false))
+            }
+        }
+    }
+
+    override fun closeRunOutput() {
+        outputJob?.cancel()
+        _state.update { it.copy(openOutput = null) }
     }
 
     override fun togglePaused() {
@@ -382,7 +436,11 @@ class ScheduledViewModel(
             _state.update { state ->
                 if (state.openJobId != jobId) return@update state
                 when (result) {
-                    is ApiResult.Success -> state.copy(runs = result.value, runsLoading = false, runsError = null)
+                    is ApiResult.Success -> state.copy(
+                        runs = result.value.map { run -> if (run.profile == null && profile != null) run.copy(profile = profile) else run },
+                        runsLoading = false,
+                        runsError = null,
+                    )
                     else -> state.copy(
                         runsLoading = false,
                         runsError = result.errorMessage.takeIf { state.runs.isEmpty() },
@@ -406,6 +464,19 @@ class ScheduledViewModel(
                 .collect { refresh() }
         }
     }
+}
+
+internal fun formatCronOutputFallback(run: SessionSummary): Pair<String?, String> {
+    val rawTitle = run.title?.trim().orEmpty()
+    val statusPrefix = rawTitle.substringBefore(" · ", missingDelimiterValue = "").trim()
+        .takeIf { it.isNotEmpty() && it.all { ch -> ch.isUpperCase() || ch == ' ' || ch == '_' } }
+    val remainder = if (statusPrefix != null) rawTitle.substringAfter(" · ").trim() else rawTitle
+    val body = run.preview?.takeIf { it.isNotBlank() }?.trim() ?: remainder
+    val normalized = body
+        .replace(Regex("""\s+(?=\*\*(?:Job ID|Run Time|Mode|Status):\*\*)"""), "\n")
+        .replace(" --- ", "\n\n---\n\n")
+        .trim()
+    return statusPrefix to normalized
 }
 
 /**

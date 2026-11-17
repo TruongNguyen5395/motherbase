@@ -153,6 +153,18 @@
     <string name="inbox_copied_start_failed">Copied the start of the report: the gateway couldn’t send the rest.</string>
     <string name="inbox_copied_truncated">Copied the report as far as the gateway sends it: the first 48 KB.</string>
     <string name="inbox_copied">Copied the report.</string>
+    <string name="inbox_dismiss">Dismiss</string>
+    <string name="inbox_dismissed_report">Report dismissed.</string>
+    <string name="inbox_clear_read">Clear read</string>
+    <string name="inbox_clear_folder_read">Clear read in folder</string>
+    <string name="inbox_clear_read_title">Clear read reports?</string>
+    <plurals name="inbox_clear_read_detail">
+        <item quantity="one">%1$d read report will be removed from the Inbox on this device.</item>
+        <item quantity="other">%1$d read reports will be removed from the Inbox on this device.</item>
+    </plurals>
+    <string name="inbox_clear_confirm">Clear</string>
+    <string name="inbox_cleared_one">Cleared %1$d read report.</string>
+    <string name="inbox_cleared_many">Cleared %1$d read reports.</string>
 
     <string name="assistant_not_signed_in">Not signed in</string>
     <string name="assistant_circle_part">Circle part of the screen</string>

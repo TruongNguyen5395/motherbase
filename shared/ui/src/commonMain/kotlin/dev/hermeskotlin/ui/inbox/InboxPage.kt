@@ -95,6 +95,7 @@ import com.composables.icons.lucide.Send
 import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.TriangleAlert
+import com.composables.icons.lucide.X
 import com.composables.icons.lucide.Zap
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
@@ -252,6 +253,7 @@ internal fun InboxPage(
                     onAsk = { viewModel.ask(state.open) },
                     onContinue = state.open.session?.let { { viewModel.continueChat(state.open) } },
                     onCopy = { viewModel.copy(state.open) },
+                    onDismiss = { viewModel.dismissRun(state.open) },
                 )
                 state.choosing -> FollowView(state, viewModel)
                 state.grouping -> GroupsView(state, viewModel)
@@ -294,8 +296,11 @@ internal fun InboxView(
         InboxFilter.All -> null
     }
     val inbox = stringResource(Res.string.inbox_title)
-    val shownCount = state.shown.size
+    val shown = state.shown
+    val shownCount = shown.size
+    val readShownCount = remember(shown, state.read, state.since) { shown.count { !state.isUnread(it) } }
     val actionCount = state.visibleActionItems.size
+    var confirmingClear by remember { mutableStateOf(false) }
     SubpageHeader(
         if (inFolder) folderName ?: inbox else inbox,
         onBack = if (inFolder) ({ viewModel.setFilter(InboxFilter.All) }) else onBack,
@@ -317,6 +322,7 @@ internal fun InboxView(
     ) {
         IconButton(Lucide.RefreshCw, contentDescription = "Refresh Action Inbox", onClick = { viewModel.loadActionItems(quiet = false) })
         if (unread > 0) IconButton(Lucide.CheckCheck, contentDescription = stringResource(Res.string.inbox_mark_all_read), onClick = viewModel::markAllRead)
+        if (readShownCount > 0) IconButton(Lucide.Trash2, contentDescription = stringResource(Res.string.inbox_clear_read), onClick = { confirmingClear = true })
         IconButton(Lucide.FolderTree, contentDescription = stringResource(Res.string.inbox_folders_and_groups), onClick = viewModel::openGroups)
         IconButton(Lucide.Settings2, contentDescription = stringResource(Res.string.inbox_choose_jobs), onClick = viewModel::chooseJobs)
     }
@@ -338,7 +344,19 @@ internal fun InboxView(
         viewModel.renameJob(chip, name)
         renaming = null
     }
-    val shown = state.shown
+    Dialog(
+        visible = confirmingClear && readShownCount > 0,
+        onDismissRequest = { confirmingClear = false },
+        title = stringResource(Res.string.inbox_clear_read_title),
+        message = pluralStringResource(Res.plurals.inbox_clear_read_detail, readShownCount, readShownCount),
+        actions = {
+            Button(stringResource(Res.string.common_cancel), onClick = { confirmingClear = false }, variant = ButtonVariant.Ghost, size = ButtonSize.Small)
+            Button(stringResource(Res.string.inbox_clear_confirm), onClick = {
+                confirmingClear = false
+                viewModel.clearReadRuns(state.shownFilter)
+            }, variant = ButtonVariant.Danger, size = ButtonSize.Small)
+        },
+    )
     val actionShown = if (inFolder) emptyList() else state.filteredActionItems
     val hasActionSection = !inFolder && (actionShown.isNotEmpty() || state.actionError != null)
     when {
@@ -395,8 +413,7 @@ internal fun InboxView(
                     recent = state.more,
                     newestName = state.nameOf(folder.newest),
                     onClick = { viewModel.setFilter(folder.filter) },
-                    // A group's folder with nothing unread has nothing to offer: it's renamed on the groups page.
-                    onLongClick = { folderMenu = folder }.takeIf { folder.unread > 0 || folder.filter is InboxFilter.Job },
+                    onLongClick = { folderMenu = folder }.takeIf { folder.runs > 0 || folder.filter is InboxFilter.Job },
                 )
             }
             if (state.failed > 0) {
@@ -445,20 +462,24 @@ internal fun InboxView(
                 }
                 item(key = run.key) {
                     val unread = state.isUnread(run)
-                    // Either way across, the row's read state flips: there is only the one thing to do to a report.
-                    val swipe = when {
+                    // Swiping right toggles read/unread; swiping left dismisses the report from this device's Inbox.
+                    val readSwipe = when {
                         unread -> SwipeAction(stringResource(Res.string.inbox_mark_read), Lucide.Check, SwipeKind.Pin) { viewModel.setRead(run, read = true) }
                         state.canMarkUnread(run) ->
                             SwipeAction(stringResource(Res.string.inbox_mark_unread), Lucide.CircleDot, SwipeKind.Pin) { viewModel.setRead(run, read = false) }
                         else -> null
                     }
-                    SwipeRow(start = swipe, end = swipe, shape = RoundedCornerShape(Theme[radii][radiusLarge])) { swipeActions ->
+                    val dismissSwipe = SwipeAction(stringResource(Res.string.inbox_dismiss), Lucide.Trash2, SwipeKind.Delete) {
+                        viewModel.dismissRun(run)
+                    }
+                    SwipeRow(start = readSwipe, end = dismissSwipe, shape = RoundedCornerShape(Theme[radii][radiusLarge])) { swipeActions ->
                         RunCard(
                             run,
                             state.nameOf(run),
                             unread = unread,
                             onClick = { viewModel.open(run) },
                             onLongClick = { runMenu = run },
+                            onDismiss = { viewModel.dismissRun(run) },
                             modifier = swipeActions,
                             fetching = state.fetching?.key == run.key,
                         )
@@ -490,6 +511,10 @@ internal fun InboxView(
             folderMenu = null
             viewModel.markFolderRead(folder.filter)
         },
+        onClearRead = { folder ->
+            folderMenu = null
+            viewModel.clearReadRuns(folder.filter)
+        },
     )
     // The run as the list has it now: read or not, and with its chat once a read in full learned it.
     val menuRun = runMenu?.let { r -> state.runs.firstOrNull { it.key == r.key } ?: r }
@@ -503,10 +528,11 @@ internal fun InboxView(
         onContinue = { runMenu = null; viewModel.continueChat(it) },
         onSetRead = { r, read -> runMenu = null; viewModel.setRead(r, read) },
         onCopy = { runMenu = null; viewModel.copy(it) },
+        onDismissRun = { runMenu = null; viewModel.dismissRun(it) },
     )
 }
 
-/** A folder's long press: rename its job (a job's folder only), or count every report in it as read. */
+/** A folder's long press: rename its job (a job's folder only), mark every report in it read, or clear read reports. */
 @Composable
 private fun FolderMenu(
     folder: InboxFolder?,
@@ -514,6 +540,7 @@ private fun FolderMenu(
     onDismiss: () -> Unit,
     onRename: (InboxFolder) -> Unit,
     onMarkRead: (InboxFolder) -> Unit,
+    onClearRead: (InboxFolder) -> Unit,
 ) {
     // Kept while the sheet slides away, so it doesn't empty as it goes.
     var shown by remember { mutableStateOf(folder) }
@@ -525,11 +552,12 @@ private fun FolderMenu(
             if (f.unread > 0) pluralStringResource(Res.plurals.inbox_unread_count, f.unread, f.unread) else stringResource(Res.string.inbox_folder),
         )
         if (f.unread > 0) SheetAction(stringResource(Res.string.inbox_mark_folder_read), Lucide.CheckCheck, onClick = { onMarkRead(f) })
+        if (f.runs > f.unread) SheetAction(stringResource(Res.string.inbox_clear_folder_read), Lucide.Trash2, destructive = true, onClick = { onClearRead(f) })
         if (canRename) SheetAction(stringResource(Res.string.inbox_rename), Lucide.Pencil, onClick = { onRename(f) })
     }
 }
 
-/** A report's long press: ask about it, continue its chat when known, mark it read or unread, copy it. */
+/** A report's long press: ask about it, continue its chat when known, mark it read or unread, copy it, or dismiss it. */
 @Composable
 private fun RunMenu(
     run: InboxRun?,
@@ -541,6 +569,7 @@ private fun RunMenu(
     onContinue: (InboxRun) -> Unit,
     onSetRead: (InboxRun, Boolean) -> Unit,
     onCopy: (InboxRun) -> Unit,
+    onDismissRun: (InboxRun) -> Unit,
 ) {
     var shown by remember { mutableStateOf(run) }
     var shownName by remember { mutableStateOf(name) }
@@ -558,6 +587,7 @@ private fun RunMenu(
             canMarkUnread -> SheetAction(stringResource(Res.string.inbox_mark_unread), Lucide.CircleDot, onClick = { onSetRead(r, false) })
         }
         SheetAction(stringResource(Res.string.inbox_copy), Lucide.Copy, onClick = { onCopy(r) })
+        SheetAction(stringResource(Res.string.inbox_dismiss), Lucide.Trash2, destructive = true, onClick = { onDismissRun(r) })
     }
 }
 
@@ -756,6 +786,7 @@ private fun RunCard(
     unread: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     /** Its whole report is on its way, for Ask or Copy from its menu. */
     fetching: Boolean = false,
@@ -811,6 +842,15 @@ private fun RunCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        if (isDesktop && onDismiss != null) {
+            IconButton(
+                Lucide.X,
+                contentDescription = stringResource(Res.string.inbox_dismiss),
+                onClick = onDismiss,
+                tint = Theme[colors][textMuted],
+                iconSize = 15.dp,
+            )
+        }
     }
 }
 
@@ -852,11 +892,15 @@ internal fun RunView(
     onAsk: () -> Unit = {},
     onContinue: (() -> Unit)? = null,
     onCopy: () -> Unit = {},
+    onDismiss: (() -> Unit)? = null,
 ) {
     // One fetch at a time: while one runs, a tap here would do nothing.
     val busy = fetching != null
     SubpageHeader(name, onBack = onBack, subtitle = runWhen(run.failed, messageTime(run.at.toDouble(), uses24HourClock()))) {
         IconButton(Lucide.Copy, contentDescription = stringResource(Res.string.inbox_copy_report), onClick = onCopy, enabled = !busy)
+        if (onDismiss != null) {
+            IconButton(Lucide.Trash2, contentDescription = stringResource(Res.string.inbox_dismiss), onClick = onDismiss, enabled = !busy)
+        }
     }
     Column(
         Modifier

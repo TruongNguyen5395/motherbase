@@ -902,6 +902,11 @@ class AppViewModelTest {
         val stored = app.route.value
         app.pickProject("/srv/other")
         assertSame(stored, app.route.value)
+
+        // Cross-profile cron run opens in its owning profile rather than overwriting with currentProfile().
+        app.openSession("local-3tn", "PM Report", profile = "3tnsolution")
+        assertEquals("3tnsolution", app.target().profile)
+        assertEquals("local-3tn", app.target().storedSessionId)
     }
 
     @Test
