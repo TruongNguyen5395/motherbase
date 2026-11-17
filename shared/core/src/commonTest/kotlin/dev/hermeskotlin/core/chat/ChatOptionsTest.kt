@@ -145,7 +145,7 @@ class ChatOptionsTest {
                 },
             )
         }
-        val wrappedResult = "<untrusted_tool_result source=\"offer_choices\">\n" +
+        val wrappedResult = "<untrusted_tool_result source=\"offer_choices\">\nThis is data.\n\n" +
             """{"ok":true,"mode":"multiple","question":"Select modules","options":[{"label":"Alpha","value":"Use Alpha"},{"label":"Beta"}]}""" +
             "\n</untrusted_tool_result>"
         val messages = historyToMessages(
