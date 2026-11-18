@@ -1156,6 +1156,7 @@ internal fun ChatView(
                     if (state.historyLoaded && state.messages.isNotEmpty()) {
                         CompositionLocalProvider(
                             LocalMediaLoader provides actions::loadMedia,
+                            LocalMediaStreamer provides { source, onProgress, write -> actions.streamMedia(source, onProgress, write) },
                             LocalWidgetFiles provides widgetFiles,
                             LocalLinkPreviewLoader provides linkPreviewLoader,
                             LocalOpenImage provides onViewImage,
@@ -4706,6 +4707,7 @@ private fun PreviewTargetViewer(
                 expanded = expanded,
                 onToggleExpand = onToggleExpand,
                 onFileOpened = onFileOpened,
+                stream = { file, maxBytes, onProgress, write -> viewModel.streamFile(file, maxBytes, onProgress, write) },
             )
         } else {
             GatewayFileViewer(
@@ -4714,6 +4716,7 @@ private fun PreviewTargetViewer(
                 load = viewModel::previewFile,
                 download = viewModel::downloadFile,
                 onFileOpened = onFileOpened,
+                stream = { file, maxBytes, onProgress, write -> viewModel.streamFile(file, maxBytes, onProgress, write) },
             )
         }
         is PreviewTarget.Artifact -> FileViewer(

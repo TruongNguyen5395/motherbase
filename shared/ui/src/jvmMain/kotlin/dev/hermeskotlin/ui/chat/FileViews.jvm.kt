@@ -7,17 +7,47 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import dev.hermeskotlin.ui.rememberDesktopWeb
 import dev.hermeskotlin.ui.resources.*
+import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlin.io.encoding.Base64
 import org.jetbrains.compose.resources.getString
+
+@Composable
+internal actual fun rememberTempFileFactory(): TempFileFactory = remember {
+    DirectoryTempFileFactory(
+        { File(System.getProperty("java.io.tmpdir"), "motherbase-viewer") },
+        deleteOnJvmExit = true,
+    )
+}
 
 /**
  * PDF parsing and drawing live in a bounded child of the bundled Java runtime. Without the runtime's launcher there's
  * no child to start, so the viewer says PDFs don't open here rather than blaming the document.
  */
 @Composable
-internal actual fun rememberPdfOpener(): suspend (ByteArray) -> PdfOpen = { bytes ->
-    if (pdfWorkerLauncher().canExecute()) openDesktopPdf(bytes)
-    else PdfOpen.Failed(getString(Res.string.desktop_pdf_unsupported))
+internal actual fun rememberPdfOpener(): suspend (ByteArray) -> PdfOpen = remember {
+    { bytes ->
+        if (pdfWorkerLauncher().canExecute()) openDesktopPdf(bytes)
+        else PdfOpen.Failed(getString(Res.string.desktop_pdf_unsupported))
+    }
+}
+
+@Composable
+internal actual fun rememberPdfFileOpener(): suspend (TempFileHandle) -> PdfOpen = remember {
+    { handle ->
+        if (!pdfWorkerLauncher().canExecute()) {
+            PdfOpen.Failed(getString(Res.string.desktop_pdf_unsupported))
+        } else {
+            val fileHandle = handle as? FileTempHandle
+            if (fileHandle != null) {
+                openDesktopPdf(fileHandle.file)
+            } else {
+                val out = ByteArrayOutputStream()
+                handle.streamTo { out.write(it) }
+                openDesktopPdf(out.toByteArray())
+            }
+        }
+    }
 }
 
 /** A widget in the app's own browser, where the runtime has one; elsewhere it says it can't show. */

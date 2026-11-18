@@ -39,6 +39,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import dev.hermeskotlin.designsystem.components.verticalScrollWithBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -94,6 +95,7 @@ import dev.hermeskotlin.core.media.DelimitedTable
 import dev.hermeskotlin.core.media.FileText
 import dev.hermeskotlin.core.media.GatewayFile
 import dev.hermeskotlin.core.media.GatewayFileKind
+import dev.hermeskotlin.core.media.MediaApi
 import dev.hermeskotlin.core.media.parseDelimited
 import dev.hermeskotlin.core.media.prettyJson
 import dev.hermeskotlin.designsystem.accent
@@ -191,6 +193,8 @@ sealed interface FileProblem {
     data object PdfBroken : FileProblem
     data object PdfNoRoom : FileProblem
     data object PdfDesktopLimit : FileProblem
+    data object PdfDesktopFailed : FileProblem
+    data class PdfTooLarge(val limitBytes: Long) : FileProblem
     data object WidgetNotHtml : FileProblem
     data object WidgetTooBig : FileProblem
     data object WidgetEmpty : FileProblem
@@ -216,6 +220,8 @@ private fun FileProblem.resource(): Pair<StringResource, String?>? = when (this)
     FileProblem.PdfBroken -> Res.string.chat_pdf_broken to null
     FileProblem.PdfNoRoom -> Res.string.chat_pdf_no_room to null
     FileProblem.PdfDesktopLimit -> Res.string.chat_pdf_desktop_limit to null
+    FileProblem.PdfDesktopFailed -> Res.string.chat_pdf_desktop_failed to null
+    is FileProblem.PdfTooLarge -> Res.string.chat_pdf_too_large to formatBytes(limitBytes)
     FileProblem.WidgetNotHtml -> Res.string.chat_widget_not_html to null
     FileProblem.WidgetTooBig -> Res.string.chat_widget_too_big to null
     FileProblem.WidgetEmpty -> Res.string.chat_widget_empty to null
@@ -263,6 +269,8 @@ internal fun FileViewer(
     onToggleExpand: (() -> Unit)? = null,
     /** Called when navigation inside the viewer opens a linked gateway file or image. */
     onFileOpened: ((GatewayFile) -> Unit)? = null,
+    /** Streams whole files straight to disk without holding bytes in RAM (used for Save, Open in app, and large PDFs). */
+    stream: (suspend (GatewayFile, maxBytes: Long?, onProgress: MediaProgress?, write: MediaByteSink) -> FileProblem?)? = null,
 ) {
     if (file == null) return
     // The files opened from links, the one from the reply first.
@@ -272,8 +280,15 @@ internal fun FileViewer(
     val pages = rememberSaveableStateHolder()
     // What the files below the top one showed, so Back finds a page as tall as it was and its scroll fits.
     val loaded = remember(file) { mutableMapOf<GatewayFile, FileLoad>() }
-    // Keep fetched PDF bytes while open so toggling the full-screen popup doesn't re-download them.
+    // Keep fetched PDF bytes/temp files while open so toggling full-screen popup or Save/Share doesn't re-download them.
     val pdfCache = remember(file) { mutableStateMapOf<GatewayFile, ByteArray>() }
+    val pdfFiles = remember(file) { mutableStateMapOf<GatewayFile, TempFileHandle>() }
+    DisposableEffect(file) {
+        onDispose {
+            pdfFiles.values.forEach { runCatching { it.close() } }
+            pdfFiles.clear()
+        }
+    }
     val cachedDownload: suspend (GatewayFile) -> FileDownload = { target ->
         pdfCache[target]?.let { FileDownload.Ready(it) } ?: download(target).also { got ->
             if (got is FileDownload.Ready && target.kind == GatewayFileKind.Pdf) pdfCache[target] = got.bytes
@@ -325,6 +340,12 @@ internal fun FileViewer(
                     picture = img
                 },
                 pictures = pictures,
+                stream = stream,
+                cachedPdfFile = { pdfFiles[top] },
+                onCachePdfFile = { target, handle ->
+                    val previous = pdfFiles.put(target, handle)
+                    if (previous != null && previous !== handle) runCatching { previous.close() }
+                },
             )
         }
     }
@@ -349,14 +370,17 @@ internal fun GatewayFileViewer(
     load: suspend (GatewayFile) -> FileLoad,
     download: suspend (GatewayFile) -> FileDownload,
     onFileOpened: ((GatewayFile) -> Unit)? = null,
+    stream: (suspend (GatewayFile, maxBytes: Long?, onProgress: MediaProgress?, write: MediaByteSink) -> FileProblem?)? = null,
 ) {
     if (file?.kind == GatewayFileKind.Image) {
         val image = remember(file) { ViewerImage(file.name, fetch = { download(file) }) }
         ImageViewer(image, onDismiss)
     } else {
-        FileViewer(file, onDismiss, load, download, onFileOpened = onFileOpened)
+        FileViewer(file, onDismiss, load, download, onFileOpened = onFileOpened, stream = stream)
     }
 }
+
+private enum class TransferKind { Save, Share }
 
 /**
  * The viewer's page, apart from its window, so previews can draw it; [preset] skips loading for screenshots.
@@ -376,16 +400,96 @@ internal fun FileViewerPage(
     onOpenPicture: (ViewerImage) -> Unit = {},
     pictures: LinkedPictures? = null,
     openPdf: suspend (ByteArray) -> PdfOpen = rememberPdfOpener(),
+    openPdfFile: suspend (TempFileHandle) -> PdfOpen = rememberPdfFileOpener(),
+    stream: (suspend (GatewayFile, maxBytes: Long?, onProgress: MediaProgress?, write: MediaByteSink) -> FileProblem?)? = null,
+    cachedPdfFile: (() -> TempFileHandle?)? = null,
+    onCachePdfFile: ((GatewayFile, TempFileHandle) -> Unit)? = null,
 ) {
     val kind = file.kind
     val artifact = remember(file) { artifactKind(file) }
-    // A PDF's whole bytes once fetched for its pages, so Save and Share don't fetch them again.
+    val tempFiles = rememberTempFileFactory()
+    // A PDF's whole bytes/file once fetched for its pages, so Save and Share don't fetch it again.
     var fetched by remember(file) { mutableStateOf<ByteArray?>(null) }
+    var localPdf by remember(file) { mutableStateOf(cachedPdfFile?.invoke()) }
+    var uncachedHandle by remember(file) { mutableStateOf<TempFileHandle?>(null) }
+    var downloadProgress by remember(file) { mutableStateOf<Pair<Long, Long?>?>(null) }
+    DisposableEffect(file) {
+        onDispose {
+            runCatching { uncachedHandle?.close() }
+            uncachedHandle = null
+        }
+    }
     val result by produceState(preset ?: if (kind.previewable) FileLoad.Loading else null, file, preset) {
         if (preset != null || !kind.previewable) return@produceState
         if (kind != GatewayFileKind.Pdf) {
             value = load(file)
             return@produceState
+        }
+        val existingHandle = cachedPdfFile?.invoke()
+        if (existingHandle != null) {
+            localPdf = existingHandle
+            when (val opened = openPdfFile(existingHandle)) {
+                is PdfOpen.Failed -> value = FileLoad.Failed(opened.problem)
+                is PdfOpen.Ready -> {
+                    if (!isActive) {
+                        opened.pages.close()
+                        return@produceState
+                    }
+                    value = FileLoad.Pdf(opened.pages)
+                    awaitDispose { opened.pages.close() }
+                }
+            }
+            return@produceState
+        }
+        if (stream != null) {
+            val handle = tempFiles.create("viewer-", ".pdf")
+            if (handle != null) {
+                var handedToCache = false
+                var handedToPage = false
+                try {
+                    val problem = stream(file, MAX_PDF_VIEWER_BYTES, { done, total -> downloadProgress = done to total }) { chunk ->
+                        handle.append(chunk)
+                    }
+                    if (problem != null) {
+                        val shown = if (problem is FileProblem.TooLargeToHandOver || (problem is FileProblem.Said && problem.text == MediaApi.TOO_LARGE)) {
+                            FileProblem.PdfTooLarge(MAX_PDF_VIEWER_BYTES)
+                        } else {
+                            problem
+                        }
+                        value = FileLoad.Failed(shown)
+                        return@produceState
+                    }
+                    handle.finishWrite()
+                    downloadProgress = null
+                    if (onCachePdfFile != null) {
+                        onCachePdfFile(file, handle)
+                        handedToCache = true
+                    } else {
+                        uncachedHandle = handle
+                        handedToPage = true
+                    }
+                    localPdf = handle
+                    when (val opened = openPdfFile(handle)) {
+                        is PdfOpen.Failed -> value = FileLoad.Failed(opened.problem)
+                        is PdfOpen.Ready -> {
+                            if (!isActive) {
+                                opened.pages.close()
+                                return@produceState
+                            }
+                            value = FileLoad.Pdf(opened.pages)
+                            awaitDispose { opened.pages.close() }
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    value = FileLoad.Failed(FileProblem.PdfNoRoom)
+                } finally {
+                    downloadProgress = null
+                    if (!handedToCache && !handedToPage) runCatching { handle.close() }
+                }
+                return@produceState
+            }
         }
         val got = download(file)
         if (got is FileDownload.Failed) {
@@ -419,19 +523,45 @@ internal fun FileViewerPage(
     val clipboard = LocalClipboard.current
     var copied by remember(file) { mutableStateOf(false) }
 
-    fun withBytes(action: suspend (ByteArray) -> Unit) {
+    fun startTransfer(transfer: TransferKind) {
         if (busy || fetching) return
-        fetched?.let { bytes ->
-            scope.launch { action(bytes) }
-            return
-        }
         busy = true
+        downloadProgress = null
         scope.launch {
-            when (val result = download(file)) {
-                is FileDownload.Ready -> action(result.bytes)
-                is FileDownload.Failed -> notice = Notice(getString(Res.string.chat_file_get_failed, file.name, fileProblemWords(result.problem)), error = true)
+            try {
+                val streamTo: suspend (MediaByteSink) -> String? = { write ->
+                    val cachedHandle = localPdf
+                    val cachedBytes = fetched
+                    val problem = when {
+                        cachedHandle != null -> {
+                            cachedHandle.streamTo({ done, total -> downloadProgress = done to total }, write)
+                            null
+                        }
+                        cachedBytes != null -> {
+                            if (cachedBytes.isNotEmpty()) write(cachedBytes)
+                            null
+                        }
+                        stream != null -> stream(file, null, { done, total -> downloadProgress = done to total }, write)
+                        else -> when (val dl = download(file)) {
+                            is FileDownload.Ready -> {
+                                if (dl.bytes.isNotEmpty()) write(dl.bytes)
+                                null
+                            }
+                            is FileDownload.Failed -> dl.problem
+                        }
+                    }
+                    problem?.let { getString(Res.string.chat_file_get_failed, file.name, fileProblemWords(it)) }
+                }
+                when (transfer) {
+                    TransferKind.Save -> notice = Notice(actions.saveStream(file.name, streamTo))
+                    TransferKind.Share -> actions.shareStream(file.name, streamTo)?.let { err ->
+                        notice = Notice(err, error = true)
+                    }
+                }
+            } finally {
+                downloadProgress = null
+                busy = false
             }
-            busy = false
         }
     }
 
@@ -458,7 +588,7 @@ internal fun FileViewerPage(
                 Text(
                     listOfNotNull(
                         file.folder.ifEmpty { "/" },
-                        (ready?.byteSize ?: fetched?.size?.toLong())?.let(::formatBytes),
+                        (ready?.byteSize ?: localPdf?.byteSize ?: fetched?.size?.toLong())?.let(::formatBytes),
                         pdf?.pages?.aspects?.size?.let { pluralStringResource(Res.plurals.chat_pdf_pages, it, it) },
                         file.line?.let { stringResource(Res.string.chat_file_line, it) },
                     ).joinToString(" · "),
@@ -471,10 +601,8 @@ internal fun FileViewerPage(
             if (busy || fetching) {
                 Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Spinner(Modifier.size(18.dp)) }
             } else {
-                IconButton(Lucide.Download, contentDescription = stringResource(Res.string.chat_save_named, file.name), onClick = {
-                    withBytes { notice = Notice(actions.save(it, file.name)) }
-                })
-                IconButton(shareIcon, contentDescription = shareNamed(file.name), onClick = { withBytes { actions.share(it, file.name) } })
+                IconButton(Lucide.Download, contentDescription = stringResource(Res.string.chat_save_named, file.name), onClick = { startTransfer(TransferKind.Save) })
+                IconButton(shareIcon, contentDescription = shareNamed(file.name), onClick = { startTransfer(TransferKind.Share) })
             }
             if (onToggleExpand != null) {
                 IconButton(
@@ -543,6 +671,15 @@ internal fun FileViewerPage(
         }
 
         notice?.let { NoticeLine(it) }
+        if (busy) {
+            downloadProgress?.let { (done, total) ->
+                Banner(
+                    "${stringResource(Res.string.update_downloading)} ${progressLabel(done, total)}",
+                    tint = Theme[colors][accentText],
+                    background = Theme[colors][accentSoft],
+                )
+            }
+        }
         if (ready?.truncated == true) {
             val shownBytes = remember(ready) { ready.text.encodeToByteArray().size.toLong() }
             Banner(
@@ -555,19 +692,37 @@ internal fun FileViewerPage(
         Box(Modifier.fillMaxWidth().weight(1f).padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
             AnimatedContent(result, transitionSpec = { fadeIn() togetherWith fadeOut() }, contentKey = { it?.let { r -> r::class } }) { state ->
                 when {
-                    state == FileLoad.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner() }
+                    state == FileLoad.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Spinner()
+                            downloadProgress?.let { (done, total) ->
+                                Text(
+                                    progressLabel(done, total),
+                                    style = Theme[typography][caption],
+                                    color = Theme[colors][textTertiary],
+                                )
+                            }
+                        }
+                    }
                     state is FileLoad.Pdf -> PdfDocumentView(state.pages, Modifier.fillMaxSize())
-                    // A PDF that came but won't open (a password, damage) can still go to an app that reads it.
-                    state is FileLoad.Failed -> Unavailable(
+                    // A file that failed to preview (too large, password, desktop worker error, damage) can still be saved or opened elsewhere.
+                    state is FileLoad.Failed -> {
+                        val recoverable = fetched != null || localPdf != null || !state.problem.isUnavailableOnGateway()
+                        Unavailable(
+                            file,
+                            kind,
+                            fileProblemText(state.problem),
+                            onSave = { startTransfer(TransferKind.Save) }.takeIf { recoverable },
+                            onShare = { startTransfer(TransferKind.Share) }.takeIf { recoverable },
+                        )
+                    }
+                    ready == null -> Unavailable(
                         file,
                         kind,
-                        fileProblemText(state.problem),
-                        onSave = { withBytes { notice = Notice(actions.save(it, file.name)) } },
-                        onShare = { withBytes { actions.share(it, file.name) } }.takeIf { fetched != null },
+                        null,
+                        onSave = { startTransfer(TransferKind.Save) },
+                        onShare = { startTransfer(TransferKind.Share) },
                     )
-                    ready == null -> Unavailable(file, kind, null, onSave = { withBytes { notice = Notice(actions.save(it, file.name)) } }, onShare = {
-                        withBytes { actions.share(it, file.name) }
-                    })
                     else -> {
                         val shown = rememberLinkedPictures(file, pictures, download, onOpenPicture)
                         val onLink by rememberUpdatedState(onOpenFile)
@@ -826,7 +981,13 @@ private fun DataTable(table: DelimitedTable, modifier: Modifier) {
 
 /** No preview: why, and Save / Share so the file can still be had. */
 @Composable
-private fun Unavailable(file: GatewayFile, kind: GatewayFileKind, error: String?, onSave: () -> Unit, onShare: (() -> Unit)? = null) {
+private fun Unavailable(
+    file: GatewayFile,
+    kind: GatewayFileKind,
+    error: String?,
+    onSave: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+) {
     Column(
         Modifier.fillMaxSize().padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -856,15 +1017,31 @@ private fun Unavailable(file: GatewayFile, kind: GatewayFileKind, error: String?
             color = Theme[colors][textTertiary],
             textAlign = TextAlign.Center,
         )
-        if (onShare != null) {
+        if (onSave != null || onShare != null) {
             Spacer(Modifier.height(20.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(stringResource(Res.string.chat_save), onClick = onSave, leadingIcon = Lucide.Download, size = ButtonSize.Small)
-                Button(shareText(), onClick = onShare, leadingIcon = shareIcon, variant = ButtonVariant.Secondary, size = ButtonSize.Small)
+                if (onSave != null) {
+                    Button(stringResource(Res.string.chat_save), onClick = onSave, leadingIcon = Lucide.Download, size = ButtonSize.Small)
+                }
+                if (onShare != null) {
+                    Button(shareText(), onClick = onShare, leadingIcon = shareIcon, variant = ButtonVariant.Secondary, size = ButtonSize.Small)
+                }
             }
         }
     }
 }
+
+private fun FileProblem.isUnavailableOnGateway(): Boolean = when (this) {
+    FileProblem.NotConnected,
+    FileProblem.Missing,
+    FileProblem.Private,
+    is FileProblem.Refused,
+    FileProblem.SignInAgain -> true
+    else -> false
+}
+
+private fun progressLabel(downloaded: Long, total: Long?): String =
+    if (total != null && total > 0) "${formatBytes(downloaded)} / ${formatBytes(total)}" else formatBytes(downloaded)
 
 private class Notice(val text: String, val error: Boolean = false)
 

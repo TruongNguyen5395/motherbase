@@ -6,18 +6,24 @@ import dev.hermeskotlin.core.network.apiCall
 import dev.hermeskotlin.core.network.map
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.request.prepareGet
-import io.ktor.client.statement.bodyAsChannel
-import io.ktor.utils.io.readRemaining
-import kotlinx.coroutines.CancellationException
-import kotlinx.io.readByteArray
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentLength
 import io.ktor.http.contentType
+import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.CancellationException
+import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
@@ -79,40 +85,230 @@ class MediaApi(
     }
 
     /**
-     * A whole gateway file a reply linked to (`GET /api/fs/download`, which reads through the profile's
-     * backend like the preview does), falling back to [file] on a gateway without it when no [profile]
-     * is asked for.
+     * Streams a gateway file a reply linked to (`GET /api/fs/download`, falling back to `api/files/download`
+     * when no [profile] is asked for and the gateway lacks `/api/fs/download`) into [write] without holding
+     * the whole file in memory. When [maxBytes] is null, there is no client-side size limit.
      */
-    suspend fun download(url: GatewayUrl, path: String, profile: String? = null, sessionId: String? = null): ApiResult<ByteArray> {
-        // Streamed and counted: unlike the managed route, /api/fs/download has no size cap of its own.
-        val result = client.prepareGet(url.resolve("api/fs/download")) {
-            parameter("path", path)
-            profile?.let { parameter("profile", it) }
-            sessionId?.let { parameter("session_id", it) }
-        }.execute { response ->
-            apiCall { response }.let { checked ->
-                if (checked !is ApiResult.Success) return@execute checked.map { ByteArray(0) }
-                if ((response.contentLength() ?: 0) > maxDownloadBytes) return@execute ApiResult.Failed(413, TOO_LARGE)
-                val bytes = try {
-                    response.bodyAsChannel().readRemaining(maxDownloadBytes + 1).readByteArray()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    return@execute ApiResult.Unavailable(e.message ?: "Download failed")
+    suspend fun downloadTo(
+        url: GatewayUrl,
+        path: String,
+        profile: String? = null,
+        sessionId: String? = null,
+        maxBytes: Long? = null,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        write: suspend (ByteArray) -> Unit,
+    ): ApiResult<Long> {
+        val primary = streamRoute(
+            endpoint = "api/fs/download",
+            url = url,
+            path = path,
+            profile = profile,
+            sessionId = sessionId,
+            maxBytes = maxBytes,
+            onProgress = onProgress,
+            write = write,
+        )
+        val result = primary.result
+        val noRoute = result is ApiResult.Failed &&
+            (result.status == 405 || result.status == 404 && result.message in setOf("Not Found", "HTTP 404"))
+        if (!noRoute) return result
+        // The managed route reads the host's disk, not the profile's backend: the same path in a
+        // sandboxed profile could be a different file there, or none.
+        if (profile != null) return ApiResult.Failed(501, NO_PROFILE_DOWNLOAD)
+
+        val fallback = streamRoute(
+            endpoint = "api/files/download",
+            url = url,
+            path = path,
+            maxBytes = maxBytes,
+            onProgress = onProgress,
+            write = write,
+        ).result
+        if (fallback is ApiResult.Success || !isImagePath(path)) return fallback
+        return when (val img = image(url, path)) {
+            is ApiResult.Success -> {
+                val bytes = img.value
+                if (maxBytes != null && bytes.size > maxBytes) {
+                    ApiResult.Failed(413, TOO_LARGE)
+                } else {
+                    if (bytes.isNotEmpty()) write(bytes)
+                    onProgress?.invoke(bytes.size.toLong(), bytes.size.toLong())
+                    ApiResult.Success(bytes.size.toLong())
                 }
-                if (bytes.size > maxDownloadBytes) ApiResult.Failed(413, TOO_LARGE) else ApiResult.Success(bytes)
             }
-        }
-        // FastAPI's own "Not Found" means no such route; the route's own 404 says "File not found".
-        val noRoute = result is ApiResult.Failed && (result.status == 405 || result.status == 404 && result.message in setOf("Not Found", "HTTP 404"))
-        return when {
-            !noRoute -> result
-            // The managed route reads the host's disk, not the profile's backend: the same path in a
-            // sandboxed profile could be a different file there, or none.
-            profile != null -> ApiResult.Failed(501, NO_PROFILE_DOWNLOAD)
-            else -> file(url, path)
+            is ApiResult.Failed -> fallback
+            else -> img.map { 0L }
         }
     }
+
+    /**
+     * A whole gateway file in memory (`GET /api/fs/download`), capped at [maxDownloadBytes]. Prefer
+     * [downloadTo] for Save, Open in app, and large files.
+     */
+    suspend fun download(url: GatewayUrl, path: String, profile: String? = null, sessionId: String? = null): ApiResult<ByteArray> {
+        val buffer = Buffer()
+        return downloadTo(url, path, profile, sessionId, maxBytes = maxDownloadBytes) { chunk ->
+            buffer.write(chunk)
+        }.map { buffer.readByteArray() }
+    }
+
+    /**
+     * Reads at most the first [maxBytes] of a gateway file using HTTP `Range` on `/api/fs/download` (used when
+     * `/api/fs/read-text` refuses files larger than its 64 MiB source limit).
+     */
+    suspend fun readTextHead(
+        url: GatewayUrl,
+        path: String,
+        profile: String? = null,
+        sessionId: String? = null,
+        maxBytes: Int = TEXT_HEAD_BYTES,
+    ): ApiResult<FileText> {
+        require(maxBytes > 0)
+        var buffer = Buffer()
+        val reply = streamRoute(
+            endpoint = "api/fs/download",
+            url = url,
+            path = path,
+            profile = profile,
+            sessionId = sessionId,
+            maxBytes = null,
+            rangeEndInclusive = maxBytes.toLong() - 1,
+            stopAtBytes = maxBytes.toLong(),
+            onProgress = null,
+        ) { chunk -> buffer.write(chunk) }
+        val result = reply.result
+        val noRoute = result is ApiResult.Failed &&
+            (result.status == 405 || result.status == 404 && result.message in setOf("Not Found", "HTTP 404"))
+        val resolved = if (noRoute && profile == null) {
+            buffer = Buffer()
+            streamRoute(
+                endpoint = "api/files/download",
+                url = url,
+                path = path,
+                maxBytes = null,
+                rangeEndInclusive = maxBytes.toLong() - 1,
+                stopAtBytes = maxBytes.toLong(),
+                onProgress = null,
+            ) { chunk -> buffer.write(chunk) }
+        } else if (noRoute) {
+            return ApiResult.Failed(501, NO_PROFILE_DOWNLOAD)
+        } else {
+            reply
+        }
+        return resolved.result.map {
+            val raw = buffer.readByteArray()
+            val totalSize = resolved.totalSize ?: raw.size.toLong()
+            if (containsBinaryNul(raw)) {
+                FileText("", byteSize = totalSize, truncated = false, binary = true, language = null)
+            } else {
+                val truncated = totalSize > raw.size
+                val clean = if (truncated) trimIncompleteUtf8Tail(raw) else raw
+                FileText(
+                    text = clean.decodeToString(),
+                    byteSize = totalSize,
+                    truncated = totalSize > clean.size,
+                    binary = false,
+                    language = null,
+                )
+            }
+        }
+    }
+
+    private suspend fun streamRoute(
+        endpoint: String,
+        url: GatewayUrl,
+        path: String,
+        profile: String? = null,
+        sessionId: String? = null,
+        maxBytes: Long? = null,
+        rangeEndInclusive: Long? = null,
+        stopAtBytes: Long? = null,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        write: suspend (ByteArray) -> Unit,
+    ): StreamReply {
+        var totalSize: Long? = null
+        val result = try {
+            client.prepareGet(url.resolve(endpoint)) {
+                parameter("path", path)
+                profile?.let { parameter("profile", it) }
+                sessionId?.let { parameter("session_id", it) }
+                rangeEndInclusive?.let { header(HttpHeaders.Range, "bytes=0-$it") }
+                // A large file over a slow link takes as long as it takes; only a stall gives up.
+                timeout {
+                    requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
+                    socketTimeoutMillis = DOWNLOAD_STALL_MS
+                }
+            }.execute { response ->
+                val checked = apiCall { response }
+                if (checked !is ApiResult.Success) return@execute checked.map { 0L }
+                val total = parseTotalLength(response)
+                totalSize = total
+                if (maxBytes != null && total != null && total > maxBytes) {
+                    return@execute ApiResult.Failed(413, TOO_LARGE)
+                }
+                val channel = response.bodyAsChannel()
+                var written = 0L
+                while (true) {
+                    var limit = STREAM_CHUNK_BYTES
+                    if (maxBytes != null) {
+                        val remainingAllowed = (maxBytes - written + 1).coerceAtLeast(1L)
+                        limit = minOf(limit, remainingAllowed)
+                    }
+                    if (stopAtBytes != null) {
+                        val remainingWanted = stopAtBytes - written
+                        if (remainingWanted <= 0L) break
+                        limit = minOf(limit, remainingWanted)
+                    }
+                    val chunk = try {
+                        channel.readRemaining(limit).readByteArray()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        return@execute ApiResult.Unavailable(e.message ?: "Download failed")
+                    }
+                    if (chunk.isEmpty()) break
+                    written += chunk.size
+                    if (maxBytes != null && written > maxBytes) {
+                        return@execute ApiResult.Failed(413, TOO_LARGE)
+                    }
+                    try {
+                        write(chunk)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        throw LocalSinkException(e)
+                    }
+                    onProgress?.invoke(written, total)
+                    if (stopAtBytes != null && written >= stopAtBytes) break
+                }
+                ApiResult.Success(written)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: LocalSinkException) {
+            throw e.cause
+        } catch (e: Exception) {
+            ApiResult.Unavailable(e.message ?: e::class.simpleName ?: "Connection failed")
+        }
+        return StreamReply(result, totalSize)
+    }
+
+    private class LocalSinkException(override val cause: Exception) : Exception(cause)
+
+    private class StreamReply(val result: ApiResult<Long>, val totalSize: Long?)
+
+    private fun parseTotalLength(response: HttpResponse): Long? {
+        val contentRange = response.headers[HttpHeaders.ContentRange]
+        if (!contentRange.isNullOrBlank()) {
+            // e.g. "bytes 0-524287/104857600"
+            val totalPart = contentRange.substringAfterLast('/').trim()
+            if (totalPart != "*") totalPart.toLongOrNull()?.let { return it }
+        }
+        return response.contentLength()
+    }
+
+    private fun isImagePath(path: String): Boolean =
+        path.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
 
     /**
      * Makes the folder [path] on the gateway's machine, and any folders above it that are missing
@@ -138,6 +334,12 @@ class MediaApi(
     companion object {
         private const val MAX_REMOTE_BYTES = 20L * 1024 * 1024
 
+        private const val STREAM_CHUNK_BYTES = 64L * 1024
+
+        private const val DOWNLOAD_STALL_MS = 30_000L
+
+        const val TEXT_HEAD_BYTES = 512 * 1024
+
         const val MAX_DOWNLOAD_BYTES = 64L * 1024 * 1024
 
         const val TOO_LARGE = "It's over 64 MB, too large to fetch to the phone from the chat."
@@ -146,6 +348,40 @@ class MediaApi(
         const val NO_MKDIR = "This gateway can't make folders. Update Hermes, or make the folder on the gateway's machine."
 
         const val NO_PROFILE_DOWNLOAD = "This gateway can't hand over whole files from a profile yet. Update Hermes on it."
+
+        private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
+
+        private const val BINARY_SAMPLE_BYTES = 8192
+
+        internal fun containsBinaryNul(bytes: ByteArray): Boolean {
+            val end = minOf(bytes.size, BINARY_SAMPLE_BYTES)
+            for (i in 0 until end) {
+                if (bytes[i] == 0.toByte()) return true
+            }
+            return false
+        }
+
+        /** Drops an incomplete multi-byte UTF-8 sequence when a preview slice stopped mid-character. */
+        internal fun trimIncompleteUtf8Tail(bytes: ByteArray): ByteArray {
+            if (bytes.isEmpty()) return bytes
+            var start = bytes.size - 1
+            var continuations = 0
+            while (start >= 0 && continuations < 3 && (bytes[start].toInt() and 0xC0) == 0x80) {
+                start--
+                continuations++
+            }
+            if (start < 0) return bytes
+            val lead = bytes[start].toInt() and 0xFF
+            val expectedLen = when {
+                lead and 0x80 == 0 -> 1
+                lead and 0xE0 == 0xC0 -> 2
+                lead and 0xF0 == 0xE0 -> 3
+                lead and 0xF8 == 0xF0 -> 4
+                else -> 1
+            }
+            val actualLen = bytes.size - start
+            return if (actualLen < expectedLen) bytes.copyOf(start) else bytes
+        }
     }
 
     /** The image's bytes, decoded from the `data_url` the gateway answers with (media folders only). */

@@ -18,10 +18,46 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
+internal actual fun rememberTempFileFactory(): TempFileFactory {
+    val cache = LocalContext.current.applicationContext.cacheDir
+    return remember(cache) { DirectoryTempFileFactory({ File(cache, "viewer-pdf") }) }
+}
+
+@Composable
 internal actual fun rememberPdfOpener(): suspend (ByteArray) -> PdfOpen {
     val cache = LocalContext.current.applicationContext.cacheDir
     // PdfRenderer cannot cancel its constructor; deliver its owner even after a Back tap so the viewer closes it.
     return remember(cache) { { bytes -> withContext(NonCancellable) { openPdf(cache, bytes) } } }
+}
+
+@Composable
+internal actual fun rememberPdfFileOpener(): suspend (TempFileHandle) -> PdfOpen {
+    val cache = LocalContext.current.applicationContext.cacheDir
+    return remember(cache) {
+        { handle ->
+            withContext(NonCancellable) {
+                val fileHandle = handle as? FileTempHandle
+                if (fileHandle != null) {
+                    openPdfFile(fileHandle.file)
+                } else {
+                    val temp = try {
+                        File.createTempFile("viewer-", ".pdf", cache).also { out ->
+                            out.outputStream().buffered().use { stream ->
+                                handle.streamTo { chunk -> stream.write(chunk) }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        return@withContext PdfOpen.Failed(PDF_NO_ROOM)
+                    }
+                    try {
+                        openPdfFile(temp)
+                    } finally {
+                        runCatching { temp.delete() }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -32,35 +68,45 @@ private suspend fun openPdf(cache: File, bytes: ByteArray): PdfOpen = withContex
     if (bytes.isEmpty()) return@withContext PdfOpen.Failed(PDF_BROKEN)
     var file: File? = null
     try {
-        // A full or missing cache is a failure to show, not a crash.
-        val descriptor = try {
-            file = File.createTempFile("viewer-", ".pdf", cache).apply { writeBytes(bytes) }
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        } catch (e: Exception) {
+        file = try {
+            File.createTempFile("viewer-", ".pdf", cache).apply { writeBytes(bytes) }
+        } catch (_: Exception) {
             return@withContext PdfOpen.Failed(PDF_NO_ROOM)
         }
-        val renderer = try {
-            PdfRenderer(descriptor)
-        } catch (e: SecurityException) {
-            descriptor.close()
-            return@withContext PdfOpen.Failed(PDF_LOCKED)
-        } catch (e: Exception) {
-            descriptor.close()
-            return@withContext PdfOpen.Failed(PDF_BROKEN)
-        }
-        val aspects = try {
-            List(renderer.pageCount) { index -> renderer.openPage(index).use { it.width.toFloat() / it.height } }
-        } catch (e: Exception) {
-            null
-        }
-        if (aspects.isNullOrEmpty()) {
-            renderer.close()
-            PdfOpen.Failed(PDF_BROKEN)
-        } else {
-            PdfOpen.Ready(AndroidPdfPages(renderer, aspects))
-        }
+        openPdfFile(file)
     } finally {
-        file?.delete()
+        runCatching { file?.delete() }
+    }
+}
+
+private suspend fun openPdfFile(file: File): PdfOpen = withContext(Dispatchers.IO) {
+    if (!file.isFile || file.length() <= 0L) return@withContext PdfOpen.Failed(PDF_BROKEN)
+    if (file.length() > MAX_PDF_VIEWER_BYTES) return@withContext PdfOpen.Failed(FileProblem.PdfTooLarge(MAX_PDF_VIEWER_BYTES))
+    // A full or missing cache is a failure to show, not a crash.
+    val descriptor = try {
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    } catch (_: Exception) {
+        return@withContext PdfOpen.Failed(PDF_NO_ROOM)
+    }
+    val renderer = try {
+        PdfRenderer(descriptor)
+    } catch (_: SecurityException) {
+        runCatching { descriptor.close() }
+        return@withContext PdfOpen.Failed(PDF_LOCKED)
+    } catch (_: Exception) {
+        runCatching { descriptor.close() }
+        return@withContext PdfOpen.Failed(PDF_BROKEN)
+    }
+    val aspects = try {
+        List(renderer.pageCount) { index -> renderer.openPage(index).use { it.width.toFloat() / it.height } }
+    } catch (_: Exception) {
+        null
+    }
+    if (aspects.isNullOrEmpty()) {
+        renderer.close()
+        PdfOpen.Failed(PDF_BROKEN)
+    } else {
+        PdfOpen.Ready(AndroidPdfPages(renderer, aspects))
     }
 }
 
@@ -81,9 +127,9 @@ private class AndroidPdfPages(private val renderer: PdfRenderer, override val as
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 bitmap.asImageBitmap()
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
-        } catch (e: OutOfMemoryError) {
+        } catch (_: OutOfMemoryError) {
             null
         }
     }

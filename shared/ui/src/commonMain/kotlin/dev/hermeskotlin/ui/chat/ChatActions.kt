@@ -69,6 +69,18 @@ interface ChatActions {
     /** The bytes behind a picture or file in the chat, or null when it can't be had. */
     suspend fun loadMedia(source: String): ByteArray?
 
+    /** Streams a reply's file or picture into [write], returning null on success or why it failed. */
+    suspend fun streamMedia(
+        source: String,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        write: suspend (ByteArray) -> Unit,
+    ): FileProblem? {
+        val bytes = loadMedia(source) ?: return FileProblem.CouldNotOpen
+        if (bytes.isNotEmpty()) write(bytes)
+        onProgress?.invoke(bytes.size.toLong(), bytes.size.toLong())
+        return null
+    }
+
     /** Webpage metadata and thumbnail, or null when unavailable. */
     suspend fun loadLinkPreview(url: String): LinkPreview? = null
 

@@ -884,6 +884,33 @@ class ChatViewModel(
         return result
     }
 
+    override suspend fun streamMedia(
+        source: String,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)?,
+        write: suspend (ByteArray) -> Unit,
+    ): FileProblem? {
+        if (source.startsWith("data:") || source.startsWith("http://") || source.startsWith("https://")) {
+            val bytes = loadMedia(source) ?: return FileProblem.CouldNotOpen
+            if (bytes.isNotEmpty()) write(bytes)
+            onProgress?.invoke(bytes.size.toLong(), bytes.size.toLong())
+            return null
+        }
+        val gateway = target?.gateway?.gatewayUrl ?: return FileProblem.NotConnected
+        val cleanPath = source.removePrefix("file://")
+        val profile = target?.profile
+        val res = media.downloadTo(gateway, cleanPath, profile, maxBytes = null, onProgress = onProgress, write = write)
+        if (res is ApiResult.Success) return null
+        if (res is ApiResult.Failed && (res.status == 404 || res.status == 405)) {
+            val legacy = media.file(gateway, cleanPath)
+            if (legacy is ApiResult.Success) {
+                if (legacy.value.isNotEmpty()) write(legacy.value)
+                onProgress?.invoke(legacy.value.size.toLong(), legacy.value.size.toLong())
+                return null
+            }
+        }
+        return fileError(res, whole = true)
+    }
+
     /**
      * The start of a gateway file a reply linked to, for its viewer; the reason in plain words
      * when the gateway won't hand it over.
@@ -906,6 +933,25 @@ class ChatViewModel(
         val gateway = owner?.gateway?.gatewayUrl ?: return FileDownload.Failed(FileProblem.NotConnected)
         val sessionId = owner.storedSessionId ?: transcript.value.state.storedSessionId.takeIf { owner == target }
         return media.fileDownload(gateway, file, owner.profile, sessionId)
+    }
+
+    suspend fun streamFile(
+        file: GatewayFile,
+        maxBytes: Long? = null,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        write: suspend (ByteArray) -> Unit,
+    ): FileProblem? = streamFile(file, target, maxBytes, onProgress, write)
+
+    internal suspend fun streamFile(
+        file: GatewayFile,
+        owner: ChatTarget?,
+        maxBytes: Long? = null,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        write: suspend (ByteArray) -> Unit,
+    ): FileProblem? {
+        val gateway = owner?.gateway?.gatewayUrl ?: return FileProblem.NotConnected
+        val sessionId = owner.storedSessionId ?: transcript.value.state.storedSessionId.takeIf { owner == target }
+        return media.fileStream(gateway, file, owner.profile, sessionId, maxBytes, onProgress, write)
     }
 
     /**
@@ -1496,12 +1542,17 @@ class ChatViewModel(
     }
 }
 
-/** The start of gateway [file] for its viewer, read through [profile]; the reason in plain words when it can't be had. */
-internal suspend fun MediaApi.fileLoad(gateway: GatewayUrl, file: GatewayFile, profile: String?, sessionId: String? = null): FileLoad =
-    when (val result = readText(gateway, file.path, profile, sessionId)) {
-        is ApiResult.Success -> FileLoad.Ready(result.value)
-        else -> FileLoad.Failed(fileError(result))
+/** The start of gateway [file] for its viewer, read through [profile]; falls back to Range head for > 64 MiB text files. */
+internal suspend fun MediaApi.fileLoad(gateway: GatewayUrl, file: GatewayFile, profile: String?, sessionId: String? = null): FileLoad {
+    val result = readText(gateway, file.path, profile, sessionId)
+    if (result is ApiResult.Success) return FileLoad.Ready(result.value)
+    if (result is ApiResult.Failed && result.status == 413) {
+        val head = readTextHead(gateway, file.path, profile, sessionId)
+        if (head is ApiResult.Success) return FileLoad.Ready(head.value)
+        return FileLoad.Failed(FileProblem.TooLargeToPreview)
     }
+    return FileLoad.Failed(fileError(result))
+}
 
 /** The whole of gateway [file], read through [profile]: for Save, Share and a linked picture. */
 internal suspend fun MediaApi.fileDownload(gateway: GatewayUrl, file: GatewayFile, profile: String?, sessionId: String? = null): FileDownload =
@@ -1509,6 +1560,20 @@ internal suspend fun MediaApi.fileDownload(gateway: GatewayUrl, file: GatewayFil
         is ApiResult.Success -> FileDownload.Ready(result.value)
         else -> FileDownload.Failed(fileError(result, whole = true))
     }
+
+/** Streams gateway [file] into [write] without holding the file in memory. */
+internal suspend fun MediaApi.fileStream(
+    gateway: GatewayUrl,
+    file: GatewayFile,
+    profile: String?,
+    sessionId: String? = null,
+    maxBytes: Long? = null,
+    onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+    write: suspend (ByteArray) -> Unit,
+): FileProblem? = when (val result = downloadTo(gateway, file.path, profile, sessionId, maxBytes, onProgress, write)) {
+    is ApiResult.Success -> null
+    else -> fileError(result, whole = true)
+}
 
 /** A notice over the composer, put into words by the chat screen. */
 sealed interface ComposerNotice {

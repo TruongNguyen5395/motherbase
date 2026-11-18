@@ -99,9 +99,17 @@ internal sealed interface PdfOpen {
 @Composable
 internal expect fun rememberPdfOpener(): suspend (ByteArray) -> PdfOpen
 
+/** Opens a PDF backed by a local [TempFileHandle] off the main thread without copying its bytes into RAM. */
+@Composable
+internal expect fun rememberPdfFileOpener(): suspend (TempFileHandle) -> PdfOpen
+
 internal val PDF_LOCKED: FileProblem = FileProblem.PdfLocked
 internal val PDF_BROKEN: FileProblem = FileProblem.PdfBroken
 internal val PDF_NO_ROOM: FileProblem = FileProblem.PdfNoRoom
+internal val PDF_DESKTOP_FAILED: FileProblem = FileProblem.PdfDesktopFailed
+
+/** Maximum PDF size accepted for in-app rendering when streamed to disk (Save / Open in app have no cap). */
+internal const val MAX_PDF_VIEWER_BYTES = 512L * 1024 * 1024
 
 /**
  * A PDF's pages one under another, each as wide as the screen and drawn only once it scrolls near.

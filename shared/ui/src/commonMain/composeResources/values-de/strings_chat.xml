@@ -80,6 +80,8 @@
     <string name="chat_pdf_broken">Sie lässt sich nicht als PDF lesen: Vielleicht ist sie beschädigt oder unvollständig. Speichern holt die Datei so, wie sie ist.</string>
     <string name="chat_pdf_no_room">Das Telefon hat gerade keinen Platz, um sie zu öffnen. Speichere oder teile sie stattdessen.</string>
     <string name="chat_pdf_desktop_limit">Dieses PDF überschreitet die Grenzen des Desktop-Viewers. Speichere es, um es anderswo zu öffnen.</string>
+    <string name="chat_pdf_desktop_failed">Der Desktop-Viewer konnte dieses PDF nicht anzeigen. Speichere es, um es anderswo zu öffnen.</string>
+    <string name="chat_pdf_too_large">Dieses PDF ist größer als %1$s für die Vorschau hier. Speichere es, um es anderswo zu öffnen.</string>
 
     <string name="chat_widget_not_html">Diese Datei ist kein HTML-Text.</string>
     <string name="chat_widget_too_big">Dieses Widget überschreitet die Vorschaugrenze von 512 KB.</string>

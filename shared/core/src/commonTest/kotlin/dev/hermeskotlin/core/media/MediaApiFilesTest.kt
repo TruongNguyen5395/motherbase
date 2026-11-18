@@ -165,4 +165,70 @@ class MediaApiFilesTest {
             queries,
         )
     }
+
+    @Test
+    fun downloadToStreamsPastTheMemoryCapAndReportsProgress() = runTest {
+        val payload = "abcd".repeat(30_000) // 120 KB, larger than small memory cap in test
+        val api = MediaApi(
+            createHttpClient(MockEngine {
+                respond(payload, HttpStatusCode.OK, headersOf(HttpHeaders.ContentLength, payload.length.toString()))
+            }),
+            maxDownloadBytes = 1_000,
+        )
+        val collected = mutableListOf<Byte>()
+        val progress = mutableListOf<Pair<Long, Long?>>()
+
+        val bytesWritten = assertIs<ApiResult.Success<Long>>(
+            api.downloadTo(url, "/large.bin", maxBytes = null, onProgress = { done, total -> progress += done to total }) { chunk ->
+                chunk.forEach { collected += it }
+            },
+        ).value
+
+        assertEquals(payload.length.toLong(), bytesWritten)
+        assertEquals(payload, collected.toByteArray().decodeToString())
+        assertEquals(payload.length.toLong() to payload.length.toLong(), progress.last())
+    }
+
+    @Test
+    fun readTextHeadUsesRangeAndParsesContentRangeAndUtf8Boundary() = runTest {
+        var sentRange: String? = null
+        // 3-byte UTF-8 char at cut boundary: "hi" + first 2 bytes of "ệ" (0xE1 0xBB 0x87)
+        val raw = byteArrayOf('h'.code.toByte(), 'i'.code.toByte(), 0xE1.toByte(), 0xBB.toByte())
+        val api = MediaApi(createHttpClient(MockEngine { request ->
+            sentRange = request.headers[HttpHeaders.Range]
+            respond(
+                raw,
+                HttpStatusCode.PartialContent,
+                headersOf(
+                    HttpHeaders.ContentRange to listOf("bytes 0-3/90000000"),
+                    HttpHeaders.ContentLength to listOf(raw.size.toString()),
+                ),
+            )
+        }))
+
+        val head = assertIs<ApiResult.Success<FileText>>(api.readTextHead(url, "/huge.log", "default", maxBytes = 4)).value
+
+        assertEquals("bytes=0-3", sentRange)
+        assertEquals("hi", head.text)
+        assertEquals(90_000_000L, head.byteSize)
+        assertEquals(true, head.truncated)
+        assertEquals(false, head.binary)
+    }
+
+    @Test
+    fun readTextHeadMarksBinaryWhenNulBytesPresent() = runTest {
+        val api = MediaApi(createHttpClient(MockEngine {
+            respond(
+                byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x00, 0x01),
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentLength, "75000000"),
+            )
+        }))
+
+        val head = assertIs<ApiResult.Success<FileText>>(api.readTextHead(url, "/archive.zip", maxBytes = 6)).value
+
+        assertEquals("", head.text)
+        assertEquals(true, head.binary)
+        assertEquals(75_000_000L, head.byteSize)
+    }
 }

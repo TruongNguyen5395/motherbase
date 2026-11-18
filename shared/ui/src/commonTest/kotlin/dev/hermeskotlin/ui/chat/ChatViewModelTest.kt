@@ -909,6 +909,59 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun previewFileFallsBackToRangeHeadWhenReadTextReturns413() = runTest(dispatcher) {
+        val gateway = dev.hermeskotlin.core.gateway.GatewayUrl.parse("https://hermes.example")
+        val client = dev.hermeskotlin.core.network.createHttpClient(MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/api/fs/read-text" -> respond("""{"detail":"Too large"}""", HttpStatusCode.PayloadTooLarge, json)
+                "/api/fs/download" -> respond(
+                    "first-line-of-huge-log",
+                    HttpStatusCode.PartialContent,
+                    headersOf(
+                        io.ktor.http.HttpHeaders.ContentRange to listOf("bytes 0-21/90000000"),
+                        io.ktor.http.HttpHeaders.ContentLength to listOf("22"),
+                    ),
+                )
+                else -> respond("Not found", HttpStatusCode.NotFound)
+            }
+        })
+        val media = MediaApi(client)
+
+        val result = media.fileLoad(gateway, dev.hermeskotlin.core.media.GatewayFile("/var/log/huge.log"), "default")
+
+        val ready = assertIs<FileLoad.Ready>(result)
+        assertEquals("first-line-of-huge-log", ready.text.text)
+        assertEquals(90_000_000L, ready.text.byteSize)
+        assertEquals(true, ready.text.truncated)
+    }
+
+    @Test
+    fun streamMediaStreamsGatewayAndLegacyFiles() = runTest(dispatcher) {
+        val fsBytes = "workspace-payload".encodeToByteArray()
+        val managedBytes = "legacy-payload".encodeToByteArray()
+        val (vm, _) = viewModel(readState = { request ->
+            val path = request.url.encodedPath
+            val fileParam = request.url.parameters["path"]
+            when {
+                path == "/api/fs/download" && fileParam == "/opt/data/big.bin" -> respond(fsBytes, HttpStatusCode.OK)
+                path == "/api/fs/download" && fileParam == "/tmp/legacy.bin" -> respond("Not found", HttpStatusCode.NotFound)
+                path == "/api/files/download" && fileParam == "/tmp/legacy.bin" -> respond(managedBytes, HttpStatusCode.OK)
+                else -> respond("Not found", HttpStatusCode.NotFound)
+            }
+        })
+        vm.open(ChatTarget(gateway, "s1", "Chat", profile = "scribe"))
+        runCurrent()
+
+        val fsOut = mutableListOf<Byte>()
+        assertNull(vm.streamMedia("/opt/data/big.bin") { chunk -> chunk.forEach(fsOut::add) })
+        assertEquals("workspace-payload", fsOut.toByteArray().decodeToString())
+
+        val legacyOut = mutableListOf<Byte>()
+        assertNull(vm.streamMedia("file:///tmp/legacy.bin") { chunk -> chunk.forEach(legacyOut::add) })
+        assertEquals("legacy-payload", legacyOut.toByteArray().decodeToString())
+    }
+
+    @Test
     fun fillComposerPreservesExistingDraftAndTrims() = runTest(dispatcher) {
         val (vm, _) = viewModel()
         vm.fillComposer("   ")

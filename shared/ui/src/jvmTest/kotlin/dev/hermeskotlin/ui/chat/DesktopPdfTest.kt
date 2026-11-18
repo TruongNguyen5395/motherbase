@@ -1,10 +1,14 @@
 package dev.hermeskotlin.ui.chat
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.runComposeUiTest
 import dev.hermeskotlin.core.media.GatewayFile
 import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.ui.ProvideAppLanguage
@@ -175,10 +179,123 @@ class DesktopPdfTest {
     @Test
     fun deadlineRetiresAWorkerStuckDuringOpen() = runBlocking {
         lateinit var process: Process
-        assertEquals(PdfOpen.Failed(PDF_DESKTOP_LIMIT), withTimeout(5_000) {
+        assertEquals(PdfOpen.Failed(PDF_DESKTOP_FAILED), withTimeout(5_000) {
             openDesktopPdf(pdf(), timeoutMillis = 300) { fixture("hang-open").also { process = it } }
         })
         assertTrue(process.waitFor(3, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun workerCrashReportsDesktopFailureNotSizeLimit() = runBlocking {
+        lateinit var process: Process
+        assertEquals(PdfOpen.Failed(PDF_DESKTOP_FAILED), openDesktopPdf(pdf()) {
+            fixture("early-exit").also { process = it }
+        })
+        assertTrue(process.waitFor(3, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun fileBackedDesktopPdfOpensAndDrawsPages() = runBlocking {
+        val temp = File.createTempFile("desktop-pdf-test-", ".pdf")
+        try {
+            temp.writeBytes(pdf())
+            val opened = assertIs<PdfOpen.Ready>(openDesktopPdf(temp))
+            opened.pages.use { pages ->
+                assertEquals(listOf(0.5f, 2f), pages.aspects)
+                val rendered = assertNotNull(pages.render(0, 100, 200))
+                assertEquals(Color.Red, rendered.toPixelMap()[50, 100])
+            }
+        } finally {
+            temp.delete()
+        }
+    }
+
+    @Test
+    fun fileTempHandleStreamsAndDeletesFileOnClose() = runBlocking {
+        val file = File.createTempFile("temp-handle-test-", ".bin")
+        val handle = FileTempHandle(file)
+        handle.append("hello ".encodeToByteArray())
+        handle.append("world".encodeToByteArray())
+        handle.finishWrite()
+        assertEquals(11L, handle.byteSize)
+
+        val read = ByteArrayOutputStream()
+        handle.streamTo { chunk -> read.write(chunk) }
+        assertEquals("hello world", read.toByteArray().decodeToString())
+
+        handle.close()
+        assertFalse(file.exists())
+    }
+
+    @Test
+    fun tooLargePreviewStillOffersSaveAndOpenInApp() = runComposeUiTest {
+        val locale = Locale.getDefault()
+        try {
+            setContent {
+                ProvideAppLanguage("en") {
+                    HermesTheme {
+                        dev.hermeskotlin.ui.components.ProvideAppWords {
+                            FileViewerPage(
+                                GatewayFile("/huge.log"),
+                                onDismiss = {},
+                                load = { FileLoad.Failed(FileProblem.TooLargeToPreview) },
+                                download = { FileDownload.Failed(FileProblem.Said("unused")) },
+                            )
+                        }
+                    }
+                }
+            }
+            waitForIdle()
+            onNodeWithText("Save").assertExists()
+            onNodeWithText("Open in app").assertExists()
+        } finally {
+            applyAppLanguage(null)
+            Locale.setDefault(locale)
+        }
+    }
+
+    @Test
+    fun streamedPdfReusesCachedTempFileOnExpandToggle() = runComposeUiTest {
+        val locale = Locale.getDefault()
+        var visible by mutableStateOf(true)
+        var expanded by mutableStateOf(false)
+        var streams = 0
+        try {
+            setContent {
+                ProvideAppLanguage("en") {
+                    HermesTheme {
+                        dev.hermeskotlin.ui.components.ProvideAppWords {
+                            if (visible) FileViewer(
+                                GatewayFile("/streamed.pdf"),
+                                onDismiss = { visible = false },
+                                load = { error("PDFs stream instead of text load") },
+                                download = { error("Streamed PDFs avoid whole-ByteArray download") },
+                                docked = true,
+                                expanded = expanded,
+                                onToggleExpand = { expanded = !expanded },
+                                stream = { _, _, _, write ->
+                                    streams++
+                                    write(pdf())
+                                    null
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 10_000) {
+                onAllNodesWithText("2 pages", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText("2 pages", substring = true).assertExists()
+            runOnIdle { expanded = true }
+            waitForIdle()
+            assertEquals(1, streams)
+            runOnIdle { visible = false }
+            waitForIdle()
+        } finally {
+            applyAppLanguage(null)
+            Locale.setDefault(locale)
+        }
     }
 
     @Test

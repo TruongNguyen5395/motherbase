@@ -16,6 +16,49 @@ interface MediaActions {
 
     /** Opens the system share sheet for the file. */
     fun share(bytes: ByteArray, name: String)
+
+    /**
+     * Picks or opens the save destination first, then streams chunks through [streamTo] straight to disk.
+     * [streamTo] returns null on success or a localized failure reason when transfer fails.
+     */
+    suspend fun saveStream(
+        name: String,
+        streamTo: suspend (write: suspend (ByteArray) -> Unit) -> String?,
+    ): String {
+        val chunks = mutableListOf<ByteArray>()
+        val error = streamTo { chunks += it }
+        if (error != null) return error
+        val total = chunks.sumOf { it.size }
+        val merged = ByteArray(total)
+        var offset = 0
+        for (chunk in chunks) {
+            chunk.copyInto(merged, offset)
+            offset += chunk.size
+        }
+        return save(merged, name)
+    }
+
+    /**
+     * Streams chunks into temporary storage through [streamTo] and hands the file to the system
+     * opener or share sheet. Returns a localized error notice on failure, or null on success.
+     */
+    suspend fun shareStream(
+        name: String,
+        streamTo: suspend (write: suspend (ByteArray) -> Unit) -> String?,
+    ): String? {
+        val chunks = mutableListOf<ByteArray>()
+        val error = streamTo { chunks += it }
+        if (error != null) return error
+        val total = chunks.sumOf { it.size }
+        val merged = ByteArray(total)
+        var offset = 0
+        for (chunk in chunks) {
+            chunk.copyInto(merged, offset)
+            offset += chunk.size
+        }
+        share(merged, name)
+        return null
+    }
 }
 
 /** What a save said, and whether the file was written. */

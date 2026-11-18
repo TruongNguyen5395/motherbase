@@ -154,8 +154,10 @@ import dev.hermeskotlin.ui.chat.BarButton
 import dev.hermeskotlin.ui.chat.MessageTimeLabel
 import dev.hermeskotlin.ui.chat.FileLoad
 import dev.hermeskotlin.ui.chat.FileDownload
+import dev.hermeskotlin.ui.chat.FileProblem
 import dev.hermeskotlin.ui.chat.fileDownload
 import dev.hermeskotlin.ui.chat.fileLoad
+import dev.hermeskotlin.ui.chat.fileStream
 import dev.hermeskotlin.ui.chat.SendButton
 import dev.hermeskotlin.ui.chat.BarStatus
 import dev.hermeskotlin.ui.chat.SendIcon
@@ -775,6 +777,18 @@ internal data class RoomFileLink(val gateway: GatewayUrl, val room: String, val 
 
     suspend fun download(media: MediaApi, linked: GatewayFile = file): FileDownload =
         if (profile.isNullOrBlank()) FileDownload.Failed(noOwner()) else media.fileDownload(gateway, linked, profile)
+
+    suspend fun stream(
+        media: MediaApi,
+        linked: GatewayFile = file,
+        maxBytes: Long? = null,
+        onProgress: ((Long, Long?) -> Unit)? = null,
+        write: suspend (ByteArray) -> Unit,
+    ): FileProblem? = if (profile.isNullOrBlank()) {
+        FileProblem.Said(noOwner())
+    } else {
+        media.fileStream(gateway, linked, profile, maxBytes = maxBytes, onProgress = onProgress, write = write)
+    }
 
     companion object {
         /** No request goes out without an owner: another profile's file at the same path is not this one. */

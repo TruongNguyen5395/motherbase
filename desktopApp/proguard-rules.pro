@@ -97,3 +97,9 @@
 -dontwarn org.apache.commons.logging.jakarta.ServletContextCleaner
 # PDFBox's typed MethodHandle.invokeExact(ByteBuffer) is a valid signature-polymorphic JVM call.
 -dontwarn org.apache.pdfbox.io.IOUtils
+# PdfWorker spawns from the shrunk runtime jars and relies on dynamic font, CMap, filter, and
+# security-handler lookups inside PDFBox/FontBox/Commons Logging; preserve them when shrinking.
+-keep class org.apache.pdfbox.** { *; }
+-keep class org.apache.fontbox.** { *; }
+-keep class org.apache.commons.logging.** { *; }
+-dontwarn javax.imageio.**

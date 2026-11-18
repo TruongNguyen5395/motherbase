@@ -91,6 +91,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** Loads a picture or file the chat shows by source (see `ChatViewModel.loadMedia`); null when unavailable. */
 internal val LocalMediaLoader = staticCompositionLocalOf<suspend (String) -> ByteArray?> { { null } }
 
+/** Streams a picture or file in chat by source straight to disk (null when callers only supply [LocalMediaLoader]). */
+internal val LocalMediaStreamer = staticCompositionLocalOf<(suspend (String, MediaProgress?, MediaByteSink) -> FileProblem?)?> { null }
+
 /** Opens the full-screen viewer for a picture. */
 internal val LocalOpenImage = staticCompositionLocalOf<(ViewerImage) -> Unit> { {} }
 
@@ -218,6 +221,7 @@ internal fun webHost(source: String): String? {
 @Composable
 internal fun ReplyFile(item: ReplyMedia, download: (suspend () -> FileDownload)? = null) {
     val load = LocalMediaLoader.current
+    val stream = LocalMediaStreamer.current
     val openFile = LocalFileLinks.current
     val actions = rememberMediaActions()
     val notify = LocalNotice.current
@@ -230,20 +234,33 @@ internal fun ReplyFile(item: ReplyMedia, download: (suspend () -> FileDownload)?
     }
     val openPreview = { openFile?.invoke(item.source); Unit }
 
-    fun withBytes(action: suspend (ByteArray) -> Unit) {
+    fun launchStream(action: suspend (suspend (MediaByteSink) -> String?) -> Unit) {
         if (busy) return
         busy = true
         scope.launch {
             try {
-                if (download != null) {
-                    when (val result = download()) {
-                        is FileDownload.Ready -> action(result.bytes)
-                        is FileDownload.Failed -> notify(fileProblemWords(result.problem))
+                val streamTo: suspend (MediaByteSink) -> String? = { write ->
+                    when {
+                        download != null -> when (val result = download()) {
+                            is FileDownload.Ready -> {
+                                if (result.bytes.isNotEmpty()) write(result.bytes)
+                                null
+                            }
+                            is FileDownload.Failed -> fileProblemWords(result.problem)
+                        }
+                        stream != null -> stream(item.source, null, write)?.let { fileProblemWords(it) }
+                        else -> {
+                            val bytes = load(item.source)
+                            if (bytes == null) {
+                                getString(Res.string.chat_get_failed_named, item.name)
+                            } else {
+                                if (bytes.isNotEmpty()) write(bytes)
+                                null
+                            }
+                        }
                     }
-                } else {
-                    val bytes = load(item.source)
-                    if (bytes == null) notify(getString(Res.string.chat_get_failed_named, item.name)) else action(bytes)
                 }
+                action(streamTo)
             } finally {
                 busy = false
             }
@@ -282,8 +299,12 @@ internal fun ReplyFile(item: ReplyMedia, download: (suspend () -> FileDownload)?
             if (canPreview) {
                 IconButton(Lucide.Eye, contentDescription = stringResource(Res.string.chat_file_preview), onClick = openPreview)
             }
-            IconButton(Lucide.Download, contentDescription = stringResource(Res.string.chat_save_named, item.name), onClick = { withBytes { notify(actions.save(it, item.name)) } })
-            IconButton(shareIcon, contentDescription = shareNamed(item.name), onClick = { withBytes { actions.share(it, item.name) } })
+            IconButton(Lucide.Download, contentDescription = stringResource(Res.string.chat_save_named, item.name), onClick = {
+                launchStream { streamTo -> notify(actions.saveStream(item.name, streamTo)) }
+            })
+            IconButton(shareIcon, contentDescription = shareNamed(item.name), onClick = {
+                launchStream { streamTo -> actions.shareStream(item.name, streamTo)?.let(notify) }
+            })
         }
     }
 }

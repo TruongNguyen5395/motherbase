@@ -868,8 +868,13 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
         // Keyed by the whole link: the viewer caches by path, and the same path is another file for another bot.
         key(target) {
             val media = koinInject<MediaApi>()
-            GatewayFileViewer(target.file, onDismiss = { roomFile = null },
-                load = { target.preview(media, it) }, download = { target.download(media, it) })
+            GatewayFileViewer(
+                target.file,
+                onDismiss = { roomFile = null },
+                load = { target.preview(media, it) },
+                download = { target.download(media, it) },
+                stream = { linked, maxBytes, onProgress, write -> target.stream(media, linked, maxBytes, onProgress, write) },
+            )
         }
     }
 
