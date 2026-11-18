@@ -59,6 +59,7 @@ import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.ListTodo
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
+import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
 import com.composables.icons.lucide.Send
@@ -182,6 +183,7 @@ internal fun TasksPage(
     onSessionExpired: () -> Unit,
     onOpenSession: (sessionId: String, title: String, profile: String?) -> Unit = { _, _, _ -> },
     onOpenRoom: (Room) -> Unit = {},
+    onToggleSidebar: (() -> Unit)? = null,
     viewModel: TasksViewModel = koinViewModel(),
 ) {
     val state = viewModel.state.collectAsStateWithLifecycle().value
@@ -234,7 +236,7 @@ internal fun TasksPage(
         )
     }
 
-    TasksBoardContent(state = state, actions = actions, onBack = onBack)
+    TasksBoardContent(state = state, actions = actions, onBack = onBack, onToggleSidebar = onToggleSidebar)
 }
 
 /** Stateless Command Board UI shared between live [TasksPage], Compose previews, and UI tests. */
@@ -243,6 +245,7 @@ internal fun TasksBoardContent(
     state: TasksUiState,
     actions: TasksBoardActions,
     onBack: () -> Unit,
+    onToggleSidebar: (() -> Unit)? = null,
 ) {
     val railState = rememberRightRailState()
     var railTrigger by remember { mutableIntStateOf(0) }
@@ -261,10 +264,6 @@ internal fun TasksBoardContent(
         actions.onSelectTask(id)
     }
 
-    PlatformBackHandler(enabled = state.selectedTaskId != null && railState.isOpen) {
-        actions.onSelectTask(null)
-    }
-
     val selected = state.selectedTask
     val configured = state.config?.configured == true
 
@@ -272,6 +271,7 @@ internal fun TasksBoardContent(
         state = railState,
         railWidth = DEFAULT_RAIL_WIDTH,
         swipeEnabled = !isDesktop && selected != null,
+        dockOnWide = true,
         rail = {
             if (selected != null) {
                 TaskDetailInspector(
@@ -301,12 +301,22 @@ internal fun TasksBoardContent(
             }
         },
     ) { contentModifier ->
+        PlatformBackHandler(enabled = state.selectedTaskId != null && railState.isOpen) {
+            actions.onSelectTask(null)
+        }
         Column(contentModifier.fillMaxSize()) {
             SubpageHeader(
                 title = stringResource(Res.string.tasks_title),
                 subtitle = stringResource(Res.string.tasks_subtitle),
                 onBack = onBack,
                 actions = {
+                    if (onToggleSidebar != null) {
+                        IconButton(
+                            Lucide.PanelLeft,
+                            contentDescription = stringResource(Res.string.app_keys_sidebar),
+                            onClick = onToggleSidebar,
+                        )
+                    }
                     if (configured) {
                         IconButton(
                             Lucide.Plus,
@@ -1311,6 +1321,7 @@ private fun TaskChannelLog(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TaskStagedPlanSection(
     task: DirectusTask,
@@ -1331,10 +1342,11 @@ private fun TaskStagedPlanSection(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(
+        FlowRow(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 stringResource(Res.string.tasks_plan_heading).uppercase(),

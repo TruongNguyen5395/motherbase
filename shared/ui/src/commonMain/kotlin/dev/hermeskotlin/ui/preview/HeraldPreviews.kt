@@ -513,15 +513,12 @@ fun HeraldPreview(scene: PreviewScene, dark: Boolean = true, accent: String = DE
                 PreviewScene.Plugins -> OpenSidebar {
                     SidebarPage { PluginsView(PluginsUiState(plugins = PageSamples.plugins), onBack = {}, onOpenPlugin = {}, onRetry = {}) }
                 }
-                PreviewScene.Tasks -> OpenSidebar {
-                    SidebarPage {
-                        TasksBoardContent(
-                            state = PageSamples.tasks(selectedTaskId = null),
-                            actions = TasksBoardActions(),
-                            onBack = {},
-                        )
-                    }
-                }
+                PreviewScene.Tasks -> TasksBoardContent(
+                    state = PageSamples.tasks(selectedTaskId = null),
+                    actions = TasksBoardActions(),
+                    onBack = {},
+                    onToggleSidebar = {},
+                )
                 PreviewScene.Scheduled, PreviewScene.ScheduledJob -> OpenSidebar {
                     SidebarPage {
                         ScheduledView(

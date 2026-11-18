@@ -364,7 +364,11 @@ fun SessionsSidebar(
     onOpenReportChat: (ReportChat) -> Unit = {},
     /** Opens a session linked from the Directus Tasks Command Board in the chat pane. */
     onOpenTaskSession: (sessionId: String, title: String, profile: String?) -> Unit = { _, _, _ -> },
-    /** Where the pages show beside the docked sidebar on a desktop; null keeps them in the sidebar. */
+    /** Collapses an undocked phone drawer when a center-pane page opens in its place. */
+    onCloseSidebar: () -> Unit = {},
+    /** Toggles the left sidebar from center-pane pages such as the Tasks Command Board. */
+    onToggleSidebar: (() -> Unit)? = null,
+    /** Where the pages show beside the docked sidebar; null keeps them in the sidebar. */
     mainPage: MainPageSlot? = null,
     viewModel: SessionsViewModel = koinViewModel(),
     bots: BotsViewModel = koinViewModel(),
@@ -535,8 +539,8 @@ fun SessionsSidebar(
         viewModel.query.clearText()
     }
 
-    // The pages open beside a docked sidebar on the desktop, where it stays the list: any one opened puts the last away.
-    val pageInMain = mainPage?.enabled == true
+    // Pages open in the center workspace when the sidebar is docked (desktop or tablet); Tasks always opens there.
+    val pageInMain = mainPage != null && (mainPage.enabled || tasksOpen)
     fun closePages() {
         scheduledOpen = false
         inboxOpen = false
@@ -728,6 +732,7 @@ fun SessionsSidebar(
                     closePages()
                     onOpenRoom(room)
                 },
+                onToggleSidebar = onToggleSidebar,
             )
             scheduledOpen -> ScheduledPage(
                 gateway = gateway,
@@ -808,11 +813,17 @@ fun SessionsSidebar(
             inset = inset,
         )
     }
+    val latestCloseSidebar by rememberUpdatedState(onCloseSidebar)
+    LaunchedEffect(pageKey, pageInMain) {
+        if (pageInMain && pageKey != null && mainPage?.enabled != true) {
+            latestCloseSidebar()
+        }
+    }
     if (pageInMain && mainPage != null) {
         val latest by rememberUpdatedState(pageView)
-        DisposableEffect(pageKey) {
+        DisposableEffect(pageKey, pageInMain) {
             val key = pageKey
-            // Scheduled and Config lay a list beside what's open in it, so they take a wider page.
+            // Scheduled, Config, and Tasks lay a list beside what's open in it, so they take a wider page.
             val wide = key == "scheduled" || key == "config" || key == "tasks" || key?.startsWith("routines:") == true
             if (key != null) mainPage.show(key, { latest() }, close = { closePages() }, wide = wide)
             onDispose { if (key != null) mainPage.clear(key) }

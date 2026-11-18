@@ -5,7 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -492,9 +495,9 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
         if (open != liveChat.id && open != next && !chatState.running) app.openBotChat(bot, next)
     }
 
-    // On a desktop, the sidebar's pages open in the chat's place while it's docked beside it.
+    // Sidebar pages open in the center workspace while the sidebar is docked (desktop, tablet, or foldable).
     val mainPage = remember { MainPageSlot() }
-    mainPage.enabled = isDesktop && sidebar.docked
+    mainPage.enabled = sidebar.docked
 
     /** Whatever the sidebar opened next (a chat, a room) takes the place of a page beside it. */
     fun closeDrawer() {
@@ -802,6 +805,8 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                     app.openSession(sessionId, title, profile = targetProfile)
                     closeDrawerToChat()
                 },
+                onCloseSidebar = { if (!sidebar.docked) scope.launch { sidebar.close() } },
+                onToggleSidebar = { scope.launch { sidebar.toggle() } },
                 mainPage = mainPage,
             )
         },
@@ -810,7 +815,13 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
             val page = mainPage.content
             when {
                 // A list a desktop window would stretch past reading stays a page's width, in the middle.
-                page != null -> Box(Modifier.fillMaxSize().background(Theme[colors][background]), contentAlignment = Alignment.TopCenter) {
+                page != null -> Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Theme[colors][background])
+                        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
                     // By its kind alone: a bot's routines are "routines", not the bot's name.
                     key(mainPage.key) { TimeOpening(mainPage.key?.substringBefore(':') ?: "page") }
                     Box(Modifier.widthIn(max = if (mainPage.wide) WIDE_PAGE_WIDTH else MAIN_PAGE_WIDTH).fillMaxSize()) { page() }

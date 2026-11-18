@@ -125,12 +125,13 @@ internal fun RightRailLayout(
     railWidth: Dp = DEFAULT_RAIL_WIDTH,
     onRailWidthChange: ((Dp) -> Unit)? = null,
     swipeEnabled: Boolean = !isDesktop,
+    dockOnWide: Boolean = isDesktop,
     rail: @Composable () -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val docked = isDesktop && maxWidth >= RAIL_MIN_PANE
+        val docked = dockOnWide && maxWidth >= RAIL_MIN_PANE
         LaunchedEffect(docked) { state.updateDocked(docked) }
 
         var dragged by remember { mutableStateOf<Dp?>(null) }

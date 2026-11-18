@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -163,5 +164,36 @@ class TasksPageUiTest {
         onNodeWithText("Directus URL").assertIsDisplayed()
         onNodeWithText("API token").assertIsDisplayed()
         onNodeWithText("Test and save").assertIsDisplayed()
+    }
+
+    @Test
+    fun sidebarToggleAndTabletWideDockingWorkTogether() = runDesktopComposeUiTest(width = 960, height = 800) {
+        var state by mutableStateOf(PageSamples.tasks(selectedTaskId = null))
+        var sidebarToggles = 0
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides false) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onSelectTask = { id -> state = state.copy(selectedTaskId = id) },
+                            ),
+                            onBack = {},
+                            onToggleSidebar = { sidebarToggles++ },
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+        onNodeWithContentDescription("Show or hide the sidebar").assertIsDisplayed().performClick()
+        waitForIdle()
+        assertEquals(1, sidebarToggles)
+
+        onNodeWithText("Audit gateway rate-limit middleware").performClick()
+        waitForIdle()
+        onNodeWithText("LIVE CHAT LOG").assertIsDisplayed()
+        onNodeWithText("Prepare plan").performScrollTo().assertIsDisplayed()
     }
 }
