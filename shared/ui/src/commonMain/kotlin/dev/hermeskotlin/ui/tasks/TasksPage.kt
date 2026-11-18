@@ -1859,8 +1859,7 @@ private fun PickerPill(
             label,
             style = Theme[typography][bodySmall],
             color = Theme[colors][textColor],
-            maxLines = 1,
-            softWrap = false,
+            singleLine = true,
             overflow = TextOverflow.Ellipsis,
         )
         UnstyledIcon(Lucide.ChevronDown, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(13.dp))
@@ -1896,8 +1895,7 @@ private fun ActionPill(
             label,
             style = Theme[typography][bodySmall],
             color = if (enabled) Theme[colors][textColor] else Theme[colors][textMuted],
-            maxLines = 1,
-            softWrap = false,
+            singleLine = true,
             overflow = TextOverflow.Ellipsis,
         )
     }
