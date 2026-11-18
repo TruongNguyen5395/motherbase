@@ -106,6 +106,7 @@ import dev.hermeskotlin.designsystem.danger
 import dev.hermeskotlin.designsystem.eyebrow
 import dev.hermeskotlin.designsystem.heading
 import dev.hermeskotlin.designsystem.label as labelStyle
+import dev.hermeskotlin.designsystem.onAccent
 import dev.hermeskotlin.designsystem.radii
 import dev.hermeskotlin.designsystem.radiusFull
 import dev.hermeskotlin.designsystem.radiusLarge
@@ -836,7 +837,7 @@ private fun TaskPill(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (busy) {
-                Spinner(size = 12.dp)
+                Spinner(Modifier.size(12.dp))
             } else {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
             }
@@ -1268,7 +1269,7 @@ private fun TaskChannelLog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Spinner(size = 14.dp)
+                    Spinner(Modifier.size(14.dp))
                     Text(stringResource(Res.string.tasks_chat_log), style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
                 }
                 error != null && messages.isEmpty() -> Text(
