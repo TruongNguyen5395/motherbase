@@ -26,6 +26,9 @@ import dev.hermeskotlin.core.sessions.SessionListFilter
 import dev.hermeskotlin.core.sessions.SessionMessage
 import dev.hermeskotlin.core.sessions.SessionSummary
 import dev.hermeskotlin.core.sessions.SessionsApi
+import dev.hermeskotlin.core.tasks.DirectusTasksApi
+import dev.hermeskotlin.core.tasks.DispatchSessionEntry
+import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.storage.InMemoryKeyValueStore
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
@@ -93,6 +96,10 @@ class SessionsViewModelTest {
         seen: SeenStore = SeenStore(InMemoryKeyValueStore()) { 0.0 },
         /** The list's rows, as JSON. */
         rows: String = """{"id":"a","title":"Alpha","pinned":true},{"id":"b","title":"Beta"}""",
+        /** Dynamic list rows override when a test simulates backend archive/unarchive mutations. */
+        dynamicRows: (() -> String)? = null,
+        dispatchStore: DispatchSessionsStore? = null,
+        dispatchBoardJson: (() -> String)? = null,
     ): SessionsViewModel {
         // On the test dispatcher, so no request is still finishing on another thread when a test ends
         // (and resuming onto Dispatchers.Main while the next test sets it).
@@ -101,8 +108,13 @@ class SessionsViewModelTest {
         config.addHandler { request ->
             when {
                 request.url.encodedPath == "/api/sessions" -> respond(
-                    """{"sessions":[$rows],"total":$total}""",
+                    """{"sessions":[${dynamicRows?.invoke() ?: rows}],"total":$total}""",
                     if (listFails()) HttpStatusCode.InternalServerError else listStatus, json,
+                )
+                request.url.encodedPath == "/api/plugins/directus-tasks/board" -> respond(
+                    dispatchBoardJson?.invoke() ?: """{"configured":false,"projects":[],"tasks":[]}""",
+                    HttpStatusCode.OK,
+                    json,
                 )
                 request.url.encodedPath == "/api/auth/ws-ticket" -> respond("""{"ticket":"T","ttl_seconds":30}""", HttpStatusCode.OK, json)
                 request.url.encodedPath.startsWith("/api/profiles") ->
@@ -136,6 +148,8 @@ class SessionsViewModelTest {
             ThreadsRepository(ThreadsApi(connection), SessionsApi(client), ProfilesApi(client)),
             cache,
             MediaApi(client),
+            DirectusTasksApi(client).takeIf { dispatchBoardJson != null },
+            dispatchStore,
         )
     }
 
@@ -718,5 +732,55 @@ class SessionsViewModelTest {
         vm.consumeSessionExpired()
 
         assertFalse(vm.state.value.sessionExpired)
+    }
+
+    @Test
+    fun dispatchBoardSyncAndLifecycleEventsKeepSidebarInSync() = runTest(dispatcher) {
+        val kv = InMemoryKeyValueStore()
+        val dispatchStore = DispatchSessionsStore(kv) { 1_000L }
+        var backendArchived = false
+        val vm = viewModel(
+            dispatchStore = dispatchStore,
+            dynamicRows = {
+                if (backendArchived) """{"id":"regular-1","title":"Manual chat"}"""
+                else """{"id":"disp-1","title":"[Task: Monitor cluster] check"},{"id":"regular-1","title":"Manual chat"}"""
+            },
+            dispatchBoardJson = {
+                """
+                {
+                  "configured": true,
+                  "projects": [],
+                  "tasks": [
+                    {
+                      "id": "t1",
+                      "title": "Monitor cluster",
+                      "status": "in_progress",
+                      "context": {
+                        "task_id": "t1",
+                        "channels": [{"type":"session","id":"disp-1","label":"Session (@ops)","profile":"ops","managed":true}]
+                      }
+                    }
+                  ]
+                }
+                """.trimIndent()
+            },
+        )
+        vm.bind(gateway)
+        val initial = vm.awaitLoaded()
+        assertEquals(listOf("disp-1", "regular-1"), initial.sessions.map { it.id })
+        val mapped = vm.dispatchSessions.first { "disp-1" in it }
+        assertEquals("Monitor cluster", mapped["disp-1"]?.taskTitle)
+
+        // Completing a task emits archivedIds: sidebar drops the session from Recent immediately.
+        backendArchived = true
+        dispatchStore.notifyLifecycleChange(gateway.gatewayUrl, archivedIds = setOf("disp-1"))
+        val afterArchive = vm.state.first { s -> s.sessions.none { it.id == "disp-1" } }
+        assertEquals(listOf("regular-1"), afterArchive.sessions.map { it.id })
+
+        // Reopening a Done task emits unarchivedIds: sidebar reloads and restores the session into Recent.
+        backendArchived = false
+        dispatchStore.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf("disp-1"))
+        val afterReopen = vm.state.first { s -> s.sessions.any { it.id == "disp-1" } }
+        assertEquals(listOf("disp-1", "regular-1"), afterReopen.sessions.map { it.id })
     }
 }

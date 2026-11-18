@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="tasks_title">Tarefas</string>
+    <string name="tasks_title">Dispatch</string>
     <string name="tasks_subtitle">Painel Directus</string>
     <string name="tasks_priority_toggle">Requer atenção</string>
     <string name="tasks_priority_section">Requer atenção (%1$d)</string>

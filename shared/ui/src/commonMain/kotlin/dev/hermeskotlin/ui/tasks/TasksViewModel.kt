@@ -11,6 +11,7 @@ import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.SavedGateway
 import dev.hermeskotlin.core.network.ApiResult
+import dev.hermeskotlin.core.network.errorMessage
 import dev.hermeskotlin.core.projects.Project
 import dev.hermeskotlin.core.projects.ProjectsApi
 import dev.hermeskotlin.core.rooms.Room
@@ -29,6 +30,7 @@ import dev.hermeskotlin.core.tasks.DirectusConfigUpdate
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
+import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
@@ -124,6 +126,7 @@ class TasksViewModel(
     private val projectsApi: ProjectsApi,
     private val botsApi: BotsApi,
     private val connection: GatewayConnection,
+    private val dispatchStore: DispatchSessionsStore? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TasksUiState())
@@ -209,6 +212,7 @@ class TasksViewModel(
                     _state.update { it.copy(config = cfg) }
                     if (!cfg.configured) {
                         _state.update { it.copy(loading = false, projects = emptyList(), tasks = emptyList()) }
+                        dispatchStore?.clearGateway(gateway.gatewayUrl)
                         return@launch
                     }
                 }
@@ -248,6 +252,7 @@ class TasksViewModel(
                         activeChannelIdx = safeChannelIdx,
                     )
                 }
+                dispatchStore?.syncBoard(gateway.gatewayUrl, board.tasks, includeDone = includeDone)
                 _state.value.selectedTask?.let { task ->
                     loadChannelLog(gateway, task, _state.value.activeChannelIdx)
                 }
@@ -497,6 +502,7 @@ class TasksViewModel(
                             channelMessages = emptyList(),
                         )
                     }
+                    dispatchStore?.syncTask(gateway.gatewayUrl, created)
                 }
                 is ApiResult.Failed -> _state.update { it.copy(actionFeedback = res.message) }
                 is ApiResult.Unavailable -> _state.update { it.copy(actionFeedback = res.message) }
@@ -512,6 +518,7 @@ class TasksViewModel(
             val res = directusApi.upsertContext(gateway.gatewayUrl, taskId, UpsertContextRequest(projectId = projectId))
             if (res is ApiResult.Success && boundGateway == gateway) {
                 replaceTask(res.value)
+                dispatchStore?.syncTask(gateway.gatewayUrl, res.value)
             } else if (res is ApiResult.Failed) {
                 _state.update { it.copy(actionFeedback = res.message) }
             }
@@ -520,10 +527,12 @@ class TasksViewModel(
 
     fun updateTaskStatus(taskId: String, status: String) {
         val gateway = boundGateway ?: return
+        val previousTask = _state.value.tasks.firstOrNull { it.id == taskId }
         viewModelScope.launch {
             val res = directusApi.updateTask(gateway.gatewayUrl, taskId, UpdateTaskRequest(status = status))
             if (res is ApiResult.Success && boundGateway == gateway) {
-                if (status == DirectusTask.STATUS_DONE && !_state.value.includeDone) {
+                val updated = res.value
+                if (updated.status == DirectusTask.STATUS_DONE && !_state.value.includeDone) {
                     _state.update { cur ->
                         cur.copy(
                             tasks = cur.tasks.filterNot { it.id == taskId },
@@ -531,8 +540,9 @@ class TasksViewModel(
                         )
                     }
                 } else {
-                    replaceTask(res.value)
+                    replaceTask(updated)
                 }
+                syncSessionLifecycleOnStatusChange(gateway, previousTask, updated)
             } else if (res is ApiResult.Failed) {
                 _state.update { it.copy(actionFeedback = res.message) }
             }
@@ -778,14 +788,33 @@ class TasksViewModel(
                     ),
                 )
                 if (approveRes is ApiResult.Success && boundGateway == gateway) {
-                    replaceTask(approveRes.value)
+                    val approved = approveRes.value
+                    if (approved.status == DirectusTask.STATUS_DONE && !_state.value.includeDone) {
+                        _state.update { cur ->
+                            cur.copy(
+                                tasks = cur.tasks.filterNot { it.id == task.id },
+                                selectedTaskId = if (cur.selectedTaskId == task.id) null else cur.selectedTaskId,
+                            )
+                        }
+                    } else {
+                        replaceTask(approved)
+                    }
                 }
 
                 if (active != null) {
                     dispatchMessage(active, "[Task: ${task.title}] $directive")
-                    val latest = _state.value.tasks.firstOrNull { it.id == task.id } ?: optimistic
+                    val latest = _state.value.tasks.firstOrNull { it.id == task.id }
+                        ?: (approveRes as? ApiResult.Success)?.value
+                        ?: optimistic
                     val idx = latest.channels.indexOfFirst { it.id == active.id }.coerceAtLeast(0)
-                    loadChannelLog(gateway, latest, idx)
+                    if (latest.id !in _state.value.tasks.map { it.id }) {
+                        // Task completed and hidden from active board; skip channel log reload.
+                    } else {
+                        loadChannelLog(gateway, latest, idx)
+                    }
+                }
+                if (approveRes is ApiResult.Success && boundGateway == gateway) {
+                    syncSessionLifecycleOnStatusChange(gateway, task, approveRes.value)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -846,6 +875,7 @@ class TasksViewModel(
             id = storedId,
             label = "Session (@$botName)",
             profile = profile,
+            managed = true,
         )
         val mergedChannels = task.channels + channel
         val nextBots = if (profile != null) (task.assignedBots + profile).distinct() else task.assignedBots
@@ -863,6 +893,8 @@ class TasksViewModel(
         }
         activeRuntimeSessionId = runtimeId ?: storedId
         replaceTask(updated)
+        dispatchStore?.syncTask(gateway.gatewayUrl, updated)
+        dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf(storedId))
         return updated to channel
     }
 
@@ -1028,7 +1060,8 @@ class TasksViewModel(
     }
 
     private suspend fun refreshBoardSilently(gateway: SavedGateway) {
-        val res = directusApi.fetchBoard(gateway.gatewayUrl, includeDone = _state.value.includeDone)
+        val includeDone = _state.value.includeDone
+        val res = directusApi.fetchBoard(gateway.gatewayUrl, includeDone = includeDone)
         if (res !is ApiResult.Success || boundGateway != gateway) return
         val board = res.value
         _state.update { cur ->
@@ -1037,6 +1070,77 @@ class TasksViewModel(
                 tasks = board.tasks,
                 todayEpochDay = currentLocalEpochDay(),
             )
+        }
+        dispatchStore?.syncBoard(gateway.gatewayUrl, board.tasks, includeDone = includeDone)
+    }
+
+    /**
+     * Keeps gateway session archive state in sync with Dispatch task transitions:
+     * - Moving into `Done` archives auto-managed session channels unless still referenced by another non-`Done` task.
+     * - Reopening out of `Done` unarchives those session channels so they return cleanly to the `DISPATCH` group.
+     */
+    private suspend fun syncSessionLifecycleOnStatusChange(
+        gateway: SavedGateway,
+        previousTask: DirectusTask?,
+        updatedTask: DirectusTask,
+    ) {
+        val store = dispatchStore
+        val managedChannels = (updatedTask.channels + previousTask?.channels.orEmpty())
+            .distinctBy { it.id }
+            .filter { it.isAutoManagedSession }
+        if (managedChannels.isEmpty()) {
+            store?.syncTask(gateway.gatewayUrl, updatedTask)
+            return
+        }
+
+        val movedToDone = updatedTask.status == DirectusTask.STATUS_DONE
+        val reopenedFromDone = previousTask?.status == DirectusTask.STATUS_DONE && updatedTask.status != DirectusTask.STATUS_DONE
+        if (!movedToDone && !reopenedFromDone) {
+            store?.syncTask(gateway.gatewayUrl, updatedTask)
+            return
+        }
+
+        val changedIds = LinkedHashSet<String>()
+        var firstError: String? = null
+        if (movedToDone) {
+            val activeInBoard = _state.value.tasks
+                .filter { it.id != updatedTask.id && it.status != DirectusTask.STATUS_DONE }
+                .flatMap { it.channels }
+                .filter { it.isSession }
+                .mapTo(HashSet()) { it.id }
+            val activeInStore = store?.byGateway?.value?.get(gateway.gatewayUrl)?.values
+                ?.filter { it.taskId != updatedTask.id && it.taskStatus != DirectusTask.STATUS_DONE }
+                ?.mapTo(HashSet()) { it.sessionId }
+                .orEmpty()
+            val sharedActiveIds = activeInBoard + activeInStore
+
+            for (ch in managedChannels) {
+                if (ch.id in sharedActiveIds) continue
+                when (val res = sessionsApi.setArchived(gateway.gatewayUrl, ch.id, archived = true, profile = ch.profile)) {
+                    is ApiResult.Success -> changedIds += ch.id
+                    is ApiResult.Failed -> {
+                        if (res.status == 404) changedIds += ch.id
+                        else if (firstError == null) firstError = res.message
+                    }
+                    else -> if (firstError == null) firstError = res.errorMessage
+                }
+            }
+            store?.syncTask(gateway.gatewayUrl, updatedTask)
+            store?.notifyLifecycleChange(gateway.gatewayUrl, archivedIds = changedIds)
+        } else {
+            for (ch in managedChannels) {
+                when (val res = sessionsApi.setArchived(gateway.gatewayUrl, ch.id, archived = false, profile = ch.profile)) {
+                    is ApiResult.Success -> changedIds += ch.id
+                    is ApiResult.Failed -> if (res.status != 404 && firstError == null) firstError = res.message
+                    else -> if (firstError == null) firstError = res.errorMessage
+                }
+            }
+            store?.syncTask(gateway.gatewayUrl, updatedTask)
+            store?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = changedIds)
+        }
+
+        if (firstError != null && boundGateway == gateway) {
+            _state.update { it.copy(actionFeedback = firstError) }
         }
     }
 

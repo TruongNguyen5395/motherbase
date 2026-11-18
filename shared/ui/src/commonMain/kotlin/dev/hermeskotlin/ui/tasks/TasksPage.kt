@@ -47,11 +47,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -151,6 +156,7 @@ import dev.hermeskotlin.designsystem.warning
 import dev.hermeskotlin.designsystem.warningSoft
 import dev.hermeskotlin.designsystem.well
 import dev.hermeskotlin.ui.PlatformBackHandler
+import dev.hermeskotlin.ui.clearOfWindowControls
 import dev.hermeskotlin.ui.chat.ComposerKey
 import dev.hermeskotlin.ui.chat.DEFAULT_RAIL_WIDTH
 import dev.hermeskotlin.ui.chat.DockShadow
@@ -900,13 +906,22 @@ private fun AttentionStripSection(
     }
 
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    val stripeColor = if (split.plansReady.isNotEmpty()) Theme[colors][warning] else Theme[colors][danger]
     Column(
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Theme[colors][warningSoft].copy(alpha = 0.45f))
-            .border(1.dp, Theme[colors][warning].copy(alpha = 0.4f), shape)
-            .padding(12.dp),
+            .background(Theme[colors][surface])
+            .border(1.dp, Theme[colors][stroke], shape)
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    color = stripeColor,
+                    topLeft = Offset.Zero,
+                    size = Size(4.dp.toPx(), size.height),
+                )
+            }
+            .padding(start = 16.dp, top = 12.dp, end = 12.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
@@ -1465,7 +1480,7 @@ private fun TaskPill(
     val overdueDays = taskOverdueDays(task, todayEpochDay)
     val dueEpochDay = parseDueEpochDay(task.dueDate)
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
-    val fill = if (selected) Theme[colors][accentSoft] else Theme[colors][surface2]
+    val fill = if (selected) Theme[colors][accentSoft].compositeOver(Theme[colors][surface]) else Theme[colors][surface2]
     val borderColor = when {
         selected -> Theme[colors][accent]
         task.agentState == TaskContext.STATE_NEEDS_YOU -> Theme[colors][warning].copy(alpha = 0.6f)
@@ -1632,7 +1647,8 @@ private fun TaskDetailInspector(
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 6.dp),
+                .clearOfWindowControls()
+                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1663,13 +1679,8 @@ private fun TaskDetailInspector(
         ) {
             if (!task.description.isNullOrBlank()) {
                 val descShape = RoundedCornerShape(Theme[radii][radiusMedium])
-                Text(
-                    task.description.orEmpty(),
-                    style = Theme[typography][bodySmall],
-                    color = Theme[colors][textSecondary],
-                    maxLines = if (descExpanded) Int.MAX_VALUE else 3,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
+                Box(
+                    Modifier
                         .fillMaxWidth()
                         .clip(descShape)
                         .background(Theme[colors][surface])
@@ -1677,7 +1688,15 @@ private fun TaskDetailInspector(
                         .clickable { descExpanded = !descExpanded }
                         .handCursor()
                         .padding(horizontal = 10.dp, vertical = 7.dp),
-                )
+                ) {
+                    MarkdownText(
+                        text = task.description.orEmpty(),
+                        textStyle = Theme[typography][bodySmall].copy(color = Theme[colors][textSecondary]),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (descExpanded) Modifier else Modifier.heightIn(max = 72.dp).clipToBounds()),
+                    )
+                }
             }
 
             TaskMetadataPickers(

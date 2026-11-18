@@ -45,9 +45,12 @@
     <string name="sessions_filter_all">Todos</string>
     <string name="sessions_filter_needs_you">Te esperan</string>
     <string name="sessions_section_threads">Hilos</string>
+    <string name="sessions_section_dispatch">Dispatch</string>
     <string name="sessions_section_pinned">Fijados</string>
     <string name="sessions_show_threads">Mostrar hilos</string>
     <string name="sessions_hide_threads">Ocultar hilos</string>
+    <string name="sessions_show_dispatch">Mostrar chats de Dispatch</string>
+    <string name="sessions_hide_dispatch">Ocultar chats de Dispatch</string>
     <string name="sessions_show_pinned">Mostrar chats fijados</string>
     <string name="sessions_hide_pinned">Ocultar chats fijados</string>
     <string name="sessions_collapsed">Contraído</string>

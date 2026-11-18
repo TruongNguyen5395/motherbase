@@ -45,9 +45,12 @@
     <string name="sessions_filter_all">Alle</string>
     <string name="sessions_filter_needs_you">Wartet auf dich</string>
     <string name="sessions_section_threads">Threads</string>
+    <string name="sessions_section_dispatch">Dispatch</string>
     <string name="sessions_section_pinned">Angeheftet</string>
     <string name="sessions_show_threads">Threads zeigen</string>
     <string name="sessions_hide_threads">Threads ausblenden</string>
+    <string name="sessions_show_dispatch">Dispatch-Chats zeigen</string>
+    <string name="sessions_hide_dispatch">Dispatch-Chats ausblenden</string>
     <string name="sessions_show_pinned">Angeheftete Chats zeigen</string>
     <string name="sessions_hide_pinned">Angeheftete Chats ausblenden</string>
     <string name="sessions_collapsed">Eingeklappt</string>

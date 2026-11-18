@@ -14,7 +14,9 @@ import dev.hermeskotlin.core.rooms.RoomsApi
 import dev.hermeskotlin.core.rpc.RpcTransport
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.storage.InMemoryKeyValueStore
+import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
+import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import io.ktor.client.engine.mock.MockEngine
@@ -112,6 +114,7 @@ class TasksViewModelTest {
         val httpCalls: MutableList<RecordedHttp>,
         val socket: TasksRpcTransport,
         val connection: GatewayConnection,
+        val dispatchStore: DispatchSessionsStore,
     )
 
     private suspend fun TestScope.buildHarness(
@@ -123,6 +126,7 @@ class TasksViewModelTest {
                 else -> """{}"""
             }
         },
+        dispatchStore: DispatchSessionsStore = DispatchSessionsStore(InMemoryKeyValueStore()),
     ): Harness {
         val requests = mutableListOf<RecordedHttp>()
         val cfg = MockEngineConfig().apply {
@@ -153,8 +157,9 @@ class TasksViewModelTest {
             projectsApi = ProjectsApi(connection),
             botsApi = BotsApi(connection),
             connection = connection,
+            dispatchStore = dispatchStore,
         )
-        return Harness(vm, requests, socket, connection)
+        return Harness(vm, requests, socket, connection, dispatchStore)
     }
 
     private val boardJson = """
@@ -609,6 +614,307 @@ class TasksViewModelTest {
             withTimeout(5_000) { h.vm.state.first { !it.channelTurnRunning } }
         } finally {
             h.vm.selectTask(null)
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun createSessionChannelStampsManagedAndSyncsDispatchStore() = runTest(dispatcher) {
+        val capturedContextBodies = mutableListOf<String>()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    rec.path == "/api/plugins/directus-tasks/tasks/t2/context" -> {
+                        rec.body?.let { capturedContextBodies += it }
+                        HttpStatusCode.OK to """
+                            {
+                              "task": {
+                                "id":"t2",
+                                "title":"Rotate TLS certificates",
+                                "status":"in_progress",
+                                "priority":"medium",
+                                "context":{
+                                  "id":"ctx-2",
+                                  "task_id":"t2",
+                                  "project_id":"proj-1",
+                                  "agent_state":"idle",
+                                  "channels":[{"type":"session","id":"stored-m","label":"Session (@ops)","profile":"ops","managed":true}]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    rec.path == "/api/sessions/stored-m/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"stored-m","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.create" -> """{"session_id":"rt-m","stored_session_id":"stored-m"}"""
+                    "session.resume" -> """{"session_id":"rt-m","stored_session_id":"stored-m","running":false,"open_requests":[]}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            val events = mutableListOf<dev.hermeskotlin.core.tasks.SessionLifecycleChange>()
+            val collectJob = backgroundScope.launch {
+                h.dispatchStore.lifecycleChanges.collect { events += it }
+            }
+            h.vm.bind(gateway)
+            val loaded = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            val t2 = loaded.tasks.first { it.id == "t2" }
+
+            h.vm.openOrCreateSessionChannel(t2, "ops")
+
+            withTimeout(5_000) {
+                h.vm.state.first { st -> st.tasks.first { it.id == "t2" }.channels.any { it.id == "stored-m" } }
+            }
+            assertTrue(capturedContextBodies.single().contains(""""managed":true"""), capturedContextBodies.single())
+            val entry = h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("stored-m")
+            assertNotNull(entry)
+            assertTrue(entry.managed)
+            assertEquals("Rotate TLS certificates", entry.taskTitle)
+            assertTrue(events.any { "stored-m" in it.unarchivedIds })
+            collectJob.cancel()
+        } finally {
+            h.vm.selectTask(null)
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun markingDoneAutoArchivesManagedSessionsButSkipsSharedAndManualAndReopenUnarchives() = runTest(dispatcher) {
+        val lifecycleBoardJson = """
+            {
+              "configured": true,
+              "projects": [{"id":"proj-1","name":"Homelab","sort":1,"archived":false}],
+              "tasks": [
+                {
+                  "id":"t-close",
+                  "title":"Deploy storage service",
+                  "status":"in_progress",
+                  "priority":"medium",
+                  "context":{
+                    "id":"ctx-close",
+                    "task_id":"t-close",
+                    "project_id":"proj-1",
+                    "agent_state":"idle",
+                    "channels":[
+                      {"type":"session","id":"sess-owned","label":"Deploy thread","profile":"ops","managed":true},
+                      {"type":"session","id":"sess-legacy","label":"Session (@coder)","profile":"coder"},
+                      {"type":"session","id":"sess-shared","label":"Shared dispatch","profile":"ops","managed":true},
+                      {"type":"session","id":"sess-manual","label":"Manual side chat"}
+                    ]
+                  }
+                },
+                {
+                  "id":"t-keep",
+                  "title":"Ongoing sibling task",
+                  "status":"todo",
+                  "priority":"medium",
+                  "context":{
+                    "id":"ctx-keep",
+                    "task_id":"t-keep",
+                    "project_id":"proj-1",
+                    "agent_state":"idle",
+                    "channels":[
+                      {"type":"session","id":"sess-shared","label":"Shared dispatch","profile":"ops","managed":true}
+                    ]
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        var currentStatus = DirectusTask.STATUS_IN_PROGRESS
+        val sessionPatches = mutableListOf<Pair<String, String>>()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to lifecycleBoardJson
+                    rec.method == HttpMethod.Patch && rec.path == "/api/plugins/directus-tasks/tasks/t-close" -> {
+                        val next = Json.parseToJsonElement(rec.body.orEmpty()).jsonObject["status"]?.jsonPrimitive?.content ?: currentStatus
+                        currentStatus = next
+                        HttpStatusCode.OK to """
+                            {
+                              "task":{
+                                "id":"t-close",
+                                "title":"Deploy storage service",
+                                "status":"$currentStatus",
+                                "priority":"medium",
+                                "context":{
+                                  "id":"ctx-close",
+                                  "task_id":"t-close",
+                                  "project_id":"proj-1",
+                                  "agent_state":"idle",
+                                  "channels":[
+                                    {"type":"session","id":"sess-owned","label":"Deploy thread","profile":"ops","managed":true},
+                                    {"type":"session","id":"sess-legacy","label":"Session (@coder)","profile":"coder"},
+                                    {"type":"session","id":"sess-shared","label":"Shared dispatch","profile":"ops","managed":true},
+                                    {"type":"session","id":"sess-manual","label":"Manual side chat"}
+                                  ]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    rec.method == HttpMethod.Patch && rec.path.startsWith("/api/sessions/") -> {
+                        val sid = rec.path.removePrefix("/api/sessions/")
+                        sessionPatches += sid to rec.body.orEmpty()
+                        HttpStatusCode.OK to "{}"
+                    }
+                    rec.path.endsWith("/mutation-snapshot") ->
+                        HttpStatusCode.NotFound to """{"detail":"Not Found"}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+        )
+        try {
+            val lifecycleEvents = mutableListOf<dev.hermeskotlin.core.tasks.SessionLifecycleChange>()
+            val collector = backgroundScope.launch {
+                h.dispatchStore.lifecycleChanges.collect { lifecycleEvents += it }
+            }
+
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.size == 2 } }
+            h.vm.toggleIncludeDone()
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.includeDone } }
+
+            // 1. Transition to Done: archives owned + legacy Dispatch sessions, skips shared & manual.
+            h.vm.updateTaskStatus("t-close", DirectusTask.STATUS_DONE)
+            withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.tasks.firstOrNull { it.id == "t-close" }?.status == DirectusTask.STATUS_DONE &&
+                        lifecycleEvents.any { it.archivedIds.isNotEmpty() }
+                }
+            }
+            val archivedIds = lifecycleEvents.last().archivedIds
+            assertEquals(setOf("sess-owned", "sess-legacy"), archivedIds)
+            assertEquals(setOf("sess-owned", "sess-legacy"), sessionPatches.map { it.first }.toSet())
+            assertTrue(sessionPatches.all { """"archived":true""" in it.second })
+            assertEquals(DirectusTask.STATUS_DONE, h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-owned")?.taskStatus)
+
+            // 2. Reopen Done -> In progress: unarchives only auto-managed sessions (skips manual).
+            sessionPatches.clear()
+            h.vm.updateTaskStatus("t-close", DirectusTask.STATUS_IN_PROGRESS)
+            withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.tasks.firstOrNull { it.id == "t-close" }?.status == DirectusTask.STATUS_IN_PROGRESS &&
+                        lifecycleEvents.any { "sess-owned" in it.unarchivedIds }
+                }
+            }
+            assertEquals(setOf("sess-owned", "sess-legacy"), lifecycleEvents.last().unarchivedIds)
+            assertEquals(setOf("sess-owned", "sess-legacy"), sessionPatches.map { it.first }.toSet())
+            assertTrue(sessionPatches.all { """"archived":false""" in it.second })
+            assertEquals(DirectusTask.STATUS_IN_PROGRESS, h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-owned")?.taskStatus)
+            collector.cancel()
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun approvingStagedPlanWithDoneStatusAutoArchivesManagedSession() = runTest(dispatcher) {
+        val stagedDoneBoardJson = """
+            {
+              "configured": true,
+              "projects": [{"id":"proj-1","name":"Homelab","sort":1,"archived":false}],
+              "tasks": [
+                {
+                  "id":"t-stage",
+                  "title":"Verify backup snapshot",
+                  "status":"in_progress",
+                  "priority":"medium",
+                  "context":{
+                    "id":"ctx-stage",
+                    "task_id":"t-stage",
+                    "project_id":"proj-1",
+                    "agent_state":"needs_you",
+                    "channels":[{"type":"session","id":"sess-stage","label":"Session (@ops)","profile":"ops","managed":true}],
+                    "staged_plan":{
+                      "summary":"Confirm snapshot and close task",
+                      "params":[{"key":"status","label":"Status","options":["done","in_progress"],"default":"done"}],
+                      "actions":[{"label":"Close with note","instruction":"Record final checksum and mark done"}]
+                    }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val sessionPatches = mutableListOf<Pair<String, String>>()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to stagedDoneBoardJson
+                    rec.path == "/api/plugins/directus-tasks/tasks/t-stage/approve" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "task":{
+                                "id":"t-stage",
+                                "title":"Verify backup snapshot",
+                                "status":"done",
+                                "priority":"medium",
+                                "context":{
+                                  "id":"ctx-stage",
+                                  "task_id":"t-stage",
+                                  "project_id":"proj-1",
+                                  "agent_state":"running",
+                                  "channels":[{"type":"session","id":"sess-stage","label":"Session (@ops)","profile":"ops","managed":true}]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    rec.method == HttpMethod.Patch && rec.path == "/api/sessions/sess-stage" -> {
+                        sessionPatches += rec.path to rec.body.orEmpty()
+                        HttpStatusCode.OK to "{}"
+                    }
+                    rec.path == "/api/sessions/sess-stage/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-stage","messages":[]}"""
+                    rec.path.endsWith("/mutation-snapshot") ->
+                        HttpStatusCode.NotFound to """{"detail":"Not Found"}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.resume" -> """{"session_id":"rt-stage","stored_session_id":"sess-stage","running":false,"open_requests":[]}"""
+                    "prompt.submit" -> """{"accepted":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            val loaded = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            val task = loaded.tasks.single()
+            val option = ReplyInteraction.Option(id = "opt-0", label = "Close with note", instruction = "Record final checksum and mark done")
+
+            h.vm.approveStagedPlan(task, option, mapOf("status" to "done"), emptyList())
+
+            withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.tasks.none { it.id == "t-stage" } && sessionPatches.isNotEmpty()
+                }
+            }
+            assertEquals(1, sessionPatches.size)
+            assertTrue(""""archived":true""" in sessionPatches.single().second)
+        } finally {
             h.connection.stop()
         }
     }

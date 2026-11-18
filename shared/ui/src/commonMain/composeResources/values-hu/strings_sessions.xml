@@ -45,9 +45,12 @@
     <string name="sessions_filter_all">Mind</string>
     <string name="sessions_filter_needs_you">Rád vár</string>
     <string name="sessions_section_threads">Szálak</string>
+    <string name="sessions_section_dispatch">Dispatch</string>
     <string name="sessions_section_pinned">Kitűzött</string>
     <string name="sessions_show_threads">Szálak mutatása</string>
     <string name="sessions_hide_threads">Szálak elrejtése</string>
+    <string name="sessions_show_dispatch">Dispatch-csevegések mutatása</string>
+    <string name="sessions_hide_dispatch">Dispatch-csevegések elrejtése</string>
     <string name="sessions_show_pinned">Kitűzött csevegések mutatása</string>
     <string name="sessions_hide_pinned">Kitűzött csevegések elrejtése</string>
     <string name="sessions_collapsed">Összecsukva</string>

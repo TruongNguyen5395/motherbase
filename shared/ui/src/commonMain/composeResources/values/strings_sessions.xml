@@ -48,9 +48,12 @@
     <string name="sessions_filter_all">All</string>
     <string name="sessions_filter_needs_you">Needs you</string>
     <string name="sessions_section_threads">Threads</string>
+    <string name="sessions_section_dispatch">Dispatch</string>
     <string name="sessions_section_pinned">Pinned</string>
     <string name="sessions_show_threads">Show threads</string>
     <string name="sessions_hide_threads">Hide threads</string>
+    <string name="sessions_show_dispatch">Show dispatch chats</string>
+    <string name="sessions_hide_dispatch">Hide dispatch chats</string>
     <string name="sessions_show_pinned">Show pinned chats</string>
     <string name="sessions_hide_pinned">Hide pinned chats</string>
     <string name="sessions_collapsed">Collapsed</string>

@@ -188,6 +188,8 @@ data class AppSettings(
     val pinnedCollapsed: Boolean = false,
     /** The sidebar's Threads section is folded the same way: only threads that are open or have something going on show. */
     val threadsCollapsed: Boolean = false,
+    /** The sidebar's Dispatch section is folded the same way: only Dispatch chats that are open or active show. */
+    val dispatchCollapsed: Boolean = false,
     /** The sidebar shows its projects as one button that opens a list, not a row of chips that scrolls sideways. */
     val projectsAsDropdown: Boolean = false,
     /** The Chats / Bots switch at the top of the sidebar. Off, the sidebar always shows [sidebarView]. */

@@ -26,10 +26,13 @@ import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
+import dev.hermeskotlin.ui.LocalWindowControls
+import dev.hermeskotlin.ui.WindowControls
 import dev.hermeskotlin.ui.components.ProvideAppWords
 import dev.hermeskotlin.ui.preview.PageSamples
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class TasksPageUiTest {
@@ -146,7 +149,7 @@ class TasksPageUiTest {
             }
         }
         waitForIdle()
-        onNodeWithText("Tasks").assertIsDisplayed()
+        onNodeWithText("Dispatch").assertIsDisplayed()
         onNodeWithText("Needs attention").assertIsDisplayed()
         onAllNodesWithText("Backend API").let { nodes ->
             val count = nodes.fetchSemanticsNodes().size
@@ -372,5 +375,55 @@ class TasksPageUiTest {
         onNodeWithContentDescription("Send").performClick()
         waitForIdle()
         assertEquals("Restart php-fpm", sentMessage)
+    }
+
+    @Test
+    fun markdownDescriptionAndWindowsCaptionControlsAvoidance() = runDesktopComposeUiTest(width = 1080, height = 760) {
+        val task = DirectusTask(
+            id = "t-md",
+            title = "Summarize chat service",
+            description = "**Target goal:** /srv/docs/README.md",
+            status = DirectusTask.STATUS_TODO,
+            dueDate = "2026-11-14",
+            context = TaskContext(taskId = "t-md", projectId = "p1", agentState = TaskContext.STATE_IDLE),
+        )
+        val state = TasksUiState(
+            config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+            projects = listOf(DirectusProject(id = "p1", name = "Operations", sort = 1)),
+            tasks = listOf(task),
+            selectedTaskId = task.id,
+            todayEpochDay = epochDayFromCivilIso("2026-11-18")!!,
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(
+                    LocalDesktopLayout provides true,
+                    LocalWindowControls provides WindowControls(start = 0, end = 140, height = 40),
+                ) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithText("Dispatch").assertIsDisplayed()
+        waitUntil(timeoutMillis = 3_000) {
+            onAllNodesWithText("Target goal: /srv/docs/README.md", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        onNodeWithText("Target goal: /srv/docs/README.md", substring = true).assertIsDisplayed()
+
+        val closeBounds = onNodeWithContentDescription("Close details").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            closeBounds.right <= 1080f - 140f + 1f,
+            "Close details button (${closeBounds.right}) overlaps right window controls region (${1080f - 140f})",
+        )
     }
 }

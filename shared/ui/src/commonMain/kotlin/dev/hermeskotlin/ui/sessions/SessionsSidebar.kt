@@ -402,6 +402,7 @@ fun SessionsSidebar(
     val settings = settingsStore.settings.collectAsStateWithLifecycle().value
     val pinnedCollapsed = settings?.pinnedCollapsed ?: false
     val threadsCollapsed = settings?.threadsCollapsed ?: false
+    val dispatchCollapsed = settings?.dispatchCollapsed ?: false
     val projectsAsDropdown = settings?.projectsAsDropdown ?: false
     // Without its switch, the sidebar shows the view picked in Settings, whatever was last picked on this gateway.
     val modeSwitch = settings?.sidebarModeSwitch ?: true
@@ -529,6 +530,7 @@ fun SessionsSidebar(
     var accountOpen by remember { mutableStateOf(false) }
     var newRoomOpen by remember { mutableStateOf(false) }
     val threads by viewModel.threads.collectAsStateWithLifecycle()
+    val dispatchSessions by viewModel.dispatchSessions.collectAsStateWithLifecycle()
     var threadActions by remember { mutableStateOf<ThreadRow?>(null) }
     var renameThread by remember { mutableStateOf<ChatThread?>(null) }
     var freshThread by remember { mutableStateOf<ChatThread?>(null) }
@@ -590,11 +592,12 @@ fun SessionsSidebar(
     }
 
     val projectIndex = remember(state.projects) { ProjectIndex(state.projects) }
-    val sections = remember(threads, state.listed, state.sessions, state.project, projectIndex) {
-        threadSections(threads, state.listed, state.sessions, state.project, projectIndex)
+    val sections = remember(threads, state.listed, state.sessions, state.project, projectIndex, dispatchSessions) {
+        threadSections(threads, state.listed, state.sessions, state.project, projectIndex, dispatchSessions)
     }
     // The thread rows as the section shows them; moving one goes past its neighbour here, not in the whole list.
     val shownThreads = sections.threads.filter { attentionFilter.keeps(statuses[it.session.id]) }
+    val shownDispatch = sections.dispatch.filter { attentionFilter.keeps(statuses[it.session.id]) }
     val openHere: (SessionSummary) -> Unit = {
         // The viewport decides when the new messages have actually been read.
         val readUpTo = viewModel.readUpTo(it)
@@ -627,7 +630,9 @@ fun SessionsSidebar(
         }
     }
     // The desktop's keys for the list: search, and stepping through the chats in the order they're listed.
-    val listed = shownThreads.map { it.session } + sections.others.filter { attentionFilter.keeps(statuses[it.id]) }
+    val listed = shownThreads.map { it.session } +
+        shownDispatch.map { it.session } +
+        sections.others.filter { attentionFilter.keeps(statuses[it.id]) }
     val modals = LocalOpenModals.current
     ShortcutHandler { shortcut ->
         when (shortcut) {
@@ -843,7 +848,7 @@ fun SessionsSidebar(
                     // An empty box shows the recent chats, so Enter opens the first of them.
                     val typed = viewModel.query.text.toString().trim()
                     val shown = when {
-                        typed.isEmpty() -> sections.others
+                        typed.isEmpty() -> sections.dispatch.map { it.displaySession } + sections.others
                         state.searching || state.searchedFor != typed -> null
                         else -> state.searchResults
                     }
@@ -971,7 +976,7 @@ fun SessionsSidebar(
                     // the keyboard as often as not) never shows a blank list. A phone keeps the field alone.
                     searchOpen && searchResults == null && !isDesktop -> Unit
                     searchOpen && searchResults == null -> SessionList(
-                        sections.others, selectedId, click, rowActions,
+                        sections.dispatch.map { it.displaySession } + sections.others, selectedId, click, rowActions,
                         menu = rowMenu,
                         swipeRight = pinSwipe,
                         swipeLeft = archiveSwipe,
@@ -1013,6 +1018,9 @@ fun SessionsSidebar(
                             reorderingThreads = false
                             if (ids != shownThreads.map { it.thread.id }) viewModel.reorderThreads(ids)
                         },
+                        dispatch = shownDispatch,
+                        dispatchCollapsed = dispatchCollapsed,
+                        onToggleDispatch = { settingsStore.update { it.copy(dispatchCollapsed = !it.dispatchCollapsed) } },
                         // A filtered list stays short, so the end is always in sight: paging on would
                         // fetch the whole history. What's running or waiting is recent anyway. A project's
                         // chats come whole.
@@ -2107,7 +2115,7 @@ private fun String.initials(): String =
         .joinToString("") { it.first().uppercase() }
 
 @Composable
-private fun SessionList(
+internal fun SessionList(
     sessions: List<SessionSummary>,
     selectedId: String?,
     onOpen: (SessionSummary) -> Unit,
@@ -2139,6 +2147,12 @@ private fun SessionList(
     /** The Threads section shows drag handles; [onReordered] gets the order once the user is done. */
     reorderingThreads: Boolean = false,
     onReordered: (List<String>) -> Unit = {},
+    /** Directus Dispatch session rows, shown directly below Threads when present. */
+    dispatch: List<DispatchRow> = emptyList(),
+    /** The Dispatch section is folded to the chats [visibleDispatch] keeps. */
+    dispatchCollapsed: Boolean = false,
+    /** Folds or unfolds the Dispatch section; null, its label is plain text. */
+    onToggleDispatch: (() -> Unit)? = null,
     /** The Pinned section is folded to the chats [visiblePinned] keeps. */
     pinnedCollapsed: Boolean = false,
     /** Folds or unfolds the Pinned section; null, its label is plain text. */
@@ -2187,13 +2201,13 @@ private fun SessionList(
         // take it on to the composer.
         if (event.type == KeyEventType.Unknown) return@jump TypeAhead.isLetter(event)
         // The chats as listed: one in a folded section isn't there to go to.
-        val listed = sessions.filter { it.id in positions }.sortedBy { positions[it.id] }
+        val listed = (dispatch.map { it.displaySession } + sessions).filter { it.id in positions }.sortedBy { positions[it.id] }
         val target = typeAhead.next(event, listed) ?: return@jump false
         focusRow(target.id, 3)
         true
     }
     if (focus != null) {
-        val listed by rememberUpdatedState(sessions)
+        val listed by rememberUpdatedState(dispatch.map { it.displaySession } + sessions)
         DisposableEffect(focus) {
             val first = first@{
                 val top = listed.filter { it.id in positions }.minByOrNull { positions.getValue(it.id) } ?: return@first false
@@ -2209,28 +2223,28 @@ private fun SessionList(
         header()
         // Pinned chats stay on top, marked with a pin.
         val (pinned, rest) = sessions.partition { it.pinned }
-        val row: @Composable (SessionSummary) -> Unit = { session ->
-            val focus = remember(session.id) { FocusRequester() }
-            DisposableEffect(session.id) {
-                requesters[session.id] = focus
-                onDispose { if (requesters[session.id] === focus) requesters.remove(session.id) }
+        val row: @Composable (SessionSummary, SessionSummary, Boolean) -> Unit = { displaySession, actionSession, showProjectLabel ->
+            val focus = remember(actionSession.id) { FocusRequester() }
+            DisposableEffect(actionSession.id) {
+                requesters[actionSession.id] = focus
+                onDispose { if (requesters[actionSession.id] === focus) requesters.remove(actionSession.id) }
             }
             SwipeRow(
-                start = swipeRight(session),
-                end = swipeLeft(session),
+                start = swipeRight(actionSession),
+                end = swipeLeft(actionSession),
                 shape = RoundedCornerShape(Theme[radii][radiusMedium]),
             ) { swipeActions ->
                 SessionRow(
-                    session,
-                    selected = session.id == selectedId,
+                    displaySession,
+                    selected = actionSession.id == selectedId,
                     showSnippet = showSnippets,
-                    status = statuses[session.id],
-                    draft = session.id in drafts,
-                    // Pinned chats sit apart from their project's others, so their row names it.
-                    projectLabel = if (sectioned && session.pinned) projectIndex.labelFor(session, shownProject) else null,
-                    onClick = { onOpen(session) },
-                    onActions = { onActions(session) },
-                    menu = menu?.let { items -> { items(session) } },
+                    status = statuses[actionSession.id],
+                    draft = actionSession.id in drafts,
+                    // Pinned and Dispatch chats sit apart from their project's others, so their row names it.
+                    projectLabel = if (sectioned && showProjectLabel) projectIndex.labelFor(actionSession, shownProject) else null,
+                    onClick = { onOpen(actionSession) },
+                    onActions = { onActions(actionSession) },
+                    menu = menu?.let { items -> { items(actionSession) } },
                     modifier = swipeActions.focusRequester(focus),
                 )
             }
@@ -2278,6 +2292,27 @@ private fun SessionList(
                     }
                 }
             }
+            if (dispatch.isNotEmpty()) {
+                item(key = "label-dispatch", contentType = SectionLabelType) {
+                    if (onToggleDispatch != null) {
+                        SectionToggle(
+                            stringResource(Res.string.sessions_section_dispatch),
+                            dispatch.size,
+                            dispatchCollapsed,
+                            stringResource(Res.string.sessions_show_dispatch),
+                            stringResource(Res.string.sessions_hide_dispatch),
+                            onToggleDispatch,
+                        )
+                    } else {
+                        ListLabel(stringResource(Res.string.sessions_section_dispatch))
+                    }
+                }
+                items(
+                    visibleDispatch(dispatch, dispatchCollapsed, selectedId, statuses, drafts),
+                    key = { it.session.id },
+                    contentType = { SessionRowType },
+                ) { d -> row(d.displaySession, d.session, true) }
+            }
             if (pinned.isNotEmpty()) {
                 item(key = "label-pinned", contentType = SectionLabelType) {
                     if (onTogglePinned != null) {
@@ -2297,15 +2332,15 @@ private fun SessionList(
                     visiblePinned(pinned, pinnedCollapsed, selectedId, statuses, drafts),
                     key = { it.id },
                     contentType = { SessionRowType },
-                ) { row(it) }
+                ) { row(it, it, true) }
             }
             // The filter chips head the rest, with no label of their own.
             status()
-            items(rest, key = { it.id }, contentType = { SessionRowType }) { row(it) }
+            items(rest, key = { it.id }, contentType = { SessionRowType }) { row(it, it, false) }
             if (loadingMore) item(key = "loading-more") { ListSpinner() }
             return@rows
         }
-        items(pinned + rest, key = { it.id }, contentType = { SessionRowType }) { row(it) }
+        items(pinned + rest, key = { it.id }, contentType = { SessionRowType }) { row(it, it, false) }
         if (loadingMore) item(key = "loading-more") { ListSpinner() }
     }
     Box(Modifier.fillMaxSize()) {
@@ -2638,6 +2673,13 @@ private fun SectionToggle(title: String, count: Int, collapsed: Boolean, show: S
     }
 }
 
+private fun isActiveRow(
+    sessionId: String,
+    selectedId: String?,
+    statuses: Map<String, RowStatus>,
+    drafts: Set<String>,
+): Boolean = sessionId == selectedId || rowTone(statuses[sessionId], sessionId in drafts) != RowTone.Idle
+
 /**
  * The [pinned] chats the Pinned section lists: all of them while it is open; folded, only the open chat
  * and those with something going on (waiting on the user, running, an unread reply, a draft), so folding
@@ -2651,7 +2693,7 @@ internal fun visiblePinned(
     drafts: Set<String>,
 ): List<SessionSummary> =
     if (!collapsed) pinned
-    else pinned.filter { it.id == selectedId || rowTone(statuses[it.id], it.id in drafts) != RowTone.Idle }
+    else pinned.filter { isActiveRow(it.id, selectedId, statuses, drafts) }
 
 /** The [threads] the Threads section lists, folded the way [visiblePinned] folds Pinned. */
 internal fun visibleThreads(
@@ -2663,9 +2705,19 @@ internal fun visibleThreads(
 ): List<ThreadRow> =
     if (!collapsed) threads
     else threads.filter {
-        it.session.id == selectedId || it.thread.sessionId == selectedId ||
-            rowTone(statuses[it.session.id], it.session.id in drafts) != RowTone.Idle
+        it.thread.sessionId == selectedId || isActiveRow(it.session.id, selectedId, statuses, drafts)
     }
+
+/** The [dispatch] chats the Dispatch section lists, folded the way [visiblePinned] folds Pinned. */
+internal fun visibleDispatch(
+    dispatch: List<DispatchRow>,
+    collapsed: Boolean,
+    selectedId: String?,
+    statuses: Map<String, RowStatus>,
+    drafts: Set<String>,
+): List<DispatchRow> =
+    if (!collapsed) dispatch
+    else dispatch.filter { isActiveRow(it.session.id, selectedId, statuses, drafts) }
 
 /** Whether a row with [status] stays in the list under this filter. */
 internal fun AttentionFilter.keeps(status: RowStatus?): Boolean = when (this) {

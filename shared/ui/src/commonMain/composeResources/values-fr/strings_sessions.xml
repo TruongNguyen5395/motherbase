@@ -45,9 +45,12 @@
     <string name="sessions_filter_all">Toutes</string>
     <string name="sessions_filter_needs_you">Vous attendent</string>
     <string name="sessions_section_threads">Fils</string>
+    <string name="sessions_section_dispatch">Dispatch</string>
     <string name="sessions_section_pinned">Épinglées</string>
     <string name="sessions_show_threads">Afficher les fils</string>
     <string name="sessions_hide_threads">Masquer les fils</string>
+    <string name="sessions_show_dispatch">Afficher les conversations Dispatch</string>
+    <string name="sessions_hide_dispatch">Masquer les conversations Dispatch</string>
     <string name="sessions_show_pinned">Afficher les conversations épinglées</string>
     <string name="sessions_hide_pinned">Masquer les conversations épinglées</string>
     <string name="sessions_collapsed">Replié</string>

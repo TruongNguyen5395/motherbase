@@ -30,6 +30,9 @@ import dev.hermeskotlin.core.rpc.RpcException
 import dev.hermeskotlin.core.sessions.SessionListFilter
 import dev.hermeskotlin.core.sessions.SessionSummary
 import dev.hermeskotlin.core.sessions.SessionsApi
+import dev.hermeskotlin.core.tasks.DirectusTasksApi
+import dev.hermeskotlin.core.tasks.DispatchSessionEntry
+import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.threads.ChatThread
 import dev.hermeskotlin.core.threads.FreshChat
 import dev.hermeskotlin.core.threads.ThreadsRepository
@@ -170,6 +173,8 @@ class SessionsViewModel(
     private val cache: OfflineCache? = null,
     /** Makes a new project's folder on the gateway's machine. */
     private val files: MediaApi? = null,
+    private val directusTasksApi: DirectusTasksApi? = null,
+    private val dispatchStore: DispatchSessionsStore? = null,
 ) : ViewModel() {
 
     /** Stamps an archive's undo offer, so it runs out on time even if the screen goes and comes back. */
@@ -181,6 +186,14 @@ class SessionsViewModel(
     val threads: StateFlow<List<ChatThread>> = threadsRepo.threads
 
     private val bound = MutableStateFlow<Pair<GatewayUrl, String?>?>(null)
+
+    /** Active/recent Directus Dispatch sessions keyed by session id for the bound gateway. */
+    val dispatchSessions: StateFlow<Map<String, DispatchSessionEntry>> = bound
+        .flatMapLatest { scope ->
+            val url = scope?.first ?: return@flatMapLatest flowOf(emptyMap())
+            dispatchStore?.entriesFor(url) ?: flowOf(emptyMap())
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /** The gateway and profile the list (and its projects) are of; null before the first. */
     val listedFor: StateFlow<Pair<GatewayUrl, String?>?> = bound.asStateFlow()
@@ -271,6 +284,7 @@ class SessionsViewModel(
         observeServerChanges()
         observeSearch()
         markCaughtUpSeen()
+        observeDispatchChanges()
     }
 
     /**
@@ -309,6 +323,7 @@ class SessionsViewModel(
         selectAfterLoad = null
         projectChangesMissing = false
         _binding.value = ListBinding(gateway, profile)
+        warmAndSyncDispatch(gateway.gatewayUrl, force = false)
         load(refresh = false)
         if (newGateway) {
             _user.value = null
@@ -778,7 +793,10 @@ class SessionsViewModel(
         loadJob?.cancel()
         _state.update { (if (refresh) it.copy(refreshing = true) else it.copy(loading = it.sessions.isEmpty())).copy(loadingMore = false) }
         // Pull to refresh asks at once; a change from the gateway waits its turn.
-        if (filter == SessionListFilter.Recent) loadProjects(force = refresh)
+        if (filter == SessionListFilter.Recent) {
+            loadProjects(force = refresh)
+            warmAndSyncDispatch(url, force = refresh)
+        }
         loadJob = viewModelScope.launch {
             // Nothing showing yet: the list as last read, while the gateway is asked.
             val saved = if (_state.value.sessions.isEmpty()) cache?.savedList(url, profile, filter) else null
@@ -885,6 +903,41 @@ class SessionsViewModel(
                         }
                     }
                 }
+        }
+    }
+
+    private fun warmAndSyncDispatch(url: GatewayUrl, force: Boolean) {
+        val store = dispatchStore ?: return
+        viewModelScope.launch {
+            store.warm(url)
+            val api = directusTasksApi ?: return@launch
+            store.refreshIfNeeded(url, api, force = force)
+        }
+    }
+
+    private fun observeDispatchChanges() {
+        val store = dispatchStore ?: return
+        viewModelScope.launch {
+            store.lifecycleChanges.collect { change ->
+                val currentUrl = gateway?.gatewayUrl ?: return@collect
+                if (change.gateway != currentUrl) return@collect
+                val archivedIds = change.archivedIds
+                if (archivedIds.isNotEmpty() && _state.value.filter == SessionListFilter.Recent) {
+                    _state.update { cur ->
+                        cur.copy(
+                            sessions = cur.sessions.filterNot { it.id in archivedIds },
+                            searchResults = cur.searchResults?.filterNot { it.id in archivedIds },
+                            projectSessions = cur.projectSessions?.filterNot { it.id in archivedIds },
+                        )
+                    }
+                    cache?.saveList(currentUrl, profile, SessionListFilter.Recent, _state.value.sessions)
+                }
+                if (change.unarchivedIds.isNotEmpty() ||
+                    (archivedIds.isNotEmpty() && _state.value.filter == SessionListFilter.Archived)
+                ) {
+                    load(refresh = false)
+                }
+            }
         }
     }
 

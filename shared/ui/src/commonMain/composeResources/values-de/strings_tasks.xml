@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="tasks_title">Aufgaben</string>
+    <string name="tasks_title">Dispatch</string>
     <string name="tasks_subtitle">Directus Command Board</string>
     <string name="tasks_priority_toggle">Handlungsbedarf</string>
     <string name="tasks_priority_section">Handlungsbedarf (%1$d)</string>

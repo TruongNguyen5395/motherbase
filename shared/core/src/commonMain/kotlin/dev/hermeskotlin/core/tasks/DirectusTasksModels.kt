@@ -74,9 +74,18 @@ data class TaskChannel(
     val id: String,
     val label: String = "",
     val profile: String? = null,
+    /** True when Dispatch created and owns this channel's session lifecycle (auto-archive/unarchive). */
+    val managed: Boolean = false,
 ) {
     val isRoom: Boolean get() = type == TYPE_ROOM
     val isSession: Boolean get() = type == TYPE_SESSION
+
+    /**
+     * Eligible for automatic archive on Done and unarchive on reopen: explicitly [managed] sessions plus
+     * legacy Dispatch-created `"Session (@...)"` channels created before the flag existed. Manually linked
+     * custom-labeled chats remain untouched.
+     */
+    val isAutoManagedSession: Boolean get() = isSession && (managed || label.startsWith("Session (@"))
 
     companion object {
         const val TYPE_ROOM = "room"

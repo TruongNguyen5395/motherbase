@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="tasks_title">任务</string>
+    <string name="tasks_title">Dispatch</string>
     <string name="tasks_subtitle">Directus 指挥看板</string>
     <string name="tasks_priority_toggle">需要关注</string>
     <string name="tasks_priority_section">需要关注 (%1$d)</string>
