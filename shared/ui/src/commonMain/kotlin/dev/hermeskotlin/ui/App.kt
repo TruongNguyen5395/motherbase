@@ -771,6 +771,7 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                 onEditBot = { bot -> editing = BotEditing(bot) },
                 onBotDeleted = { bot -> if (route.target.bot?.name == bot.name || route.target.profile == bot.name) app.newChat() },
                 onOpenRoom = { room ->
+                    mainPage.close()
                     rooms.open(room)
                     closeDrawer()
                 },
@@ -795,6 +796,11 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                 },
                 onOpenReportChat = { chat ->
                     if (app.openReportChat(chat, launch = profileRoster?.takeIf { it.launchKnown }?.launch)) closeDrawerToChat()
+                },
+                onOpenTaskSession = { sessionId, title, targetProfile ->
+                    mainPage.close()
+                    app.openSession(sessionId, title, profile = targetProfile)
+                    closeDrawerToChat()
                 },
                 mainPage = mainPage,
             )

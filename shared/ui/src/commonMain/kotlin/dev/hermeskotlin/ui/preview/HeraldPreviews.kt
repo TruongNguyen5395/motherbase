@@ -58,6 +58,8 @@ import dev.hermeskotlin.ui.chat.FileLoad
 import dev.hermeskotlin.ui.chat.FileViewerPage
 import dev.hermeskotlin.ui.chat.ProcessesSheetView
 import dev.hermeskotlin.ui.chat.SessionControlSheetView
+import dev.hermeskotlin.ui.tasks.TasksBoardActions
+import dev.hermeskotlin.ui.tasks.TasksBoardContent
 import dev.hermeskotlin.ui.chat.UsageSheetView
 import dev.hermeskotlin.ui.sessions.CapabilitiesActions
 import dev.hermeskotlin.ui.sessions.CapabilitiesView
@@ -181,6 +183,7 @@ enum class PreviewScene(val label: String) {
     Assistant("The assistant, called up over another app"),
     AssistantAnswer("The assistant, after a question about the screen"),
     Scheduled("Scheduled jobs"),
+    Tasks("Directus Tasks command board"),
     Inbox("The Inbox's folders"),
     InboxFolder("A folder in the Inbox"),
     InboxReport("A report read in full"),
@@ -509,6 +512,15 @@ fun HeraldPreview(scene: PreviewScene, dark: Boolean = true, accent: String = DE
                 }
                 PreviewScene.Plugins -> OpenSidebar {
                     SidebarPage { PluginsView(PluginsUiState(plugins = PageSamples.plugins), onBack = {}, onOpenPlugin = {}, onRetry = {}) }
+                }
+                PreviewScene.Tasks -> OpenSidebar {
+                    SidebarPage {
+                        TasksBoardContent(
+                            state = PageSamples.tasks(selectedTaskId = null),
+                            actions = TasksBoardActions(),
+                            onBack = {},
+                        )
+                    }
                 }
                 PreviewScene.Scheduled, PreviewScene.ScheduledJob -> OpenSidebar {
                     SidebarPage {
@@ -946,6 +958,10 @@ private fun ConnectFailedPreview() = HeraldPreview(PreviewScene.ConnectFailed)
 @Preview(widthDp = 412, heightDp = 892)
 @Composable
 private fun SignInPreview() = HeraldPreview(PreviewScene.SignIn)
+
+@Preview(widthDp = 412, heightDp = 892)
+@Composable
+private fun TasksPreview() = HeraldPreview(PreviewScene.Tasks)
 
 /** The welcome screen after a test of [address] came back with [result]. */
 @Composable

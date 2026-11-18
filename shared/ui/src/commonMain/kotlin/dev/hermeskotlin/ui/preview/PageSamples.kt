@@ -67,6 +67,16 @@ import dev.hermeskotlin.core.journey.JourneyGraph
 import dev.hermeskotlin.core.journey.JourneyNode
 import dev.hermeskotlin.ui.journey.JourneyState
 import dev.hermeskotlin.core.plugins.PluginTab
+import dev.hermeskotlin.core.tasks.DirectusConfigStatus
+import dev.hermeskotlin.core.tasks.DirectusProject
+import dev.hermeskotlin.core.tasks.DirectusTask
+import dev.hermeskotlin.core.tasks.PlanAction
+import dev.hermeskotlin.core.tasks.PlanParam
+import dev.hermeskotlin.core.tasks.StagedPlan
+import dev.hermeskotlin.core.tasks.TaskChannel
+import dev.hermeskotlin.core.tasks.TaskContext
+import dev.hermeskotlin.ui.tasks.ChannelChatLine
+import dev.hermeskotlin.ui.tasks.TasksUiState
 
 /** Made-up data for the sidebar pages and the chat's sheets, in the same home-server story as [ChatSamples]. */
 internal object PageSamples {
@@ -505,4 +515,68 @@ internal object PageSamples {
 
     /** Picked lately, newest first. */
     val recentModels = listOf("openai-codex/gpt-6.1-sol", "openrouter/deepseek/deepseek-v4", "anthropic/claude-opus-5-5")
+
+    /** Directus Command Board sample with priority strip, project bento boxes, Room+Session channels, and staged action card. */
+    fun tasks(selectedTaskId: String? = "task-1"): TasksUiState {
+        val projects = listOf(
+            DirectusProject(id = "proj-homelab", name = "Homelab", workspaceCwd = "/srv/homelab", defaultBots = listOf("ops"), color = "#3B82F6", sort = 1),
+            DirectusProject(id = "proj-api", name = "Backend API", workspaceCwd = "/srv/api", defaultBots = listOf("dev", "reviewer"), color = "#10B981", sort = 2),
+        )
+        val plan = StagedPlan(
+            summary = "Snapshots aged out on two nodes; prune and verify checksums.",
+            question = "Pick retention window and agent to run maintenance:",
+            params = listOf(
+                PlanParam(key = "retention", label = "Keep", options = listOf("7 days", "14 days", "30 days"), default = "14 days"),
+                PlanParam(key = "mode", label = "Mode", options = listOf("Dry run", "Prune & verify"), default = "Prune & verify"),
+                PlanParam(key = "bot", label = "Agent", options = listOf("@ops", "@reviewer"), default = "@ops"),
+            ),
+            actions = listOf(
+                PlanAction(label = "Run maintenance", description = "Execute cleanup and log result to Directus", instruction = "Run snapshot pruning"),
+                PlanAction(label = "Inspect nodes first", description = "Collect disk report only", instruction = "Inspect disk usage before pruning"),
+            ),
+        )
+        val tasks = listOf(
+            DirectusTask(
+                id = "task-1",
+                title = "Prune aged backup snapshots",
+                description = "Two storage nodes are above 85% utilization.",
+                status = DirectusTask.STATUS_TODO,
+                priority = "high",
+                context = TaskContext(
+                    taskId = "task-1",
+                    projectId = "proj-homelab",
+                    assignedBots = listOf("ops", "reviewer"),
+                    channels = listOf(
+                        TaskChannel(type = TaskChannel.TYPE_ROOM, id = "task-task-1", label = "Room (@ops, @reviewer)"),
+                        TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-ops-1", label = "Session (@ops)", profile = "ops"),
+                    ),
+                    agentState = TaskContext.STATE_NEEDS_YOU,
+                    stagedPlan = plan,
+                ),
+            ),
+            DirectusTask(
+                id = "task-2",
+                title = "Audit gateway rate-limit middleware",
+                status = DirectusTask.STATUS_IN_PROGRESS,
+                priority = "medium",
+                context = TaskContext(
+                    taskId = "task-2",
+                    projectId = "proj-api",
+                    assignedBots = listOf("dev"),
+                    agentState = TaskContext.STATE_RUNNING,
+                ),
+            ),
+        )
+        return TasksUiState(
+            config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true, tokenPreview = "dir_••••1234", source = "file"),
+            projects = projects,
+            tasks = tasks,
+            bots = BotSamples.roster.bots,
+            selectedTaskId = selectedTaskId,
+            channelMessages = listOf(
+                ChannelChatLine("l1", "ops", "Scanned backup volumes; 18 snapshots eligible for pruning.", fromUser = false, profile = "ops"),
+                ChannelChatLine("l2", null, "@ops Hold 14 days by default unless critical.", fromUser = true),
+            ),
+        )
+    }
 }

@@ -23,6 +23,7 @@ import dev.hermeskotlin.ui.sessions.SessionsViewModel
 import dev.hermeskotlin.ui.settings.PhoneToolsViewModel
 import dev.hermeskotlin.ui.settings.SettingsViewModel
 import dev.hermeskotlin.ui.signin.SignInViewModel
+import dev.hermeskotlin.ui.tasks.TasksViewModel
 import dev.hermeskotlin.core.phone.NoWatchedPlaces
 import dev.hermeskotlin.core.phone.WatchedPlaces
 import org.koin.core.module.dsl.viewModel
@@ -46,6 +47,7 @@ val uiModule = module {
     viewModelOf(::ConfigViewModel)
     viewModelOf(::PluginsViewModel)
     viewModelOf(::InsightsViewModel)
+    viewModelOf(::TasksViewModel)
     // Spelled out: past 22 parameters viewModelOf has no overload, and the last two are optional.
     viewModel {
         ChatViewModel(

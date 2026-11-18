@@ -173,6 +173,7 @@ enum class SidebarPage(val label: StringResource) {
     Chats(Res.string.app_page_chats),
     Bots(Res.string.app_page_bots),
     Inbox(Res.string.app_page_inbox),
+    Tasks(Res.string.app_page_tasks),
     Scheduled(Res.string.app_page_scheduled),
     Archived(Res.string.app_page_archived),
     Capabilities(Res.string.app_page_capabilities),

@@ -23,6 +23,7 @@
     <string name="app_page_chats">Chats</string>
     <string name="app_page_bots">Bots</string>
     <string name="app_page_inbox">Inbox</string>
+    <string name="app_page_tasks">Tasks</string>
     <string name="app_page_scheduled">Scheduled</string>
     <string name="app_page_archived">Archived chats</string>
     <string name="app_page_capabilities">Capabilities</string>

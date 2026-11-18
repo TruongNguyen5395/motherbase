@@ -21,6 +21,7 @@ import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.History
 import com.composables.icons.lucide.Inbox
 import com.composables.icons.lucide.Keyboard
+import com.composables.icons.lucide.ListTodo
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.MessagesSquare
@@ -145,6 +146,7 @@ private val PAGE_ICONS = listOf(
     SidebarPage.Chats to Lucide.MessagesSquare,
     SidebarPage.Bots to Lucide.Bot,
     SidebarPage.Inbox to Lucide.Inbox,
+    SidebarPage.Tasks to Lucide.ListTodo,
     SidebarPage.Scheduled to Lucide.CalendarClock,
     SidebarPage.Archived to Lucide.Archive,
     SidebarPage.Capabilities to Lucide.Wrench,

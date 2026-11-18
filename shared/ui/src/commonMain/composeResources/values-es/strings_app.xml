@@ -18,6 +18,7 @@
     <string name="app_page_chats">Chats</string>
     <string name="app_page_bots">Bots</string>
     <string name="app_page_inbox">Bandeja de entrada</string>
+    <string name="app_page_tasks">Tareas</string>
     <string name="app_page_scheduled">Programados</string>
     <string name="app_page_archived">Chats archivados</string>
     <string name="app_page_capabilities">Capacidades</string>

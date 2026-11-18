@@ -27,6 +27,8 @@ import com.composables.icons.lucide.ChevronsUpDown
 import com.composables.icons.lucide.Folder
 import com.composables.icons.lucide.Folders
 import com.composables.icons.lucide.House
+import com.composables.icons.lucide.ListTodo
+import dev.hermeskotlin.ui.tasks.TasksPage
 import com.composeunstyled.AnchorAlignment
 import dev.hermeskotlin.designsystem.components.DropdownMenu
 import dev.hermeskotlin.designsystem.components.MenuChoice
@@ -360,6 +362,8 @@ fun SessionsSidebar(
     onInboxLinkTaken: (InboxLink) -> Unit = {},
     /** Opens a chat about an Inbox report: the run's own, or a new one in its profile with the report attached. */
     onOpenReportChat: (ReportChat) -> Unit = {},
+    /** Opens a session linked from the Directus Tasks Command Board in the chat pane. */
+    onOpenTaskSession: (sessionId: String, title: String, profile: String?) -> Unit = { _, _, _ -> },
     /** Where the pages show beside the docked sidebar on a desktop; null keeps them in the sidebar. */
     mainPage: MainPageSlot? = null,
     viewModel: SessionsViewModel = koinViewModel(),
@@ -419,6 +423,7 @@ fun SessionsSidebar(
     val searchList = remember { ListFocus() }
     var scheduledOpen by remember { mutableStateOf(false) }
     var inboxOpen by remember { mutableStateOf(false) }
+    var tasksOpen by remember { mutableStateOf(false) }
     // A tapped Inbox notification, passed on by the app once it opened the drawer: the Inbox, at that run. The
     // page takes the key and opens the run itself.
     var inboxOpenKey by remember { mutableStateOf<String?>(null) }
@@ -535,6 +540,7 @@ fun SessionsSidebar(
     fun closePages() {
         scheduledOpen = false
         inboxOpen = false
+        tasksOpen = false
         if (routinesOf != null) {
             routinesOf = null
             // What was fixed there shows on the roster at once.
@@ -545,7 +551,7 @@ fun SessionsSidebar(
         pluginsOpen = false
         insightsOpen = false
     }
-    val pageOpen = scheduledOpen || inboxOpen || routinesOf != null || capabilitiesOpen || configOpen || pluginsOpen || insightsOpen
+    val pageOpen = scheduledOpen || inboxOpen || tasksOpen || routinesOf != null || capabilitiesOpen || configOpen || pluginsOpen || insightsOpen
 
     // Back steps out of search or the Scheduled / Archived pages before it closes the drawer. On the desktop the
     // sidebar stays put and a filter is picked like a tab, so Escape leaves it for the chat (stopping a reply).
@@ -638,6 +644,7 @@ fun SessionsSidebar(
                 if (searchOpen) closeSearch()
                 scheduledOpen = false
                 inboxOpen = false
+                tasksOpen = false
                 routinesOf = null
                 capabilitiesOpen = false
                 configOpen = false
@@ -648,6 +655,7 @@ fun SessionsSidebar(
                     SidebarPage.Chats -> pickMode(SidebarMode.Chats)
                     SidebarPage.Bots -> pickMode(SidebarMode.Bots)
                     SidebarPage.Inbox -> inboxOpen = true
+                    SidebarPage.Tasks -> tasksOpen = true
                     SidebarPage.Scheduled -> scheduledOpen = true
                     SidebarPage.Archived -> {
                         pickMode(SidebarMode.Chats)
@@ -684,6 +692,7 @@ fun SessionsSidebar(
 
     val pageKey = when {
         inboxOpen -> "inbox"
+        tasksOpen -> "tasks"
         scheduledOpen -> "scheduled"
         routinesOf != null -> "routines:${routinesOf?.name}"
         capabilitiesOpen -> "capabilities"
@@ -705,6 +714,20 @@ fun SessionsSidebar(
                 openKey = inboxOpenKey,
                 onOpenedKey = { inboxOpenKey = null },
                 onOpenChat = onOpenReportChat,
+            )
+            tasksOpen -> TasksPage(
+                gateway = gateway,
+                visible = pageVisible,
+                onBack = { tasksOpen = false },
+                onSessionExpired = onSessionExpired,
+                onOpenSession = { sessionId, title, targetProfile ->
+                    closePages()
+                    onOpenTaskSession(sessionId, title, targetProfile)
+                },
+                onOpenRoom = { room ->
+                    closePages()
+                    onOpenRoom(room)
+                },
             )
             scheduledOpen -> ScheduledPage(
                 gateway = gateway,
@@ -766,6 +789,10 @@ fun SessionsSidebar(
                         closePages()
                         inboxOpen = true
                     }
+                    SidebarPage.Tasks -> NavLink(icon, label, selected = pageInMain && tasksOpen) {
+                        closePages()
+                        tasksOpen = true
+                    }
                     SidebarPage.Scheduled -> NavLink(icon, label, selected = pageInMain && scheduledOpen) { closePages(); scheduledOpen = true }
                     SidebarPage.Insights -> NavLink(icon, label, selected = pageInMain && insightsOpen) { closePages(); insightsOpen = true }
                     SidebarPage.Capabilities -> NavLink(icon, label, selected = pageInMain && capabilitiesOpen) { closePages(); capabilitiesOpen = true }
@@ -786,7 +813,7 @@ fun SessionsSidebar(
         DisposableEffect(pageKey) {
             val key = pageKey
             // Scheduled and Config lay a list beside what's open in it, so they take a wider page.
-            val wide = key == "scheduled" || key == "config" || key?.startsWith("routines:") == true
+            val wide = key == "scheduled" || key == "config" || key == "tasks" || key?.startsWith("routines:") == true
             if (key != null) mainPage.show(key, { latest() }, close = { closePages() }, wide = wide)
             onDispose { if (key != null) mainPage.clear(key) }
         }
@@ -1742,6 +1769,7 @@ internal class NavLink(
 /** The sidebar's pages that have a button above the chats, in the order they're shown. */
 internal val NAV_PAGES = listOf(
     SidebarPage.Inbox,
+    SidebarPage.Tasks,
     SidebarPage.Scheduled,
     SidebarPage.Insights,
     SidebarPage.Capabilities,
@@ -1764,6 +1792,7 @@ internal fun navIcon(page: SidebarPage): ImageVector = when (page) {
     SidebarPage.Chats -> Lucide.MessagesSquare
     SidebarPage.Bots -> Lucide.Bot
     SidebarPage.Inbox -> Lucide.Inbox
+    SidebarPage.Tasks -> Lucide.ListTodo
     SidebarPage.Scheduled -> Lucide.CalendarClock
     SidebarPage.Insights -> Lucide.ChartColumn
     SidebarPage.Capabilities -> Lucide.Blocks
@@ -1777,6 +1806,7 @@ internal fun navLabel(page: SidebarPage): StringResource = when (page) {
     SidebarPage.Chats -> Res.string.sessions_mode_chats
     SidebarPage.Bots -> Res.string.sessions_mode_bots
     SidebarPage.Inbox -> Res.string.sessions_nav_inbox
+    SidebarPage.Tasks -> Res.string.tasks_title
     SidebarPage.Scheduled -> Res.string.sessions_nav_scheduled
     SidebarPage.Insights -> Res.string.sessions_nav_insights
     SidebarPage.Capabilities -> Res.string.sessions_nav_capabilities
