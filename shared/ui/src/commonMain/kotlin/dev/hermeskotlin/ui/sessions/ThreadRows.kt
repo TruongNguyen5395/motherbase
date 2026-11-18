@@ -57,7 +57,7 @@ internal fun threadSections(
     val others = ArrayList<SessionSummary>(afterThreads.size)
     for (session in afterThreads) {
         val entry = dispatchSessions[session.id]
-            ?: session.lineageIds.firstNotNullOfOrNull { dispatchSessions[it] }
+            ?: session.lineageIds?.firstNotNullOfOrNull { dispatchSessions[it] }
         if (entry != null) dispatch += DispatchRow(entry, session)
         else others += session
     }
