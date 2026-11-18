@@ -1389,7 +1389,7 @@ private fun ProjectBentoCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    stringResource(if (expanded) Res.string.tasks_show_fewer_tasks else Res.string.tasks_show_more_tasks, hiddenCount),
+                    if (expanded) stringResource(Res.string.tasks_show_fewer_tasks) else stringResource(Res.string.tasks_show_more_tasks, hiddenCount),
                     style = Theme[typography][labelStyle],
                     color = Theme[colors][textSecondary],
                     modifier = Modifier

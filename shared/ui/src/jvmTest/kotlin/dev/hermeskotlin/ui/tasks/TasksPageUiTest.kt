@@ -202,16 +202,17 @@ class TasksPageUiTest {
 
         onNodeWithText("NEEDS ATTENTION (2)").assertIsDisplayed()
         onNodeWithText("Blocked or overdue (2)").assertIsDisplayed()
-        onNodeWithText("+2 more").assertIsDisplayed().performClick()
+        onNodeWithText("+2 more").performScrollTo().assertIsDisplayed()
+        onNodeWithText("+2 more").performClick()
         waitForIdle()
-        onNodeWithText("Show fewer").assertIsDisplayed()
+        onNodeWithText("Show fewer").performScrollTo().assertIsDisplayed()
 
-        onNodeWithText("Focus").performClick()
+        onNodeWithText("Focus").performScrollTo().performClick()
         waitForIdle()
         onNodeWithText("By workstream").assertIsDisplayed()
         onNodeWithText("By status").performClick()
         waitForIdle()
-        onNodeWithText("Blocked / Overdue").assertIsDisplayed()
+        onNodeWithText("Blocked / Overdue").performScrollTo().assertIsDisplayed()
     }
 
     @Test
