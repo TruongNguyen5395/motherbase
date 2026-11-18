@@ -34,10 +34,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -90,22 +92,29 @@ class TasksViewModelTest {
 
     private data class RecordedHttp(val method: HttpMethod, val path: String, val body: String?)
 
-    private suspend fun buildHarness(
+    private data class Harness(
+        val vm: TasksViewModel,
+        val httpCalls: MutableList<RecordedHttp>,
+        val socket: TasksRpcTransport,
+        val connection: GatewayConnection,
+    )
+
+    private suspend fun TestScope.buildHarness(
         httpRespond: (RecordedHttp) -> Pair<HttpStatusCode, String>,
         rpcAnswer: suspend (String, JsonObject) -> String = { method, _ ->
             when (method) {
                 "profiles.list" -> """{"profiles":[]}"""
-                "projects.list" -> """{"projects":[]}"""
+                "projects.tree", "projects.list" -> """{"projects":[]}"""
                 else -> """{}"""
             }
         },
-    ): Triple<TasksViewModel, MutableList<RecordedHttp>, TasksRpcTransport> {
+    ): Harness {
         val requests = mutableListOf<RecordedHttp>()
         val cfg = MockEngineConfig().apply {
             dispatcher = this@TasksViewModelTest.dispatcher
             addHandler { req: HttpRequestData ->
                 val path = req.url.encodedPath
-                if (path == "/api/ws-ticket") {
+                if (path == "/api/auth/ws-ticket") {
                     respond("""{"ticket":"T","ttl_seconds":30}""", HttpStatusCode.OK, jsonHeaders)
                 } else {
                     val bodyText = (req.body as? TextContent)?.text
@@ -118,10 +127,10 @@ class TasksViewModelTest {
         }
         val cookies = PersistentCookiesStorage(InMemoryKeyValueStore())
         val client = createHttpClient(MockEngine(cfg), cookies)
-        val socket = TasksRpcTransport(CoroutineScope(dispatcher), rpcAnswer)
-        val connection = GatewayConnection(AuthApi(client, cookies), { _, _ -> socket }, CoroutineScope(dispatcher))
+        val socket = TasksRpcTransport(backgroundScope, rpcAnswer)
+        val connection = GatewayConnection(AuthApi(client, cookies), { _, _ -> socket }, backgroundScope)
         connection.start(gateway.gatewayUrl)
-        connection.state.first { it is ConnectionState.Connected }
+        withTimeout(5_000) { connection.state.first { it is ConnectionState.Connected } }
         val vm = TasksViewModel(
             directusApi = DirectusTasksApi(client),
             sessionsApi = SessionsApi(client),
@@ -130,7 +139,7 @@ class TasksViewModelTest {
             botsApi = BotsApi(connection),
             connection = connection,
         )
-        return Triple(vm, requests, socket)
+        return Harness(vm, requests, socket, connection)
     }
 
     private val boardJson = """
@@ -176,7 +185,7 @@ class TasksViewModelTest {
 
     @Test
     fun loadsBoardDerivesPriorityTasksAndTogglesPriorityStrip() = runTest(dispatcher) {
-        val (vm, _, _) = buildHarness(
+        val h = buildHarness(
             httpRespond = { rec ->
                 when (rec.path) {
                     "/api/plugins/directus-tasks/config" ->
@@ -187,20 +196,24 @@ class TasksViewModelTest {
                 }
             },
         )
-        vm.bind(gateway)
-        val loaded = vm.state.first { !it.loading && it.tasks.isNotEmpty() }
-        assertEquals(2, loaded.tasks.size)
-        assertEquals(1, loaded.priorityTasks.size)
-        assertEquals("t1", loaded.priorityTasks.single().id)
-        assertTrue(loaded.showPriorityStrip)
+        try {
+            h.vm.bind(gateway)
+            val loaded = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            assertEquals(2, loaded.tasks.size)
+            assertEquals(1, loaded.priorityTasks.size)
+            assertEquals("t1", loaded.priorityTasks.single().id)
+            assertTrue(loaded.showPriorityStrip)
 
-        vm.togglePriorityStrip(false)
-        assertFalse(vm.state.value.showPriorityStrip)
+            h.vm.togglePriorityStrip(false)
+            assertFalse(h.vm.state.value.showPriorityStrip)
+        } finally {
+            h.connection.stop()
+        }
     }
 
     @Test
     fun selectingTaskSwitchesBetweenRoomAndSessionChannels() = runTest(dispatcher) {
-        val (vm, _, _) = buildHarness(
+        val h = buildHarness(
             httpRespond = { rec ->
                 when (rec.path) {
                     "/api/plugins/directus-tasks/config" ->
@@ -212,39 +225,45 @@ class TasksViewModelTest {
                     else -> HttpStatusCode.NotFound to "{}"
                 }
             },
-            rpcAnswer = { method, params ->
+            rpcAnswer = { method, _ ->
                 when (method) {
                     "profiles.list" -> """{"profiles":[]}"""
-                    "projects.list" -> """{"projects":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
                     "groups.state" -> """{"room":{"room_id":"task-t1","name":"Prune backup snapshots","members":[],"latest_seq":1}}"""
                     "groups.log" -> """{"events":[{"room_id":"task-t1","seq":1,"event_id":"ev-1","kind":"message.user","actor":{"kind":"user","id":"u"},"payload":{"text":"Check disk usage"}}],"cursor":1,"latest_seq":1,"has_more":false}"""
                     else -> """{}"""
                 }
             },
         )
-        vm.bind(gateway)
-        vm.state.first { !it.loading && it.tasks.isNotEmpty() }
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
 
-        vm.selectTask("t1")
-        val roomState = vm.state.first { !it.channelLoading && it.channelMessages.isNotEmpty() }
-        assertEquals("Check disk usage", roomState.channelMessages.single().text)
+            h.vm.selectTask("t1")
+            val roomState = withTimeout(5_000) { h.vm.state.first { !it.channelLoading && it.channelMessages.isNotEmpty() } }
+            assertEquals("Check disk usage", roomState.channelMessages.single().text)
 
-        vm.selectChannel(1)
-        val sessState = vm.state.first { it.activeChannelIdx == 1 && !it.channelLoading && it.channelMessages.isNotEmpty() }
-        assertEquals("Session ready.", sessState.channelMessages.single().text)
-        assertEquals("ops", sessState.channelMessages.single().speaker)
+            h.vm.selectChannel(1)
+            val sessState = withTimeout(5_000) {
+                h.vm.state.first { it.activeChannelIdx == 1 && !it.channelLoading && it.channelMessages.isNotEmpty() }
+            }
+            assertEquals("Session ready.", sessState.channelMessages.single().text)
+            assertEquals("ops", sessState.channelMessages.single().speaker)
 
-        val nextEvent = async { vm.events.first() }
-        val task = vm.state.value.selectedTask!!
-        vm.openChannelFullscreen(task, task.channels[1])
-        val nav = nextEvent.await()
-        assertTrue(nav is TasksNavEvent.OpenSession)
-        assertEquals("sess-t1", nav.sessionId)
+            val nextEvent = async { h.vm.events.first() }
+            val task = h.vm.state.value.selectedTask!!
+            h.vm.openChannelFullscreen(task, task.channels[1])
+            val nav = withTimeout(5_000) { nextEvent.await() }
+            assertTrue(nav is TasksNavEvent.OpenSession)
+            assertEquals("sess-t1", nav.sessionId)
+        } finally {
+            h.connection.stop()
+        }
     }
 
     @Test
     fun approveStagedPlanUpdatesOptimisticallyPostsTweaksAndDispatchesToChannel() = runTest(dispatcher) {
-        val (vm, httpCalls, rpcSocket) = buildHarness(
+        val h = buildHarness(
             httpRespond = { rec ->
                 when (rec.path) {
                     "/api/plugins/directus-tasks/config" ->
@@ -274,7 +293,7 @@ class TasksViewModelTest {
             rpcAnswer = { method, _ ->
                 when (method) {
                     "profiles.list" -> """{"profiles":[]}"""
-                    "projects.list" -> """{"projects":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
                     "groups.state" -> """{"room":{"room_id":"task-t1","name":"Prune backup snapshots","members":[],"latest_seq":1}}"""
                     "groups.log" -> """{"events":[],"cursor":0,"latest_seq":0,"has_more":false}"""
                     "groups.send" -> """{"event":{"room_id":"task-t1","seq":2,"event_id":"ev-2","kind":"message.user","actor":{"kind":"user","id":"u"},"payload":{"text":"approved"}}}"""
@@ -282,39 +301,51 @@ class TasksViewModelTest {
                 }
             },
         )
-        vm.bind(gateway)
-        vm.state.first { !it.loading && it.tasks.isNotEmpty() }
-        vm.selectTask("t1")
-        val task = vm.state.value.selectedTask!!
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            h.vm.selectTask("t1")
+            val task = h.vm.state.value.selectedTask!!
 
-        val tweak = TweakDeltaInput(
-            paramKey = "retention",
-            paramLabel = "Keep",
-            agentProposed = "7 days",
-            userSelected = "14 days",
-        )
-        vm.approveStagedPlan(
-            task = task,
-            option = ReplyInteraction.Option(label = "Run cleanup", value = "Prune snapshots"),
-            selectedParams = mapOf("retention" to "14 days"),
-            tweaks = listOf(tweak),
-        )
+            val tweak = TweakDeltaInput(
+                paramKey = "retention",
+                paramLabel = "Keep",
+                agentProposed = "7 days",
+                userSelected = "14 days",
+            )
+            h.vm.approveStagedPlan(
+                task = task,
+                option = ReplyInteraction.Option(label = "Run cleanup", value = "Prune snapshots"),
+                selectedParams = mapOf("retention" to "14 days"),
+                tweaks = listOf(tweak),
+            )
 
-        val updated = vm.state.value.tasks.first { it.id == "t1" }
-        assertEquals("in_progress", updated.status)
-        assertEquals(TaskContext.STATE_RUNNING, updated.agentState)
+            val settled = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    val cur = st.tasks.firstOrNull { it.id == "t1" }
+                    cur?.agentState == TaskContext.STATE_RUNNING &&
+                        cur.channels.size == 1 &&
+                        "t1" !in st.busyTaskIds
+                }
+            }
+            val updated = settled.tasks.first { it.id == "t1" }
+            assertEquals("in_progress", updated.status)
+            assertEquals(TaskContext.STATE_RUNNING, updated.agentState)
 
-        val approveReq = httpCalls.firstOrNull { it.path == "/api/plugins/directus-tasks/tasks/t1/approve" }
-        assertNotNull(approveReq)
-        assertTrue(approveReq.body.orEmpty().contains("14 days"))
-        val sentGroup = rpcSocket.calls.firstOrNull { it.first == "groups.send" }
-        assertNotNull(sentGroup)
+            val approveReq = h.httpCalls.firstOrNull { it.path == "/api/plugins/directus-tasks/tasks/t1/approve" }
+            assertNotNull(approveReq)
+            assertTrue(approveReq.body.orEmpty().contains("14 days"))
+            val sentGroup = h.socket.calls.firstOrNull { it.first == "groups.send" }
+            assertNotNull(sentGroup)
+        } finally {
+            h.connection.stop()
+        }
     }
 
     @Test
     fun unconfiguredGatewaySavesDirectusConfigAndLoadsBoard() = runTest(dispatcher) {
         var isConfigured = false
-        val (vm, httpCalls, _) = buildHarness(
+        val h = buildHarness(
             httpRespond = { rec ->
                 when (rec.path) {
                     "/api/plugins/directus-tasks/config" -> {
@@ -332,13 +363,17 @@ class TasksViewModelTest {
                 }
             },
         )
-        vm.bind(gateway)
-        val initial = vm.state.first { !it.loading }
-        assertFalse(initial.config?.configured ?: true)
+        try {
+            h.vm.bind(gateway)
+            val initial = withTimeout(5_000) { h.vm.state.first { !it.loading } }
+            assertFalse(initial.config?.configured ?: true)
 
-        vm.saveConfig("https://directus.example.com", "dir_secret_00")
-        val after = vm.state.first { it.config?.configured == true && it.tasks.isNotEmpty() }
-        assertEquals(2, after.tasks.size)
-        assertTrue(httpCalls.any { it.method == HttpMethod.Put && it.path == "/api/plugins/directus-tasks/config" })
+            h.vm.saveConfig("https://directus.example.com", "dir_secret_00")
+            val after = withTimeout(5_000) { h.vm.state.first { it.config?.configured == true && it.tasks.isNotEmpty() } }
+            assertEquals(2, after.tasks.size)
+            assertTrue(h.httpCalls.any { it.method == HttpMethod.Put && it.path == "/api/plugins/directus-tasks/config" })
+        } finally {
+            h.connection.stop()
+        }
     }
 }

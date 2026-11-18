@@ -48,7 +48,11 @@ class TasksPageUiTest {
         }
         waitForIdle()
         onNodeWithText("NEEDS DECISION (1)").assertIsDisplayed()
-        onNodeWithText("Backend API").assertIsDisplayed()
+        onAllNodesWithText("Backend API").let { nodes ->
+            assertEquals(2, nodes.fetchSemanticsNodes().size)
+            nodes[0].assertIsDisplayed()
+            nodes[1].assertIsDisplayed()
+        }
         onAllNodesWithText("Prune aged backup snapshots")[0].assertIsDisplayed()
         onAllNodesWithText("Homelab")[0].assertIsDisplayed()
 
@@ -135,7 +139,7 @@ class TasksPageUiTest {
         waitForIdle()
         onNodeWithText("Tasks").assertIsDisplayed()
         onNodeWithText("Priority strip").assertIsDisplayed()
-        onNodeWithText("Backend API").assertIsDisplayed()
+        onAllNodesWithText("Backend API")[0].performScrollTo().assertIsDisplayed()
     }
 
     @Test
