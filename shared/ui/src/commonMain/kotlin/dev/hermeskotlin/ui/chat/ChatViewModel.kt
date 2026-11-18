@@ -44,6 +44,9 @@ import dev.hermeskotlin.core.chat.promptNow
 import dev.hermeskotlin.core.chat.regenerateTarget
 import dev.hermeskotlin.core.network.errorMessage
 import dev.hermeskotlin.core.plugins.NextPromptApi
+import dev.hermeskotlin.core.tasks.ApproveTaskRequest
+import dev.hermeskotlin.core.tasks.DirectusTasksApi
+import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.core.profiles.ProfilesApi
 import dev.hermeskotlin.core.sessions.CaughtUp
 import dev.hermeskotlin.core.sessions.SeenStore
@@ -221,6 +224,7 @@ class ChatViewModel(
     deviceLock: DeviceLock = DeviceLock.None,
     /** The Next Prompt plugin's suggestions; none without it. */
     nextPromptApi: NextPromptApi? = null,
+    private val directusTasksApi: DirectusTasksApi? = null,
 ) : ViewModel(), ChatActions {
 
     /** Dictation, voice chat and Read aloud for the open chat. */
@@ -1028,6 +1032,31 @@ class ChatViewModel(
     }
 
     override fun dismissSuggestedReply() = nextPrompt.dismiss()
+
+    override fun recordTaskTweaks(
+        taskId: String,
+        projectId: String?,
+        summary: String?,
+        optionLabel: String,
+        tweaks: List<TweakDeltaInput>,
+    ) {
+        val api = directusTasksApi ?: return
+        val gatewayUrl = widgetSession.value?.second?.gateway?.gatewayUrl ?: return
+        viewModelScope.launch {
+            runCatching {
+                api.approveTask(
+                    gatewayUrl,
+                    taskId,
+                    ApproveTaskRequest(
+                        summary = summary,
+                        chosenOption = optionLabel,
+                        tweaks = tweaks,
+                        projectId = projectId,
+                    ),
+                )
+            }
+        }
+    }
 
     private fun isSlashQuery(text: String): Boolean = '\n' !in text && SlashCommand.looksLikeCommand(text) || text == "/"
 

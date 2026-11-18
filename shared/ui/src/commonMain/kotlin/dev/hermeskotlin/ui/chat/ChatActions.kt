@@ -8,6 +8,7 @@ import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.media.LinkPreview
 import dev.hermeskotlin.core.settings.RunningSend
 import dev.hermeskotlin.core.slash.SlashSuggestion
+import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,6 +63,15 @@ interface ChatActions {
 
     /** Puts [text] into the composer (preserving any existing draft) so the user can edit before sending. */
     fun fillComposer(text: String) {}
+
+    /** Persists inline parameter tweaks made on an ActionCard attached to a Directus task. */
+    fun recordTaskTweaks(
+        taskId: String,
+        projectId: String?,
+        summary: String?,
+        optionLabel: String,
+        tweaks: List<TweakDeltaInput>,
+    ) {}
 
     /** Closes the suggested next message. */
     fun dismissSuggestedReply() {}

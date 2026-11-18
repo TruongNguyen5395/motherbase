@@ -34,6 +34,7 @@ import dev.hermeskotlin.core.chat.pathRefQuery
 import dev.hermeskotlin.core.chat.screenViews
 import dev.hermeskotlin.core.projects.PathEntry
 import dev.hermeskotlin.core.projects.ProjectsApi
+import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import kotlin.coroutines.cancellation.CancellationException
 import dev.hermeskotlin.core.media.GatewayFileKind
 import androidx.compose.ui.draw.drawWithContent
@@ -2248,6 +2249,7 @@ private fun Messages(
                                     interactionSendEnabled = connected,
                                     onInteractionSend = actions::sendPrompt,
                                     onInteractionFill = onInteractionFill,
+                                    onInteractionTweaks = actions::recordTaskTweaks,
                                 )
                             }
                             // An answer to another bot's message folds under it; never while it's still being written.
@@ -2931,6 +2933,7 @@ internal fun AssistantReply(
     interactionSendEnabled: Boolean = true,
     onInteractionSend: ((String) -> Unit)? = null,
     onInteractionFill: ((String) -> Unit)? = null,
+    onInteractionTweaks: ((String, String?, String?, String, List<TweakDeltaInput>) -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
     val showReasoning = settings.showReasoning && message.reasoning.isNotBlank()
@@ -3018,6 +3021,7 @@ internal fun AssistantReply(
                 sendEnabled = interactionSendEnabled,
                 onSend = onInteractionSend,
                 onFill = onInteractionFill,
+                onTweaks = onInteractionTweaks,
             )
         }
         when (message.outcome) {

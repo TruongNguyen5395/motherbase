@@ -8,7 +8,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -18,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -30,7 +34,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.CircleDot
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Send
@@ -41,7 +48,10 @@ import com.composeunstyled.UnstyledButton
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.chat.ReplyInteraction
+import dev.hermeskotlin.core.chat.computeActionTweaks
+import dev.hermeskotlin.core.chat.formatActionCardReply
 import dev.hermeskotlin.core.chat.formatInteractionChoices
+import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.accentSoft
 import dev.hermeskotlin.designsystem.accentText
@@ -51,6 +61,8 @@ import dev.hermeskotlin.designsystem.colors
 import dev.hermeskotlin.designsystem.components.Button
 import dev.hermeskotlin.designsystem.components.ButtonSize
 import dev.hermeskotlin.designsystem.components.ButtonVariant
+import dev.hermeskotlin.designsystem.components.DropdownMenu
+import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.MinTouchTarget
 import dev.hermeskotlin.designsystem.components.Tooltip
 import dev.hermeskotlin.designsystem.components.handCursor
@@ -87,6 +99,7 @@ internal fun ReplyInteractionCard(
     onSend: (String) -> Unit,
     onFill: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onTweaks: ((taskId: String, projectId: String?, summary: String?, optionLabel: String, tweaks: List<TweakDeltaInput>) -> Unit)? = null,
 ) {
     val containerShape = RoundedCornerShape(Theme[radii][radiusLarge])
     Column(
@@ -108,6 +121,176 @@ internal fun ReplyInteractionCard(
                 onSend = onSend,
                 onFill = onFill,
             )
+            is ReplyInteraction.ActionCard -> ParameterizedActionContent(
+                cardKey = replyKey,
+                question = interaction.question,
+                params = interaction.params,
+                options = interaction.options,
+                sendEnabled = sendEnabled,
+                onAction = { option, selected, tweaks ->
+                    val tid = interaction.taskId
+                    if (tid != null && tweaks.isNotEmpty()) {
+                        onTweaks?.invoke(tid, interaction.projectId, interaction.question, option.label, tweaks)
+                    }
+                    onSend(formatActionCardReply(option, interaction.params, selected))
+                },
+                onFill = { option, selected ->
+                    onFill(formatActionCardReply(option, interaction.params, selected))
+                },
+            )
+        }
+    }
+}
+
+/**
+ * Shared interactive card body with inline tweakable parameter chips (`params`) plus action buttons.
+ * Reused directly by both chat replies ([ReplyInteraction.ActionCard]) and the Tasks Command Board
+ * right-rail so parameter tweaking and tweak-delta computation share one UI implementation.
+ */
+@Composable
+internal fun ParameterizedActionContent(
+    cardKey: String,
+    question: String?,
+    params: List<ReplyInteraction.Param>,
+    options: List<ReplyInteraction.Option>,
+    sendEnabled: Boolean,
+    onAction: (option: ReplyInteraction.Option, selected: Map<String, String>, tweaks: List<TweakDeltaInput>) -> Unit,
+    onFill: ((option: ReplyInteraction.Option, selected: Map<String, String>) -> Unit)? = null,
+) {
+    val selectedValues = remember(cardKey, params) {
+        mutableStateMapOf<String, String>().apply {
+            params.forEach { put(it.key, it.defaultValue) }
+        }
+    }
+
+    if (!question.isNullOrBlank()) {
+        Text(
+            question,
+            style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
+            color = Theme[colors][textSecondary],
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
+    }
+
+    if (params.isNotEmpty()) {
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            params.forEach { param ->
+                val current = selectedValues[param.key] ?: param.defaultValue
+                val tweaked = current != param.defaultValue
+                InlineParamChip(
+                    param = param,
+                    value = current,
+                    tweaked = tweaked,
+                    onPick = { next -> selectedValues[param.key] = next },
+                )
+            }
+        }
+    }
+
+    val snapshot = params.associate { it.key to (selectedValues[it.key] ?: it.defaultValue) }
+    val tweaks = remember(params, snapshot) { computeActionTweaks(params, snapshot) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEachIndexed { index, option ->
+            SingleChoiceOptionRow(
+                index = index,
+                option = option,
+                sendEnabled = sendEnabled,
+                onSend = { onAction(option, snapshot, tweaks) },
+                onFill = onFill?.let { fill -> { fill(option, snapshot) } },
+            )
+        }
+    }
+}
+
+@Composable
+private fun InlineParamChip(
+    param: ReplyInteraction.Param,
+    value: String,
+    tweaked: Boolean,
+    onPick: (String) -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    val interaction = remember { MutableInteractionSource() }
+    val fill = if (tweaked) Theme[colors][accentSoft] else Theme[colors][surface2]
+    val outline = if (tweaked) Theme[colors][accent] else Theme[colors][strokeStrong]
+    val minHeight = if (isDesktop) 30.dp else 38.dp
+    val cycleOrMenu = {
+        if (param.options.size <= 3) {
+            val idx = param.options.indexOf(value)
+            val next = param.options[(idx + 1).mod(param.options.size)]
+            onPick(next)
+        } else {
+            menuOpen = true
+        }
+    }
+
+    Box {
+        DropdownMenu(
+            expanded = menuOpen,
+            onExpandedChange = { menuOpen = it },
+            above = !isDesktop,
+            items = {
+                param.options.forEach { opt ->
+                    MenuChoice(
+                        text = opt,
+                        icon = Lucide.CircleDot,
+                        selected = opt == value,
+                        onClick = {
+                            menuOpen = false
+                            onPick(opt)
+                        },
+                    )
+                }
+            },
+        ) {
+            Row(
+                Modifier
+                    .heightIn(min = minHeight)
+                    .clip(shape)
+                    .background(fill, shape)
+                    .border(1.dp, outline, shape)
+                    .handCursor(param.options.size > 1)
+                    .indication(interaction, rememberHoverIndication(Theme[colors][textColor], shape))
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        enabled = param.options.size > 1,
+                        role = Role.Button,
+                        onClick = cycleOrMenu,
+                    )
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .testTag("interaction_param_${param.key}"),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${param.label}:",
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textSecondary],
+                    maxLines = 1,
+                )
+                Text(
+                    value,
+                    style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                    color = Theme[colors][if (tweaked) accentText else textColor],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (param.options.size > 1) {
+                    UnstyledIcon(
+                        Lucide.ChevronDown,
+                        contentDescription = null,
+                        tint = Theme[colors][if (tweaked) accentText else textTertiary],
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -214,7 +397,7 @@ private fun SingleChoiceOptionRow(
     option: ReplyInteraction.Option,
     sendEnabled: Boolean,
     onSend: () -> Unit,
-    onFill: () -> Unit,
+    onFill: (() -> Unit)?,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
     val rowInteraction = remember { MutableInteractionSource() }
@@ -242,7 +425,7 @@ private fun SingleChoiceOptionRow(
                     indication = null,
                     role = Role.Button,
                     enabled = sendEnabled,
-                    onLongClickLabel = editLabel,
+                    onLongClickLabel = editLabel.takeIf { onFill != null },
                     onLongClick = onFill,
                     onClick = onSend,
                 )
@@ -266,24 +449,26 @@ private fun SingleChoiceOptionRow(
             }
         }
 
-        Tooltip(editLabel) {
-            val btnShape = RoundedCornerShape(Theme[radii][radiusMedium])
-            UnstyledButton(
-                onClick = onFill,
-                indication = rememberHoverIndication(Theme[colors][textSecondary], Theme[colors][accent], btnShape),
-                modifier = Modifier
-                    .padding(end = 4.dp)
-                    .size(editButtonSize)
-                    .clip(btnShape)
-                    .handCursor()
-                    .testTag("interaction_choice_edit_$index"),
-            ) {
-                UnstyledIcon(
-                    Lucide.Pencil,
-                    contentDescription = editLabel,
-                    tint = Theme[colors][textTertiary],
-                    modifier = Modifier.size(15.dp),
-                )
+        if (onFill != null) {
+            Tooltip(editLabel) {
+                val btnShape = RoundedCornerShape(Theme[radii][radiusMedium])
+                UnstyledButton(
+                    onClick = onFill,
+                    indication = rememberHoverIndication(Theme[colors][textSecondary], Theme[colors][accent], btnShape),
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .size(editButtonSize)
+                        .clip(btnShape)
+                        .handCursor()
+                        .testTag("interaction_choice_edit_$index"),
+                ) {
+                    UnstyledIcon(
+                        Lucide.Pencil,
+                        contentDescription = editLabel,
+                        tint = Theme[colors][textTertiary],
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
             }
         }
     }

@@ -162,4 +162,47 @@ class ReplyInteractionTest {
         assertEquals("Select modules", choices.question)
         assertEquals(listOf("Alpha" to "Use Alpha", "Beta" to "Beta"), choices.options.map { it.label to it.value })
     }
+
+    @Test
+    fun parsesActionCardWithParamsAndComputesTweakDeltas() {
+        val args = HermesJson.parseToJsonElement(
+            """
+            {
+              "question": "Ready to implement task",
+              "task_id": "t-1",
+              "project_id": "p-1",
+              "params": [
+                {"key": "bot", "label": "Runner", "options": ["@coder", "@architect"], "default": "@coder"},
+                {"key": "scope", "label": "Scope", "options": ["Prototype", "Full PR"], "default": "Prototype"}
+              ],
+              "options": [
+                {"label": "Approve & Run", "value": "Execute plan"},
+                {"label": "Ask details"}
+              ]
+            }
+            """.trimIndent(),
+        )
+        val card = assertIs<ReplyInteraction.ActionCard>(ReplyInteraction.from(PROPOSE_ACTION_TOOL, args))
+        assertEquals("t-1", card.taskId)
+        assertEquals("p-1", card.projectId)
+        assertEquals(2, card.params.size)
+        assertEquals("@coder", card.params[0].defaultValue)
+
+        val selected = mapOf("bot" to "@architect", "scope" to "Prototype")
+        assertEquals(
+            "Execute plan (Runner: @architect, Scope: Prototype)",
+            formatActionCardReply(card.options.first(), card.params, selected),
+        )
+        val tweaks = computeActionTweaks(card.params, selected)
+        assertEquals(1, tweaks.size)
+        assertEquals("bot", tweaks.single().paramKey)
+        assertEquals("@coder", tweaks.single().agentProposed)
+        assertEquals("@architect", tweaks.single().userSelected)
+
+        // offer_choices with params also promotes to ActionCard cleanly, while rejected result suppresses it.
+        val promoted = assertIs<ReplyInteraction.ActionCard>(ReplyInteraction.from(OFFER_CHOICES_TOOL, args))
+        assertEquals(2, promoted.params.size)
+        val rejected = HermesJson.parseToJsonElement("""{"ok":false,"error":"blocked"}""")
+        assertNull(ReplyInteraction.from(PROPOSE_ACTION_TOOL, args, rejected))
+    }
 }

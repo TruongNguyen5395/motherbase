@@ -1,5 +1,6 @@
 package dev.hermeskotlin.core.chat
 
+import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -9,26 +10,37 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 
 const val OFFER_CHOICES_TOOL = "offer_choices"
+const val PROPOSE_ACTION_TOOL = "propose_action_plan"
 
 /** Tools from the `motherbase-interact` plugin that render as interactive reply cards instead of raw tool rows. */
-val INTERACTIVE_REPLY_TOOLS: Set<String> = setOf(OFFER_CHOICES_TOOL)
+val INTERACTIVE_REPLY_TOOLS: Set<String> = setOf(OFFER_CHOICES_TOOL, PROPOSE_ACTION_TOOL)
 
 private const val MAX_CHOICES = 8
+private const val MAX_PARAMS = 4
+private const val MAX_PARAM_OPTIONS = 6
 private val MULTI_MODES = setOf("multiple", "multi", "multi_select", "multi-select", "multiple_choice")
 
 /**
  * Non-blocking interactive prompt attached to the end of an assistant reply.
  * User actions either send a follow-up user turn immediately or load formatted text into the composer.
- * Designed as a closed hierarchy so future interactive modes (`Approval`, `Form`, etc.) share the same
- * reducer, persistence, and card hosting pipeline without colliding with blocking [InputRequest].
+ * Designed as a closed hierarchy so interactive modes share the same reducer, persistence, and card
+ * hosting pipeline without colliding with blocking [InputRequest].
  */
 sealed interface ReplyInteraction {
 
-    /** One selectable option inside [Choices]. */
+    /** One selectable option inside [Choices] or [ActionCard]. */
     data class Option(
         val label: String,
         val description: String? = null,
         val value: String = label,
+    )
+
+    /** One inline tweakable parameter chip inside [ActionCard]. */
+    data class Param(
+        val key: String,
+        val label: String,
+        val options: List<String>,
+        val defaultValue: String = options.firstOrNull().orEmpty(),
     )
 
     /** Single-choice or multiple-choice quick-reply options produced by [OFFER_CHOICES_TOOL]. */
@@ -36,6 +48,18 @@ sealed interface ReplyInteraction {
         val question: String? = null,
         val multiSelect: Boolean = false,
         val options: List<Option>,
+    ) : ReplyInteraction
+
+    /**
+     * Action card with inline parameter chips (`params`) that can be tweaked in one tap before approving
+     * or sending an action, shared across chat replies and the Tasks Command Board right-rail.
+     */
+    data class ActionCard(
+        val question: String? = null,
+        val params: List<Param>,
+        val options: List<Option>,
+        val taskId: String? = null,
+        val projectId: String? = null,
     ) : ReplyInteraction
 
     companion object {
@@ -70,23 +94,26 @@ sealed interface ReplyInteraction {
             rawToolName: String,
             args: JsonElement?,
             result: JsonElement?,
-        ): ReplyInteraction? = when (toolName) {
-            OFFER_CHOICES_TOOL -> parseOfferChoices(rawToolName, args, result)
-            else -> null
+        ): ReplyInteraction? {
+            val payload = resolvePayloadObject(rawToolName, args, result) ?: return null
+            return when (toolName) {
+                PROPOSE_ACTION_TOOL -> parseActionCardObject(payload)
+                OFFER_CHOICES_TOOL -> parseActionCardObject(payload) ?: parseChoicesObject(payload)
+                else -> null
+            }
         }
 
-        private fun parseOfferChoices(
+        private fun resolvePayloadObject(
             rawToolName: String,
             args: JsonElement?,
             result: JsonElement?,
-        ): Choices? {
+        ): JsonObject? {
             val resObj = parseJsonObject(result)
             if (resObj != null) {
                 if (isRejectedResult(resObj)) return null
-                parseChoicesObject(resObj)?.let { return it }
+                return resObj
             }
-            val unwrappedArgs = unwrapToolCallArgs(rawToolName, args)
-            return unwrappedArgs?.let(::parseChoicesObject)
+            return unwrapToolCallArgs(rawToolName, args)
         }
 
         private fun parseBatchBridgeCall(args: JsonElement?, result: JsonElement?): ReplyInteraction? {
@@ -114,7 +141,7 @@ sealed interface ReplyInteraction {
 
         private fun isRejectedResult(obj: JsonObject): Boolean {
             if (obj.boolean("ok") == false || obj.boolean("success") == false) return true
-            return obj["error"] != null && obj["options"] == null
+            return obj["error"] != null && obj["options"] == null && obj["actions"] == null
         }
 
         private fun unwrapToolCallArgs(toolName: String, args: JsonElement?): JsonObject? {
@@ -122,6 +149,43 @@ sealed interface ReplyInteraction {
             if (toolName != "tool_call") return obj
             val single = (obj["calls"] as? JsonArray)?.singleOrNull() as? JsonObject ?: obj
             return parseJsonObject(single["arguments"]) ?: obj
+        }
+
+        private fun parseActionCardObject(obj: JsonObject): ActionCard? {
+            val params = parseParams(obj["params"])
+            if (params.isEmpty()) return null
+            val rawOptions = (obj["options"] ?: obj["actions"]) as? JsonArray ?: return null
+            val parsedOptions = parseOptionsList(rawOptions)
+            if (parsedOptions.isEmpty()) return null
+            return ActionCard(
+                question = obj.string("question") ?: obj.string("summary"),
+                params = params,
+                options = parsedOptions,
+                taskId = obj.string("task_id"),
+                projectId = obj.string("project_id"),
+            )
+        }
+
+        private fun parseParams(element: JsonElement?): List<Param> {
+            val arr = element as? JsonArray ?: return emptyList()
+            val seenKeys = HashSet<String>()
+            val out = ArrayList<Param>(minOf(arr.size, MAX_PARAMS))
+            for (item in arr) {
+                if (out.size >= MAX_PARAMS) break
+                val obj = item as? JsonObject ?: continue
+                val key = obj.string("key") ?: obj.string("name") ?: continue
+                if (!seenKeys.add(key)) continue
+                val label = obj.string("label") ?: key
+                val rawOpts = (obj["options"] ?: obj["values"]) as? JsonArray ?: continue
+                val opts = rawOpts.mapNotNull {
+                    (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
+                }.distinct().take(MAX_PARAM_OPTIONS)
+                if (opts.isEmpty()) continue
+                val defaultRaw = obj.string("default")
+                val defaultValue = if (defaultRaw != null && defaultRaw in opts) defaultRaw else opts.first()
+                out += Param(key = key, label = label, options = opts, defaultValue = defaultValue)
+            }
+            return out
         }
 
         private fun parseChoicesObject(obj: JsonObject): Choices? {
@@ -133,7 +197,12 @@ sealed interface ReplyInteraction {
                 else -> modeRaw in MULTI_MODES
             }
             val question = obj.string("question")
+            val parsed = parseOptionsList(rawOptions)
+            if (parsed.isEmpty()) return null
+            return Choices(question = question, multiSelect = multi, options = parsed)
+        }
 
+        private fun parseOptionsList(rawOptions: JsonArray): List<Option> {
             val seen = LinkedHashSet<Pair<String, String>>()
             val parsed = ArrayList<Option>(minOf(rawOptions.size, MAX_CHOICES))
             for (item in rawOptions) {
@@ -141,8 +210,7 @@ sealed interface ReplyInteraction {
                 val opt = parseOption(item) ?: continue
                 if (seen.add(opt.label to opt.value)) parsed.add(opt)
             }
-            if (parsed.isEmpty()) return null
-            return Choices(question = question, multiSelect = multi, options = parsed)
+            return parsed
         }
 
         private fun parseOption(element: JsonElement): Option? = when (element) {
@@ -179,4 +247,35 @@ fun formatInteractionChoices(selected: List<ReplyInteraction.Option>): String {
     val values = selected.mapNotNull { it.value.trim().takeIf(String::isNotEmpty) }
     if (values.isEmpty()) return ""
     return if (values.size == 1) values.first() else values.joinToString("\n") { "- $it" }
+}
+
+/** Formats an [ReplyInteraction.ActionCard] choice with its active inline parameter values. */
+fun formatActionCardReply(
+    option: ReplyInteraction.Option,
+    params: List<ReplyInteraction.Param>,
+    selected: Map<String, String>,
+): String {
+    val base = option.value.trim().ifEmpty { option.label.trim() }
+    if (base.isEmpty()) return ""
+    if (params.isEmpty()) return base
+    val paramSummary = params.mapNotNull { param ->
+        val value = (selected[param.key] ?: param.defaultValue).trim()
+        value.takeIf { it.isNotEmpty() }?.let { "${param.label}: $it" }
+    }
+    return if (paramSummary.isEmpty()) base else "$base (${paramSummary.joinToString(", ")})"
+}
+
+/** Computes [TweakDeltaInput] records for every parameter whose chosen value differs from [ReplyInteraction.Param.defaultValue]. */
+fun computeActionTweaks(
+    params: List<ReplyInteraction.Param>,
+    selected: Map<String, String>,
+): List<TweakDeltaInput> = params.mapNotNull { param ->
+    val chosen = selected[param.key] ?: param.defaultValue
+    if (chosen == param.defaultValue || param.defaultValue.isBlank() || chosen.isBlank()) null
+    else TweakDeltaInput(
+        paramKey = param.key,
+        paramLabel = param.label,
+        agentProposed = param.defaultValue,
+        userSelected = chosen,
+    )
 }

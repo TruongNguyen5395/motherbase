@@ -200,4 +200,50 @@ class ReplyInteractionUiTest {
         waitForIdle()
         onNodeWithTag("reply_interaction_card").assertDoesNotExist()
     }
+
+    @Test
+    fun actionCardTweaksParameterChipBeforeSendingAndFitsNarrowPhoneWidth() = runDesktopComposeUiTest(width = 360, height = 520) {
+        val sent = mutableListOf<String>()
+        val filled = mutableListOf<String>()
+        val interaction = ReplyInteraction.ActionCard(
+            question = "Next step for task",
+            params = listOf(
+                ReplyInteraction.Param(key = "bot", label = "Runner", options = listOf("@coder", "@architect"), defaultValue = "@coder"),
+                ReplyInteraction.Param(key = "scope", label = "Scope", options = listOf("Prototype", "Full PR"), defaultValue = "Prototype"),
+            ),
+            options = listOf(
+                ReplyInteraction.Option(label = "Approve & Run", value = "Proceed"),
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        Box(Modifier.width(340.dp)) {
+                            ReplyInteractionCard(
+                                replyKey = "action-1",
+                                interaction = interaction,
+                                sendEnabled = true,
+                                onSend = { sent += it },
+                                onFill = { filled += it },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        waitForIdle()
+        onNodeWithTag("interaction_param_bot").assertIsDisplayed().performClick()
+        waitForIdle()
+        onNodeWithText("@architect").assertIsDisplayed()
+
+        onNodeWithTag("interaction_choice_option_0").performClick()
+        waitForIdle()
+        assertEquals(listOf("Proceed (Runner: @architect, Scope: Prototype)"), sent)
+
+        onNodeWithTag("interaction_choice_edit_0").performClick()
+        waitForIdle()
+        assertEquals(listOf("Proceed (Runner: @architect, Scope: Prototype)"), filled)
+    }
 }
