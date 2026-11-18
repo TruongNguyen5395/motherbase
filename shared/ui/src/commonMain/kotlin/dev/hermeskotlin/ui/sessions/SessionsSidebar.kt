@@ -1765,7 +1765,7 @@ private fun SearchHeader(viewModel: SessionsViewModel, focusAsks: Int, list: Lis
 }
 
 /** Lets the search field hand the focus to the first chat the list under it shows. */
-private class ListFocus {
+internal class ListFocus {
     var first: (() -> Boolean)? = null
 
     fun focusFirst(): Boolean = first?.invoke() ?: false

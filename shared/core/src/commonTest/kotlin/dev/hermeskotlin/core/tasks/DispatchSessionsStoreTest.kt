@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 
 class DispatchSessionsStoreTest {
 
-    private val gateway = GatewayUrl("https://hermes.example.ts.net")
+    private val gateway = GatewayUrl.parse("https://hermes.example.ts.net")
     private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
 
     @Test
