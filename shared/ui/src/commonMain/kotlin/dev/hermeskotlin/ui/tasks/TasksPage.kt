@@ -299,7 +299,7 @@ internal fun TasksBoardContent(
     var pickSessionFor by remember { mutableStateOf<DirectusTask?>(null) }
     var pickRoomFor by remember { mutableStateOf<DirectusTask?>(null) }
 
-    LaunchedEffect(state.selectedTaskId, railTrigger) {
+    LaunchedEffect(state.selectedTaskId, railState.docked, railTrigger) {
         if (state.selectedTaskId != null) railState.open() else railState.close()
     }
 
@@ -1990,26 +1990,12 @@ private fun TaskChannelLog(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Text(
+                stringResource(Res.string.tasks_chat_log).uppercase(),
+                style = Theme[typography][eyebrow],
+                color = Theme[colors][textTertiary],
                 modifier = Modifier.weight(1f),
-            ) {
-                Text(
-                    stringResource(Res.string.tasks_chat_log).uppercase(),
-                    style = Theme[typography][eyebrow],
-                    color = Theme[colors][textTertiary],
-                )
-                if (activeChannel != null) {
-                    Text(
-                        activeChannel.label.ifBlank { if (activeChannel.isRoom) "Room" else "Session" },
-                        style = Theme[typography][caption],
-                        color = Theme[colors][textSecondary],
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+            )
             if (activeChannel != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
