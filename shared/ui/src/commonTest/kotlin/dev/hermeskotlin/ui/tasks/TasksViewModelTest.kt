@@ -903,7 +903,7 @@ class TasksViewModelTest {
             h.vm.bind(gateway)
             val loaded = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
             val task = loaded.tasks.single()
-            val option = ReplyInteraction.Option(id = "opt-0", label = "Close with note", instruction = "Record final checksum and mark done")
+            val option = ReplyInteraction.Option(label = "Close with note", value = "Record final checksum and mark done")
 
             h.vm.approveStagedPlan(task, option, mapOf("status" to "done"), emptyList())
 
