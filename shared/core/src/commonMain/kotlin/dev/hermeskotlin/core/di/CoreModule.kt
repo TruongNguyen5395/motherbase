@@ -22,6 +22,7 @@ import dev.hermeskotlin.core.capabilities.CapabilitiesApi
 import dev.hermeskotlin.core.capabilities.SkillsHubApi
 import dev.hermeskotlin.core.plugins.NextPromptApi
 import dev.hermeskotlin.core.plugins.PluginsApi
+import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.cron.CronApi
 import dev.hermeskotlin.core.insights.InsightsApi
 import dev.hermeskotlin.core.config.ConfigApi
@@ -101,6 +102,7 @@ val coreModule = module {
     single { SkillsHubApi(get()) }
     single { PluginsApi(get()) }
     single { NextPromptApi(get(), get(), get()) }
+    single { DirectusTasksApi(get()) }
     single { InsightsApi(get()) }
     single { ConfigApi(get()) }
     single { LastChatStore(get()) }
