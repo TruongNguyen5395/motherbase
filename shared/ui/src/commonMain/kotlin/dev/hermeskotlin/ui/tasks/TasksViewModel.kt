@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.bots.BotsApi
+import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.chat.formatActionCardReply
 import dev.hermeskotlin.core.connection.ConnectionState
@@ -17,6 +18,8 @@ import dev.hermeskotlin.core.rooms.RoomLine
 import dev.hermeskotlin.core.rooms.RoomMemberInput
 import dev.hermeskotlin.core.rooms.RoomsApi
 import dev.hermeskotlin.core.rooms.roomLines
+import dev.hermeskotlin.core.rpc.GatewayEvent
+import dev.hermeskotlin.core.rpc.ServerRequest
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.tasks.ApproveTaskRequest
 import dev.hermeskotlin.core.tasks.CreateProjectRequest
@@ -32,7 +35,9 @@ import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.core.tasks.UpdateTaskRequest
 import dev.hermeskotlin.core.tasks.UpsertContextRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,11 +45,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import kotlin.time.Clock
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -59,6 +68,7 @@ data class ChannelChatLine(
     val text: String,
     val fromUser: Boolean,
     val profile: String? = null,
+    val streaming: Boolean = false,
 )
 
 data class TasksUiState(
@@ -87,6 +97,10 @@ data class TasksUiState(
     val channelError: String? = null,
     val busyTaskIds: Set<String> = emptySet(),
     val sendingToChannel: Boolean = false,
+    val channelTurnRunning: Boolean = false,
+    val channelTurnStatus: String? = null,
+    val channelInputRequests: List<InputRequest> = emptyList(),
+    val gatewayConnected: Boolean = true,
     val actionFeedback: String? = null,
 ) {
     val selectedTask: DirectusTask?
@@ -119,9 +133,32 @@ class TasksViewModel(
     val events: Flow<TasksNavEvent> = _events.receiveAsFlow()
 
     private var boundGateway: SavedGateway? = null
+    private var activeRuntimeSessionId: String? = null
+    private var lastStreamEventAtMs: Long = 0L
+    private var turnPollJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            connection.state.collect { connState ->
+                _state.update { it.copy(gatewayConnected = connState is ConnectionState.Connected) }
+            }
+        }
+        viewModelScope.launch {
+            connection.events.collect { event -> handleGatewayEvent(event) }
+        }
+        viewModelScope.launch {
+            connection.serverRequests.collect { request -> handleServerRequest(request) }
+        }
+    }
+
+    override fun onCleared() {
+        turnPollJob?.cancel()
+    }
 
     fun bind(gateway: SavedGateway) {
         if (boundGateway == gateway && _state.value.config != null) return
+        turnPollJob?.cancel()
+        activeRuntimeSessionId = null
         boundGateway = gateway
         _state.update {
             TasksUiState(
@@ -130,6 +167,7 @@ class TasksViewModel(
                 includeDone = it.includeDone,
                 focusGrouping = it.focusGrouping,
                 todayEpochDay = currentLocalEpochDay(),
+                gatewayConnected = connection.state.value is ConnectionState.Connected,
             )
         }
         refresh()
@@ -279,12 +317,17 @@ class TasksViewModel(
     }
 
     fun selectTask(taskId: String?) {
+        turnPollJob?.cancel()
+        activeRuntimeSessionId = null
         _state.update {
             it.copy(
                 selectedTaskId = taskId,
                 activeChannelIdx = 0,
                 channelMessages = emptyList(),
                 channelError = null,
+                channelTurnRunning = false,
+                channelTurnStatus = null,
+                channelInputRequests = emptyList(),
             )
         }
         val gateway = boundGateway ?: return
@@ -295,7 +338,18 @@ class TasksViewModel(
     fun selectChannel(index: Int) {
         val task = _state.value.selectedTask ?: return
         if (index !in task.channels.indices) return
-        _state.update { it.copy(activeChannelIdx = index, channelMessages = emptyList(), channelError = null) }
+        turnPollJob?.cancel()
+        activeRuntimeSessionId = null
+        _state.update {
+            it.copy(
+                activeChannelIdx = index,
+                channelMessages = emptyList(),
+                channelError = null,
+                channelTurnRunning = false,
+                channelTurnStatus = null,
+                channelInputRequests = emptyList(),
+            )
+        }
         val gateway = boundGateway ?: return
         viewModelScope.launch { loadChannelLog(gateway, task, index) }
     }
@@ -307,19 +361,26 @@ class TasksViewModel(
         viewModelScope.launch { loadChannelLog(gateway, task, idx) }
     }
 
-    private suspend fun loadChannelLog(gateway: SavedGateway, task: DirectusTask, channelIdx: Int) {
+    private suspend fun loadChannelLog(
+        gateway: SavedGateway,
+        task: DirectusTask,
+        channelIdx: Int,
+        attachSession: Boolean = true,
+    ) {
         val channel = task.channels.getOrNull(channelIdx) ?: run {
             _state.update { it.copy(channelLoading = false, channelMessages = emptyList(), channelError = null) }
             return
         }
-        _state.update { it.copy(channelLoading = true, channelError = null) }
+        if (_state.value.channelMessages.isEmpty()) {
+            _state.update { it.copy(channelLoading = true, channelError = null) }
+        }
         val linesResult: Pair<List<ChannelChatLine>, String?> = if (channel.isRoom) {
             try {
                 val roomState = roomsApi.state(channel.id)
-                val page = roomsApi.log(channel.id, sinceSeq = 0, limit = 40)
+                val page = roomsApi.log(channel.id, sinceSeq = 0, limit = 50)
                 val parsed = roomLines(page.events, roomState.room.members)
                     .filterIsInstance<RoomLine.Message>()
-                    .takeLast(20)
+                    .takeLast(30)
                     .map { msg ->
                         ChannelChatLine(
                             key = "room-${msg.seq}-${msg.eventId}",
@@ -336,7 +397,7 @@ class TasksViewModel(
                 emptyList<ChannelChatLine>() to (e.message ?: "Could not read room log")
             }
         } else {
-            when (val res = sessionsApi.messages(gateway.gatewayUrl, channel.id, limit = 30, profile = channel.profile)) {
+            when (val res = sessionsApi.messages(gateway.gatewayUrl, channel.id, limit = 40, profile = channel.profile)) {
                 is ApiResult.Success -> {
                     val botLabel = channel.profile ?: "Hermes"
                     val parsed = res.value.messages
@@ -351,7 +412,7 @@ class TasksViewModel(
                                 profile = channel.profile,
                             )
                         }
-                        .takeLast(20)
+                        .takeLast(30)
                     parsed to null
                 }
                 is ApiResult.Failed -> emptyList<ChannelChatLine>() to res.message
@@ -363,12 +424,23 @@ class TasksViewModel(
             }
         }
         if (boundGateway != gateway || _state.value.selectedTaskId != task.id || _state.value.activeChannelIdx != channelIdx) return
-        _state.update {
-            it.copy(
+        _state.update { cur ->
+            val fetched = linesResult.first
+            val hasStreaming = cur.channelMessages.any { it.streaming }
+            val merged = when {
+                linesResult.second != null && cur.channelMessages.isNotEmpty() -> cur.channelMessages
+                cur.channelTurnRunning && hasStreaming -> cur.channelMessages
+                cur.channelTurnRunning && fetched.size < cur.channelMessages.size -> cur.channelMessages
+                else -> fetched
+            }
+            cur.copy(
                 channelLoading = false,
-                channelMessages = linesResult.first,
-                channelError = linesResult.second,
+                channelMessages = merged,
+                channelError = if (merged.isEmpty()) linesResult.second else null,
             )
+        }
+        if (attachSession && !channel.isRoom) {
+            attachSessionChannel(channel)
         }
     }
 
@@ -523,21 +595,64 @@ class TasksViewModel(
         val gateway = boundGateway ?: return
         val clean = text.trim()
         if (clean.isEmpty()) return
+        val optimisticKey = "user-${Uuid.random()}"
+        val optimisticLine = ChannelChatLine(
+            key = optimisticKey,
+            speaker = null,
+            text = clean,
+            fromUser = true,
+        )
+        _state.update { cur ->
+            val sameChat = cur.selectedTaskId == task.id
+            cur.copy(
+                sendingToChannel = true,
+                channelError = null,
+                channelMessages = if (sameChat) cur.channelMessages + optimisticLine else cur.channelMessages,
+                channelTurnRunning = if (sameChat) true else cur.channelTurnRunning,
+                channelTurnStatus = if (sameChat) null else cur.channelTurnStatus,
+            )
+        }
         viewModelScope.launch {
-            _state.update { it.copy(sendingToChannel = true) }
             try {
-                val channel = _state.value.activeChannel?.takeIf { task.channels.any { ch -> ch.id == it.id } }
-                    ?: createSessionChannel(gateway, task, task.assignedBots.firstOrNull())?.second
-                    ?: return@launch
-                dispatchMessage(channel, clean)
-                val latestTask = _state.value.tasks.firstOrNull { it.id == task.id } ?: task
+                val currentTask = _state.value.tasks.firstOrNull { it.id == task.id } ?: task
+                val existing = _state.value.activeChannel?.takeIf { ch -> currentTask.channels.any { it.id == ch.id } }
+                val created = if (existing != null) {
+                    currentTask to existing
+                } else {
+                    createSessionChannel(gateway, currentTask, currentTask.assignedBots.firstOrNull())
+                }
+                if (created == null) {
+                    _state.update { cur ->
+                        cur.copy(
+                            channelMessages = cur.channelMessages.filterNot { it.key == optimisticKey },
+                            channelTurnRunning = false,
+                            channelTurnStatus = null,
+                        )
+                    }
+                    return@launch
+                }
+                val (latestTask, channel) = created
                 val idx = latestTask.channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0)
-                _state.update { it.copy(activeChannelIdx = idx) }
-                loadChannelLog(gateway, latestTask, idx)
+                _state.update { cur ->
+                    val sameChat = cur.selectedTaskId == latestTask.id
+                    cur.copy(
+                        activeChannelIdx = if (sameChat) idx else cur.activeChannelIdx,
+                    )
+                }
+                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                dispatchMessage(channel, clean)
+                startTurnFallbackPoll(gateway, latestTask, idx, channel)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(actionFeedback = e.message ?: "Send failed") }
+                _state.update {
+                    it.copy(
+                        channelTurnRunning = false,
+                        channelTurnStatus = null,
+                        channelError = e.message ?: "Send failed",
+                        actionFeedback = e.message ?: "Send failed",
+                    )
+                }
             } finally {
                 _state.update { it.copy(sendingToChannel = false) }
             }
@@ -549,16 +664,25 @@ class TasksViewModel(
         viewModelScope.launch {
             markBusy(task.id, true)
             try {
-                val channel = _state.value.activeChannel?.takeIf { task.channels.any { ch -> ch.id == it.id } }
-                    ?: createSessionChannel(gateway, task, task.assignedBots.firstOrNull())?.second
-                    ?: return@launch
+                val currentTask = _state.value.tasks.firstOrNull { it.id == task.id } ?: task
+                val existing = _state.value.activeChannel?.takeIf { ch -> currentTask.channels.any { it.id == ch.id } }
+                val (channelTask, channel) = if (existing != null) {
+                    currentTask to existing
+                } else {
+                    createSessionChannel(gateway, currentTask, currentTask.assignedBots.firstOrNull()) ?: return@launch
+                }
 
                 val ctxRes = directusApi.upsertContext(
                     gateway.gatewayUrl,
                     task.id,
                     UpsertContextRequest(agentState = TaskContext.STATE_QUEUED),
                 )
-                if (ctxRes is ApiResult.Success && boundGateway == gateway) replaceTask(ctxRes.value)
+                val latestTask = if (ctxRes is ApiResult.Success && boundGateway == gateway) {
+                    replaceTask(ctxRes.value)
+                    ctxRes.value
+                } else {
+                    channelTask
+                }
 
                 val project = task.projectId?.let { pid -> _state.value.projects.firstOrNull { it.id == pid } }
                 val prompt = buildString {
@@ -567,16 +691,39 @@ class TasksViewModel(
                     if (!task.description.isNullOrBlank()) append("Context: ${task.description}. ")
                     append("Read recent tweak_deltas via `directus_task_board`, then save 2-3 inline parameter chips and action options once using `directus_stage_plan` (force=true).")
                 }
-                dispatchMessage(channel, prompt)
-                val latestTask = _state.value.tasks.firstOrNull { it.id == task.id } ?: task
                 val idx = latestTask.channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0)
-                loadChannelLog(gateway, latestTask, idx)
+                if (_state.value.selectedTaskId == latestTask.id) {
+                    _state.update { it.copy(activeChannelIdx = idx, channelTurnRunning = true, channelTurnStatus = null) }
+                }
+                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                dispatchMessage(channel, prompt)
+                loadChannelLog(gateway, latestTask, idx, attachSession = false)
+                startTurnFallbackPoll(gateway, latestTask, idx, channel)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(actionFeedback = e.message ?: "Could not start plan preparation") }
+                _state.update { it.copy(channelTurnRunning = false, actionFeedback = e.message ?: "Could not start plan preparation") }
             } finally {
                 markBusy(task.id, false)
+            }
+        }
+    }
+
+    fun answerChannelRequest(request: InputRequest, result: JsonObject) {
+        val client = (connection.state.value as? ConnectionState.Connected)?.client ?: run {
+            _state.update { it.copy(channelError = "Not connected to gateway.") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                client.respond(request.id, result)
+                _state.update { cur ->
+                    cur.copy(channelInputRequests = cur.channelInputRequests.filterNot { it.id == request.id })
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(channelError = e.message ?: "Could not send response.") }
             }
         }
     }
@@ -707,9 +854,190 @@ class TasksViewModel(
             task.id,
             UpsertContextRequest(channels = mergedChannels, assignedBots = nextBots),
         )
-        return if (res is ApiResult.Success) res.value to channel else task.copy(
-            context = (task.context ?: TaskContext(taskId = task.id)).copy(channels = mergedChannels, assignedBots = nextBots),
-        ) to channel
+        val updated = if (res is ApiResult.Success) {
+            res.value
+        } else {
+            task.copy(
+                context = (task.context ?: TaskContext(taskId = task.id)).copy(channels = mergedChannels, assignedBots = nextBots),
+            )
+        }
+        activeRuntimeSessionId = runtimeId ?: storedId
+        replaceTask(updated)
+        return updated to channel
+    }
+
+    private suspend fun attachSessionChannel(channel: TaskChannel) {
+        val client = (connection.state.value as? ConnectionState.Connected)?.client ?: return
+        val resumed = runCatching {
+            client.request(
+                "session.resume",
+                buildJsonObject {
+                    put("session_id", channel.id)
+                    channel.profile?.let { put("profile", it) }
+                    put("source", "desktop")
+                    put("cols", 80)
+                    put("omit_messages", true)
+                },
+            ) as? JsonObject
+        }.getOrNull() ?: return
+        val runtimeId = resumed.str("session_id") ?: return
+        activeRuntimeSessionId = runtimeId
+        val running = resumed.bool("running") == true
+        val openRequests = resumed["open_requests"].asObjects().mapNotNull { snapshot ->
+            InputRequest.parse(
+                id = snapshot.str("id") ?: return@mapNotNull null,
+                method = snapshot.str("method") ?: return@mapNotNull null,
+                params = snapshot["params"] as? JsonObject ?: JsonObject(emptyMap()),
+            )
+        }
+        val inflightText = (resumed["inflight"] as? JsonObject).str("assistant").orEmpty()
+        val botLabel = channel.profile ?: "Hermes"
+        _state.update { cur ->
+            if (cur.activeChannel?.id != channel.id) return@update cur
+            val nextMsgs = if (inflightText.isNotBlank() && cur.channelMessages.none { !it.fromUser && it.streaming }) {
+                cur.channelMessages + ChannelChatLine(
+                    key = "inflight-${channel.id}",
+                    speaker = botLabel,
+                    text = inflightText,
+                    fromUser = false,
+                    profile = channel.profile,
+                    streaming = true,
+                )
+            } else {
+                cur.channelMessages
+            }
+            cur.copy(
+                channelTurnRunning = running || openRequests.isNotEmpty(),
+                channelInputRequests = openRequests,
+                channelMessages = nextMsgs,
+            )
+        }
+    }
+
+    private fun handleGatewayEvent(event: GatewayEvent) {
+        val runtimeId = activeRuntimeSessionId ?: return
+        if (event.sessionId != runtimeId) return
+        val payload = event.payload as? JsonObject
+        when (event.type) {
+            "message.start" -> {
+                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                _state.update { it.copy(channelTurnRunning = true, channelError = null, channelTurnStatus = it.channelTurnStatus ?: "Thinking…") }
+            }
+            "thinking.delta" -> {
+                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                payload.str("text")?.trim()?.takeIf { it.isNotEmpty() }?.let { frame ->
+                    _state.update { it.copy(channelTurnRunning = true, channelTurnStatus = frame) }
+                }
+            }
+            "tool.start" -> {
+                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                val toolName = payload.str("name") ?: "tool"
+                _state.update { it.copy(channelTurnRunning = true, channelTurnStatus = toolName) }
+            }
+            "message.delta", "message.interim" -> {
+                if (event.type == "message.interim" && payload.bool("already_streamed") == true) return
+                val chunk = payload.str("text") ?: return
+                if (chunk.isEmpty()) return
+                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                val botLabel = _state.value.activeChannel?.profile ?: "Hermes"
+                val added = if (event.type == "message.interim") "$chunk\n\n" else chunk
+                _state.update { cur ->
+                    val msgs = cur.channelMessages
+                    val last = msgs.lastOrNull()
+                    val next = if (last != null && !last.fromUser && last.streaming) {
+                        msgs.dropLast(1) + last.copy(text = last.text + added)
+                    } else {
+                        msgs + ChannelChatLine(
+                            key = "stream-${cur.selectedTaskId}-${msgs.size}",
+                            speaker = botLabel,
+                            text = added,
+                            fromUser = false,
+                            profile = cur.activeChannel?.profile,
+                            streaming = true,
+                        )
+                    }
+                    cur.copy(channelMessages = next, channelTurnRunning = true, channelTurnStatus = null)
+                }
+            }
+            "message.complete", "turn.error", "session.error" -> {
+                turnPollJob?.cancel()
+                _state.update { cur ->
+                    cur.copy(
+                        channelTurnRunning = false,
+                        channelTurnStatus = null,
+                        channelInputRequests = emptyList(),
+                        channelMessages = cur.channelMessages.map { if (it.streaming) it.copy(streaming = false) else it },
+                    )
+                }
+                val gw = boundGateway ?: return
+                val task = _state.value.selectedTask ?: return
+                val idx = _state.value.activeChannelIdx
+                viewModelScope.launch {
+                    loadChannelLog(gw, task, idx, attachSession = false)
+                    refreshBoardSilently(gw)
+                }
+            }
+            "request.cancel" -> {
+                val reqId = payload.str("id") ?: return
+                _state.update { cur -> cur.copy(channelInputRequests = cur.channelInputRequests.filterNot { it.id == reqId }) }
+            }
+        }
+    }
+
+    private fun handleServerRequest(request: ServerRequest) {
+        val runtimeId = activeRuntimeSessionId ?: return
+        if (request.sessionId != runtimeId) return
+        val parsed = InputRequest.parse(request.id, request.method, request.params) ?: return
+        _state.update { cur ->
+            cur.copy(
+                channelInputRequests = cur.channelInputRequests.filterNot { it.id == parsed.id } + parsed,
+                channelTurnRunning = true,
+            )
+        }
+    }
+
+    private fun startTurnFallbackPoll(
+        gateway: SavedGateway,
+        task: DirectusTask,
+        channelIdx: Int,
+        channel: TaskChannel,
+    ) {
+        turnPollJob?.cancel()
+        turnPollJob = viewModelScope.launch {
+            repeat(60) {
+                delay(3_000)
+                if (boundGateway != gateway ||
+                    _state.value.selectedTaskId != task.id ||
+                    _state.value.activeChannel?.id != channel.id ||
+                    connection.state.value !is ConnectionState.Connected
+                ) {
+                    return@launch
+                }
+                val sinceLastEvent = Clock.System.now().toEpochMilliseconds() - lastStreamEventAtMs
+                if (channel.isRoom || sinceLastEvent >= 3_500) {
+                    loadChannelLog(gateway, task, channelIdx, attachSession = false)
+                    if (!channel.isRoom && _state.value.channelMessages.lastOrNull()?.let { !it.fromUser && !it.streaming } == true) {
+                        _state.update { it.copy(channelTurnRunning = false, channelTurnStatus = null) }
+                        refreshBoardSilently(gateway)
+                        return@launch
+                    }
+                }
+                if (!_state.value.channelTurnRunning) return@launch
+            }
+        }
+    }
+
+    private suspend fun refreshBoardSilently(gateway: SavedGateway) {
+        val res = directusApi.fetchBoard(gateway.gatewayUrl, includeDone = _state.value.includeDone)
+        if (res !is ApiResult.Success || boundGateway != gateway) return
+        val board = res.value
+        _state.update { cur ->
+            cur.copy(
+                projects = board.projects,
+                tasks = board.tasks,
+                todayEpochDay = currentLocalEpochDay(),
+            )
+        }
     }
 
     private suspend fun dispatchMessage(channel: TaskChannel, text: String) {
@@ -735,6 +1063,7 @@ class TasksViewModel(
             },
         ) as? JsonObject
         val runtimeId = (resumed?.get("session_id") as? JsonPrimitive)?.contentOrNull ?: error("Could not resume session.")
+        activeRuntimeSessionId = runtimeId
         client.request(
             "prompt.submit",
             buildJsonObject {
@@ -759,3 +1088,7 @@ class TasksViewModel(
         }
     }
 }
+
+private fun JsonObject?.str(key: String): String? = (this?.get(key) as? JsonPrimitive)?.contentOrNull
+private fun JsonObject?.bool(key: String): Boolean? = (this?.get(key) as? JsonPrimitive)?.booleanOrNull
+private fun JsonElement?.asObjects(): List<JsonObject> = (this as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()

@@ -3,6 +3,7 @@ package dev.hermeskotlin.ui.tasks
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
 import dev.hermeskotlin.core.bots.BotsApi
+import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
@@ -42,8 +43,10 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -70,13 +73,25 @@ class TasksViewModelTest {
             trySend("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{}}}""")
         }
         val calls = mutableListOf<Pair<String, JsonObject>>()
+        val responses = mutableListOf<Pair<String, JsonObject>>()
 
         override val incoming: Flow<String> = inbound.receiveAsFlow()
+
+        fun push(raw: String) {
+            inbound.trySend(raw)
+        }
 
         override suspend fun send(text: String) {
             val message = Json.parseToJsonElement(text).jsonObject
             val id = message["id"] ?: return
-            val method = message["method"]?.jsonPrimitive?.content ?: return
+            val method = message["method"]?.jsonPrimitive?.content
+            if (method == null) {
+                val resObj = message["result"]?.jsonObject
+                if (resObj != null) {
+                    responses += id.jsonPrimitive.content to resObj
+                }
+                return
+            }
             val params = message["params"]?.jsonObject ?: JsonObject(emptyMap())
             calls += method to params
             scope.launch {
@@ -412,6 +427,188 @@ class TasksViewModelTest {
             assertEquals(null, h.vm.state.value.focusedProjectId)
             assertTrue(h.vm.state.value.collapsedWorkstreamKeys.isEmpty())
         } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun sendingMessageOnUnlinkedTaskAttachesSessionChannelStreamsLiveReplyAndAnswersClarify() = runTest(dispatcher) {
+        var sessionMessagesJson = """{"session_id":"stored-new","messages":[]}"""
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    "/api/plugins/directus-tasks/tasks/t2/context" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "task": {
+                                "id":"t2",
+                                "title":"Rotate TLS certificates",
+                                "status":"in_progress",
+                                "priority":"medium",
+                                "context":{
+                                  "id":"ctx-2",
+                                  "task_id":"t2",
+                                  "project_id":"proj-1",
+                                  "agent_state":"running",
+                                  "channels":[{"type":"session","id":"stored-new","label":"Session (@Hermes)"}]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    "/api/sessions/stored-new/messages" ->
+                        HttpStatusCode.OK to sessionMessagesJson
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.create" -> """{"session_id":"rt-new","stored_session_id":"stored-new"}"""
+                    "session.resume" -> """{"session_id":"rt-new","stored_session_id":"stored-new","running":false,"open_requests":[]}"""
+                    "prompt.submit" -> """{"accepted":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            h.vm.selectTask("t2")
+            val t2 = withTimeout(5_000) { h.vm.state.first { it.selectedTaskId == "t2" && !it.channelLoading }.selectedTask!! }
+            assertTrue(t2.channels.isEmpty())
+
+            h.vm.sendToActiveChannel(t2, "Check storage stack status")
+
+            val dispatched = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    val task = st.tasks.firstOrNull { it.id == "t2" }
+                    task?.channels?.any { it.id == "stored-new" } == true &&
+                        st.channelMessages.any { it.fromUser && it.text == "Check storage stack status" } &&
+                        h.socket.calls.any { it.first == "prompt.submit" }
+                }
+            }
+            assertTrue(dispatched.channelTurnRunning)
+            assertEquals("stored-new", dispatched.activeChannel?.id)
+
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"rt-new","type":"message.start","payload":{}}}""")
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"rt-new","type":"tool.start","payload":{"name":"directus_task_board"}}}""")
+            val runningTool = withTimeout(5_000) { h.vm.state.first { it.channelTurnStatus == "directus_task_board" } }
+            assertEquals("directus_task_board", runningTool.channelTurnStatus)
+
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"rt-new","type":"message.delta","payload":{"text":"Checking nginx "}}}""")
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"rt-new","type":"message.delta","payload":{"text":"workers."}}}""")
+            val streamingState = withTimeout(5_000) {
+                h.vm.state.first { st -> st.channelMessages.any { !it.fromUser && it.streaming && it.text == "Checking nginx workers." } }
+            }
+            assertEquals(2, streamingState.channelMessages.size)
+
+            h.socket.push("""{"jsonrpc":"2.0","id":"srq-1","method":"clarify","params":{"session_id":"rt-new","question":"Restart nginx?","choices":["Yes","No"]}}""")
+            val withClarify = withTimeout(5_000) { h.vm.state.first { it.channelInputRequests.any { req -> req.id == "srq-1" } } }
+            val clarifyReq = withClarify.channelInputRequests.single()
+            h.vm.answerChannelRequest(clarifyReq, buildJsonObject { put("answer", "Yes") })
+            val afterAnswer = withTimeout(5_000) {
+                h.vm.state.first { st -> st.channelInputRequests.isEmpty() && h.socket.responses.any { it.first == "srq-1" } }
+            }
+            assertEquals("Yes", h.socket.responses.single().second["answer"]?.jsonPrimitive?.content)
+            assertTrue(afterAnswer.channelInputRequests.isEmpty())
+
+            sessionMessagesJson = """
+                {
+                  "session_id":"stored-new",
+                  "messages":[
+                    {"id":1,"role":"user","content":"Check storage stack status"},
+                    {"id":2,"role":"assistant","content":"Storage nginx & PHP-FPM healthy."}
+                  ]
+                }
+            """.trimIndent()
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"rt-new","type":"message.complete","payload":{}}}""")
+            val completed = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    !st.channelTurnRunning &&
+                        st.channelMessages.none { it.streaming } &&
+                        st.channelMessages.lastOrNull()?.text == "Storage nginx & PHP-FPM healthy."
+                }
+            }
+            assertEquals(2, completed.channelMessages.size)
+            assertFalse(completed.channelTurnRunning)
+        } finally {
+            h.vm.selectTask(null)
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun preparePlanOnUnlinkedTaskAttachesSessionChannelAndStartsTurn() = runTest(dispatcher) {
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    "/api/plugins/directus-tasks/tasks/t2/context" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "task": {
+                                "id":"t2",
+                                "title":"Rotate TLS certificates",
+                                "status":"in_progress",
+                                "priority":"medium",
+                                "context":{
+                                  "id":"ctx-2",
+                                  "task_id":"t2",
+                                  "project_id":"proj-1",
+                                  "agent_state":"queued",
+                                  "channels":[{"type":"session","id":"stored-plan","label":"Session (@Hermes)"}]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    "/api/sessions/stored-plan/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"stored-plan","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.create" -> """{"session_id":"rt-plan","stored_session_id":"stored-plan"}"""
+                    "session.resume" -> """{"session_id":"rt-plan","stored_session_id":"stored-plan","running":false,"open_requests":[]}"""
+                    "prompt.submit" -> """{"accepted":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            h.vm.selectTask("t2")
+            val t2 = h.vm.state.value.selectedTask!!
+            h.vm.preparePlan(t2)
+
+            val started = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.channelTurnRunning &&
+                        st.tasks.first { it.id == "t2" }.channels.any { it.id == "stored-plan" } &&
+                        h.socket.calls.any { it.first == "prompt.submit" }
+                }
+            }
+            assertTrue(started.channelTurnRunning)
+            assertTrue(
+                h.socket.calls.first { it.first == "prompt.submit" }.second["text"]?.jsonPrimitive?.content.orEmpty()
+                    .contains("directus_stage_plan"),
+            )
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"rt-plan","type":"message.complete","payload":{}}}""")
+            withTimeout(5_000) { h.vm.state.first { !it.channelTurnRunning } }
+        } finally {
+            h.vm.selectTask(null)
             h.connection.stop()
         }
     }

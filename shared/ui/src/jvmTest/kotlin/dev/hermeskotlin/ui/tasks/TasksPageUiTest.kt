@@ -6,18 +6,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.composeunstyled.theme.ColorScheme
+import dev.hermeskotlin.core.chat.ClarifyQuestion
+import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.tasks.DirectusConfigStatus
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
+import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.designsystem.HermesTheme
@@ -291,5 +296,79 @@ class TasksPageUiTest {
         waitForIdle()
         onNodeWithText("LIVE CHAT LOG").assertIsDisplayed()
         onNodeWithText("Prepare plan").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun liveChatPanelRendersUserBubbleStreamingMarkdownToolStatusClarifyAndSendsFollowUp() = runDesktopComposeUiTest(width = 1080, height = 760) {
+        val session = TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-nc", label = "Session (@Hermes)")
+        val task = DirectusTask(
+            id = "t-nc",
+            title = "Deploy object storage stack",
+            status = DirectusTask.STATUS_IN_PROGRESS,
+            priority = "high",
+            context = TaskContext(
+                taskId = "t-nc",
+                projectId = "p1",
+                agentState = TaskContext.STATE_RUNNING,
+                channels = listOf(session),
+            ),
+        )
+        val clarify = InputRequest.Clarify(
+            id = "srq-nc-1",
+            questions = listOf(
+                ClarifyQuestion(
+                    qid = null,
+                    question = "Confirm storage domain?",
+                    choices = listOf("cloud.example.com", "nc.example.com"),
+                ),
+            ),
+        )
+        var sentMessage: String? = null
+        val state = TasksUiState(
+            config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+            projects = listOf(DirectusProject(id = "p1", name = "Infra", sort = 1)),
+            tasks = listOf(task),
+            selectedTaskId = task.id,
+            activeChannelIdx = 0,
+            channelMessages = listOf(
+                ChannelChatLine(key = "u-1", speaker = null, text = "Check storage deploy", fromUser = true),
+                ChannelChatLine(key = "a-1", speaker = "Hermes", text = "Checking **nginx** workers…", fromUser = false, streaming = true),
+            ),
+            channelTurnRunning = true,
+            channelTurnStatus = "directus_task_board",
+            channelInputRequests = listOf(clarify),
+            gatewayConnected = true,
+            todayEpochDay = epochDayFromCivilIso("2026-11-18")!!,
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onSendToChannel = { _, text -> sentMessage = text },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithText("LIVE CHAT LOG").assertIsDisplayed()
+        onNodeWithText("Check storage deploy").assertIsDisplayed()
+        onNodeWithText("Checking nginx workers…", substring = true).assertIsDisplayed()
+        onNodeWithText("directus_task_board").assertIsDisplayed()
+        onNodeWithText("Confirm storage domain?").assertIsDisplayed()
+        onNodeWithText("cloud.example.com").assertIsDisplayed()
+
+        onNode(hasSetTextAction()).performTextInput("Restart php-fpm")
+        waitForIdle()
+        onNodeWithContentDescription("Send").performClick()
+        waitForIdle()
+        assertEquals("Restart php-fpm", sentMessage)
     }
 }

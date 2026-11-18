@@ -14,21 +14,26 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,9 +47,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,16 +75,18 @@ import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
-import com.composables.icons.lucide.Send
 import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.TriangleAlert
 import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
 import com.composeunstyled.Text
+import com.composeunstyled.TextInput
 import com.composeunstyled.UnstyledIcon
+import com.composeunstyled.UnstyledTextField
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.bots.Bot
+import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.gateway.SavedGateway
 import dev.hermeskotlin.core.projects.Project
@@ -99,23 +112,28 @@ import dev.hermeskotlin.designsystem.components.Chip
 import dev.hermeskotlin.designsystem.components.Dialog
 import dev.hermeskotlin.designsystem.components.DropdownMenu
 import dev.hermeskotlin.designsystem.components.IconButton
+import dev.hermeskotlin.designsystem.components.MarkdownText
 import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.Spinner
 import dev.hermeskotlin.designsystem.components.Switch
 import dev.hermeskotlin.designsystem.components.TextField
+import dev.hermeskotlin.designsystem.components.glow
 import dev.hermeskotlin.designsystem.components.handCursor
+import dev.hermeskotlin.designsystem.components.scrollbar
 import dev.hermeskotlin.designsystem.components.verticalScrollWithBar
 import dev.hermeskotlin.designsystem.danger
 import dev.hermeskotlin.designsystem.dangerSoft
 import dev.hermeskotlin.designsystem.eyebrow
 import dev.hermeskotlin.designsystem.heading
 import dev.hermeskotlin.designsystem.label as labelStyle
-import dev.hermeskotlin.designsystem.onAccent
+import dev.hermeskotlin.designsystem.onUserBubble
 import dev.hermeskotlin.designsystem.radii
 import dev.hermeskotlin.designsystem.radiusFull
 import dev.hermeskotlin.designsystem.radiusLarge
 import dev.hermeskotlin.designsystem.radiusMedium
 import dev.hermeskotlin.designsystem.radiusSmall
+import dev.hermeskotlin.designsystem.radiusXLarge
+import dev.hermeskotlin.designsystem.sidebar as sidebarColor
 import dev.hermeskotlin.designsystem.stroke
 import dev.hermeskotlin.designsystem.strokeStrong
 import dev.hermeskotlin.designsystem.success
@@ -127,20 +145,31 @@ import dev.hermeskotlin.designsystem.textMuted
 import dev.hermeskotlin.designsystem.textSecondary
 import dev.hermeskotlin.designsystem.textTertiary
 import dev.hermeskotlin.designsystem.typography
+import dev.hermeskotlin.designsystem.userBubble
 import dev.hermeskotlin.designsystem.warning
 import dev.hermeskotlin.designsystem.warningSoft
 import dev.hermeskotlin.designsystem.well
 import dev.hermeskotlin.ui.PlatformBackHandler
+import dev.hermeskotlin.ui.chat.ComposerKey
 import dev.hermeskotlin.ui.chat.DEFAULT_RAIL_WIDTH
+import dev.hermeskotlin.ui.chat.DockShadow
+import dev.hermeskotlin.ui.chat.InputRequestPanel
 import dev.hermeskotlin.ui.chat.ParameterizedActionContent
 import dev.hermeskotlin.ui.chat.RightRailLayout
+import dev.hermeskotlin.ui.chat.SendButton
+import dev.hermeskotlin.ui.chat.SendIcon
+import dev.hermeskotlin.ui.chat.bubbleGlow
+import dev.hermeskotlin.ui.chat.composerKey
 import dev.hermeskotlin.ui.chat.rememberRightRailState
+import dev.hermeskotlin.ui.chat.userBubbleShape
 import dev.hermeskotlin.ui.components.EmptyState
 import dev.hermeskotlin.ui.components.ListSkeleton
+import dev.hermeskotlin.ui.imeVisible
 import dev.hermeskotlin.ui.isDesktop
 import dev.hermeskotlin.ui.resources.*
 import dev.hermeskotlin.ui.sessions.SubpageHeader
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonObject
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -163,6 +192,7 @@ internal data class TasksBoardActions(
     val onCreateSessionChannel: (DirectusTask, profile: String?) -> Unit = { _, _ -> },
     val onCreateRoomChannel: (DirectusTask, members: List<Bot>) -> Unit = { _, _ -> },
     val onSendToChannel: (DirectusTask, text: String) -> Unit = { _, _ -> },
+    val onAnswerRequest: (InputRequest, JsonObject) -> Unit = { _, _ -> },
     val onPreparePlan: (DirectusTask) -> Unit = {},
     val onApprovePlan: (DirectusTask, ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit = { _, _, _, _ -> },
     val onOpenFullscreen: (DirectusTask, TaskChannel) -> Unit = { _, _ -> },
@@ -241,6 +271,7 @@ internal fun TasksPage(
             onCreateSessionChannel = viewModel::openOrCreateSessionChannel,
             onCreateRoomChannel = viewModel::openOrCreateRoomChannel,
             onSendToChannel = viewModel::sendToActiveChannel,
+            onAnswerRequest = viewModel::answerChannelRequest,
             onPreparePlan = viewModel::preparePlan,
             onApprovePlan = viewModel::approveStagedPlan,
             onOpenFullscreen = viewModel::openChannelFullscreen,
@@ -296,6 +327,10 @@ internal fun TasksBoardContent(
                     channelMessages = state.channelMessages,
                     channelError = state.channelError,
                     sendingToChannel = state.sendingToChannel,
+                    channelTurnRunning = state.channelTurnRunning,
+                    channelTurnStatus = state.channelTurnStatus,
+                    channelInputRequests = state.channelInputRequests,
+                    gatewayConnected = state.gatewayConnected,
                     onClose = { actions.onSelectTask(null) },
                     onAssignProject = { pid -> actions.onAssignProject(selected.id, pid) },
                     onUpdateStatus = { status -> actions.onUpdateStatus(selected.id, status) },
@@ -309,6 +344,7 @@ internal fun TasksBoardContent(
                         actions.onApprovePlan(selected, opt, selectedParams, tweaks)
                     },
                     onSendToChannel = { text -> actions.onSendToChannel(selected, text) },
+                    onAnswerRequest = actions.onAnswerRequest,
                 )
             }
         },
@@ -1565,6 +1601,10 @@ private fun TaskDetailInspector(
     channelMessages: List<ChannelChatLine>,
     channelError: String?,
     sendingToChannel: Boolean,
+    channelTurnRunning: Boolean,
+    channelTurnStatus: String?,
+    channelInputRequests: List<InputRequest>,
+    gatewayConnected: Boolean,
     onClose: () -> Unit,
     onAssignProject: (String?) -> Unit,
     onUpdateStatus: (String) -> Unit,
@@ -1576,22 +1616,22 @@ private fun TaskDetailInspector(
     onPreparePlan: () -> Unit,
     onApprovePlan: (ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit,
     onSendToChannel: (String) -> Unit,
+    onAnswerRequest: (InputRequest, JsonObject) -> Unit,
 ) {
     val steerState = rememberTextFieldState("")
+    LaunchedEffect(task.id) { steerState.clearText() }
+    var descExpanded by remember(task.id) { mutableStateOf(false) }
     val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
     val currentProjectLabel = projects.firstOrNull { it.id == task.projectId }?.name ?: unassignedLabel
+    val plan = task.stagedPlan
+    val metaScroll = rememberScrollState()
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Theme[colors][background]),
-    ) {
-        // Pinned inspector header.
+    Column(Modifier.fillMaxSize()) {
+        // Pinned inspector header on sidebarColor ground to match left SessionsSidebar.
         Row(
             Modifier
                 .fillMaxWidth()
-                .border(0.dp, Color.Transparent)
-                .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 8.dp),
+                .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1610,20 +1650,32 @@ private fun TaskDetailInspector(
             )
         }
 
-        // Scrollable detail body (explicit Project/Status selectors, Linked Channels, Live Chat Log, Action Proposal).
+        // Scrollable compact metadata, channels, and optional staged plan (bounded height so live chat owns the panel).
         Column(
             Modifier
-                .weight(1f)
                 .fillMaxWidth()
-                .verticalScrollWithBar()
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .heightIn(max = if (plan != null) 280.dp else 190.dp)
+                .scrollbar(metaScroll)
+                .verticalScroll(metaScroll)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (!task.description.isNullOrBlank()) {
+                val descShape = RoundedCornerShape(Theme[radii][radiusMedium])
                 Text(
                     task.description.orEmpty(),
                     style = Theme[typography][bodySmall],
                     color = Theme[colors][textSecondary],
+                    maxLines = if (descExpanded) Int.MAX_VALUE else 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(descShape)
+                        .background(Theme[colors][surface])
+                        .border(1.dp, Theme[colors][stroke], descShape)
+                        .clickable { descExpanded = !descExpanded }
+                        .handCursor()
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
                 )
             }
 
@@ -1633,41 +1685,55 @@ private fun TaskDetailInspector(
                 projects = projects,
                 unassignedLabel = unassignedLabel,
                 currentStatus = task.status,
+                hasStagedPlan = plan != null,
+                busy = busy,
                 onAssignProject = onAssignProject,
                 onUpdateStatus = onUpdateStatus,
+                onPreparePlan = onPreparePlan,
             )
 
             TaskChannelsSection(
                 channels = task.channels,
                 activeIdx = activeChannelIdx,
-                activeChannel = activeChannel,
                 busy = busy,
                 onSelectChannel = onSelectChannel,
                 onOpenPickSession = onOpenPickSession,
                 onOpenPickRoom = onOpenPickRoom,
-                onOpenFullscreen = onOpenFullscreen,
             )
 
-            TaskChannelLog(
-                activeChannel = activeChannel,
-                loading = channelLoading,
-                messages = channelMessages,
-                error = channelError,
-                onRefresh = onRefreshChannel,
-            )
-
-            TaskStagedPlanSection(
-                task = task,
-                busy = busy,
-                onPreparePlan = onPreparePlan,
-                onApprovePlan = onApprovePlan,
-            )
+            if (plan != null) {
+                TaskStagedPlanSection(
+                    task = task,
+                    busy = busy,
+                    onPreparePlan = onPreparePlan,
+                    onApprovePlan = onApprovePlan,
+                )
+            }
         }
 
-        // Pinned quick steer / @mention bar.
-        QuickSteerBar(
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
+
+        // Live chat stream fills remaining inspector height above the pill composer.
+        TaskChannelLog(
+            activeChannel = activeChannel,
+            loading = channelLoading,
+            messages = channelMessages,
+            error = channelError,
+            turnRunning = sendingToChannel || channelTurnRunning,
+            turnStatus = channelTurnStatus,
+            inputRequests = channelInputRequests,
+            gatewayConnected = gatewayConnected,
+            onRefresh = onRefreshChannel,
+            onOpenFullscreen = activeChannel?.let { ch -> { onOpenFullscreen(ch) } },
+            onAnswerRequest = onAnswerRequest,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        )
+
+        // Floating rounded pill chat composer matching chat & left sidebar controls.
+        TaskChatComposer(
             state = steerState,
-            sending = sendingToChannel,
+            connected = gatewayConnected,
             onSend = {
                 val txt = steerState.text.toString().trim()
                 if (txt.isNotEmpty()) {
@@ -1687,16 +1753,19 @@ private fun TaskMetadataPickers(
     projects: List<DirectusProject>,
     unassignedLabel: String,
     currentStatus: String,
+    hasStagedPlan: Boolean,
+    busy: Boolean,
     onAssignProject: (String?) -> Unit,
     onUpdateStatus: (String) -> Unit,
+    onPreparePlan: () -> Unit,
 ) {
     var projectMenuOpen by remember { mutableStateOf(false) }
     var statusMenuOpen by remember { mutableStateOf(false) }
 
     FlowRow(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         DropdownMenu(
             expanded = projectMenuOpen,
@@ -1754,6 +1823,16 @@ private fun TaskMetadataPickers(
                 onClick = { statusMenuOpen = true },
             )
         }
+
+        if (!hasStagedPlan) {
+            ActionPill(
+                icon = Lucide.Sparkles,
+                label = stringResource(Res.string.tasks_prepare_plan),
+                loading = busy,
+                enabled = !busy,
+                onClick = onPreparePlan,
+            )
+        }
     }
 }
 
@@ -1771,13 +1850,56 @@ private fun PickerPill(
             .border(1.dp, Theme[colors][strokeStrong], shape)
             .clickable(role = Role.Button, onClick = onClick)
             .handCursor()
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        UnstyledIcon(icon, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(14.dp))
-        Text(label, style = Theme[typography][bodySmall], color = Theme[colors][textColor], maxLines = 1, overflow = TextOverflow.Ellipsis)
-        UnstyledIcon(Lucide.ChevronDown, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(14.dp))
+        UnstyledIcon(icon, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(13.dp))
+        Text(
+            label,
+            style = Theme[typography][bodySmall],
+            color = Theme[colors][textColor],
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
+        UnstyledIcon(Lucide.ChevronDown, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(13.dp))
+    }
+}
+
+@Composable
+private fun ActionPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    loading: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    Row(
+        Modifier
+            .clip(shape)
+            .background(Theme[colors][surface])
+            .border(1.dp, Theme[colors][strokeStrong], shape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .handCursor(enabled)
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (loading) {
+            Spinner(Modifier.size(13.dp))
+        } else {
+            UnstyledIcon(icon, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(13.dp))
+        }
+        Text(
+            label,
+            style = Theme[typography][bodySmall],
+            color = if (enabled) Theme[colors][textColor] else Theme[colors][textMuted],
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1786,85 +1908,44 @@ private fun PickerPill(
 private fun TaskChannelsSection(
     channels: List<TaskChannel>,
     activeIdx: Int,
-    activeChannel: TaskChannel?,
     busy: Boolean,
     onSelectChannel: (Int) -> Unit,
     onOpenPickSession: () -> Unit,
     onOpenPickRoom: () -> Unit,
-    onOpenFullscreen: (TaskChannel) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(Res.string.tasks_channel_heading).uppercase(),
-                style = Theme[typography][eyebrow],
-                color = Theme[colors][textTertiary],
-            )
-            if (activeChannel != null) {
-                Button(
-                    text = stringResource(Res.string.tasks_open_fullscreen),
-                    onClick = { onOpenFullscreen(activeChannel) },
-                    variant = ButtonVariant.Ghost,
-                    size = ButtonSize.Small,
-                    leadingIcon = Lucide.ExternalLink,
-                )
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        channels.forEachIndexed { idx, ch ->
+            val baseLabel = ch.label.ifBlank { if (ch.isRoom) "Room" else "Session" }
+            val displayLabel = if (ch.isRoom && !baseLabel.startsWith("Room", ignoreCase = true)) {
+                "Room · $baseLabel"
+            } else {
+                baseLabel
             }
-        }
-
-        if (channels.isNotEmpty()) {
-            FlowRow(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                channels.forEachIndexed { idx, ch ->
-                    val baseLabel = ch.label.ifBlank { if (ch.isRoom) "Room" else "Session" }
-                    val displayLabel = if (ch.isRoom && !baseLabel.startsWith("Room", ignoreCase = true)) {
-                        "Room · $baseLabel"
-                    } else {
-                        baseLabel
-                    }
-                    Chip(
-                        text = displayLabel,
-                        selected = idx == activeIdx,
-                        onClick = { onSelectChannel(idx) },
-                    )
-                }
-            }
-        } else {
-            Text(
-                stringResource(Res.string.tasks_no_channel),
-                style = Theme[typography][bodySmall],
-                color = Theme[colors][textSecondary],
+            Chip(
+                text = displayLabel,
+                selected = idx == activeIdx,
+                onClick = { onSelectChannel(idx) },
             )
         }
-
-        FlowRow(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Button(
-                text = stringResource(Res.string.tasks_add_session),
-                onClick = onOpenPickSession,
-                enabled = !busy,
-                variant = ButtonVariant.Secondary,
-                size = ButtonSize.Small,
-                leadingIcon = Lucide.MessageSquare,
-            )
-            Button(
-                text = stringResource(Res.string.tasks_add_room),
-                onClick = onOpenPickRoom,
-                enabled = !busy,
-                variant = ButtonVariant.Secondary,
-                size = ButtonSize.Small,
-                leadingIcon = Lucide.Users,
-            )
-        }
+        ActionPill(
+            icon = Lucide.MessageSquare,
+            label = stringResource(Res.string.tasks_add_session),
+            loading = false,
+            enabled = !busy,
+            onClick = onOpenPickSession,
+        )
+        ActionPill(
+            icon = Lucide.Users,
+            label = stringResource(Res.string.tasks_add_room),
+            loading = false,
+            enabled = !busy,
+            onClick = onOpenPickRoom,
+        )
     }
 }
 
@@ -1874,89 +1955,202 @@ private fun TaskChannelLog(
     loading: Boolean,
     messages: List<ChannelChatLine>,
     error: String?,
+    turnRunning: Boolean,
+    turnStatus: String?,
+    inputRequests: List<InputRequest>,
+    gatewayConnected: Boolean,
     onRefresh: () -> Unit,
+    onOpenFullscreen: (() -> Unit)?,
+    onAnswerRequest: (InputRequest, JsonObject) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
     val scrollState = rememberScrollState()
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val lastTextLen = messages.lastOrNull()?.text?.length ?: 0
+    LaunchedEffect(activeChannel?.id, messages.size, lastTextLen, turnRunning, inputRequests.size) {
+        if (messages.isNotEmpty() || turnRunning || inputRequests.isNotEmpty()) {
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
+
+    Column(modifier) {
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                stringResource(Res.string.tasks_chat_log).uppercase(),
-                style = Theme[typography][eyebrow],
-                color = Theme[colors][textTertiary],
-            )
-            if (activeChannel != null) {
-                IconButton(
-                    Lucide.RefreshCw,
-                    contentDescription = stringResource(Res.string.tasks_chat_log),
-                    onClick = onRefresh,
-                )
-            }
-        }
-
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 72.dp, max = 220.dp)
-                .clip(shape)
-                .background(Theme[colors][surface])
-                .border(1.dp, Theme[colors][stroke], shape)
-                .verticalScroll(scrollState)
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            when {
-                activeChannel == null -> Text(
-                    stringResource(Res.string.tasks_no_channel),
-                    style = Theme[typography][bodySmall],
-                    color = Theme[colors][textMuted],
-                )
-                loading && messages.isEmpty() -> Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Spinner(Modifier.size(14.dp))
-                    Text(stringResource(Res.string.tasks_chat_log), style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
-                }
-                error != null && messages.isEmpty() -> Text(
-                    error,
-                    style = Theme[typography][bodySmall],
-                    color = Theme[colors][danger],
-                )
-                messages.isEmpty() -> Text(
-                    stringResource(Res.string.tasks_chat_empty),
-                    style = Theme[typography][bodySmall],
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(
+                    stringResource(Res.string.tasks_chat_log).uppercase(),
+                    style = Theme[typography][eyebrow],
                     color = Theme[colors][textTertiary],
                 )
-                else -> messages.forEach { line ->
-                    val bubbleShape = RoundedCornerShape(Theme[radii][radiusSmall])
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(bubbleShape)
-                            .background(if (line.fromUser) Theme[colors][accentSoft] else Theme[colors][surface2])
-                            .padding(horizontal = 9.dp, vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        if (!line.fromUser && !line.speaker.isNullOrBlank()) {
-                            Text(
-                                "@${line.speaker}",
-                                style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
-                                color = Theme[colors][accentText],
-                            )
-                        }
-                        Text(
-                            line.text,
-                            style = Theme[typography][bodySmall],
-                            color = Theme[colors][textColor],
+                if (activeChannel != null) {
+                    Text(
+                        activeChannel.label.ifBlank { if (activeChannel.isRoom) "Room" else "Session" },
+                        style = Theme[typography][caption],
+                        color = Theme[colors][textSecondary],
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (activeChannel != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        Lucide.RefreshCw,
+                        contentDescription = stringResource(Res.string.tasks_chat_log),
+                        onClick = onRefresh,
+                    )
+                    if (onOpenFullscreen != null) {
+                        IconButton(
+                            Lucide.ExternalLink,
+                            contentDescription = stringResource(Res.string.tasks_open_fullscreen),
+                            onClick = onOpenFullscreen,
                         )
                     }
                 }
             }
+        }
+
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .scrollbar(scrollState)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                when {
+                    activeChannel == null && messages.isEmpty() && !turnRunning -> {
+                        val hintShape = RoundedCornerShape(Theme[radii][radiusLarge])
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(hintShape)
+                                .background(Theme[colors][surface])
+                                .border(1.dp, Theme[colors][stroke], hintShape)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            UnstyledIcon(Lucide.MessageSquare, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(15.dp))
+                            Text(
+                                stringResource(Res.string.tasks_no_channel),
+                                style = Theme[typography][bodySmall],
+                                color = Theme[colors][textSecondary],
+                            )
+                        }
+                    }
+                    loading && messages.isEmpty() && !turnRunning -> Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spinner(Modifier.size(14.dp))
+                        Text(stringResource(Res.string.tasks_chat_log), style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
+                    }
+                    error != null && messages.isEmpty() && !turnRunning -> {
+                        val errShape = RoundedCornerShape(Theme[radii][radiusLarge])
+                        Text(
+                            error,
+                            style = Theme[typography][bodySmall],
+                            color = Theme[colors][danger],
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(errShape)
+                                .background(Theme[colors][surface])
+                                .border(1.dp, Theme[colors][danger], errShape)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        )
+                    }
+                    messages.isEmpty() && !turnRunning -> Text(
+                        stringResource(Res.string.tasks_chat_empty),
+                        style = Theme[typography][bodySmall],
+                        color = Theme[colors][textTertiary],
+                    )
+                    else -> Unit
+                }
+
+                messages.forEach { line ->
+                    if (line.fromUser) {
+                        val bubbleShape = userBubbleShape()
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                            Box(Modifier.fillMaxWidth(0.86f).wrapContentWidth(Alignment.End)) {
+                                Text(
+                                    line.text,
+                                    style = Theme[typography][bodySmall],
+                                    color = Theme[colors][onUserBubble],
+                                    modifier = Modifier
+                                        .glow(bubbleShape, bubbleGlow(Theme[colors][userBubble]))
+                                        .clip(bubbleShape)
+                                        .background(Theme[colors][userBubble], bubbleShape)
+                                        .padding(horizontal = 13.dp, vertical = 8.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (!line.speaker.isNullOrBlank()) {
+                                Text(
+                                    "@${line.speaker}",
+                                    style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                                    color = Theme[colors][accentText],
+                                )
+                            }
+                            MarkdownText(
+                                text = line.text,
+                                streaming = line.streaming,
+                                textStyle = Theme[typography][bodySmall],
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+
+                if (turnRunning) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spinner(Modifier.size(14.dp))
+                        Text(
+                            turnStatus ?: stringResource(Res.string.chat_thinking),
+                            style = Theme[typography][bodySmall],
+                            color = Theme[colors][accentText],
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                if (inputRequests.isNotEmpty()) {
+                    InputRequestPanel(
+                        requests = inputRequests,
+                        connected = gatewayConnected,
+                        onAnswer = onAnswerRequest,
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+            }
+
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(16.dp)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Theme[colors][sidebarColor]))),
+            )
         }
     }
 }
@@ -1970,8 +2164,9 @@ private fun TaskStagedPlanSection(
     onApprovePlan: (ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
-    val plan = task.stagedPlan
+    val plan = task.stagedPlan ?: return
     val approveFallback = stringResource(Res.string.tasks_approve_action)
+    var expanded by remember(task.id, plan.hashCode()) { mutableStateOf(true) }
 
     Column(
         Modifier
@@ -1983,18 +2178,32 @@ private fun TaskStagedPlanSection(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         FlowRow(
-            Modifier.fillMaxWidth(),
+            Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .handCursor(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalArrangement = Arrangement.spacedBy(8.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                stringResource(Res.string.tasks_plan_heading).uppercase(),
-                style = Theme[typography][eyebrow],
-                color = Theme[colors][textTertiary],
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                UnstyledIcon(
+                    if (expanded) Lucide.ChevronDown else Lucide.ChevronRight,
+                    contentDescription = null,
+                    tint = Theme[colors][textTertiary],
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    stringResource(Res.string.tasks_plan_heading).uppercase(),
+                    style = Theme[typography][eyebrow],
+                    color = Theme[colors][textTertiary],
+                )
+            }
             Button(
-                text = stringResource(if (plan == null) Res.string.tasks_prepare_plan else Res.string.tasks_refresh_plan),
+                text = stringResource(Res.string.tasks_refresh_plan),
                 onClick = onPreparePlan,
                 enabled = !busy,
                 loading = busy,
@@ -2004,13 +2213,7 @@ private fun TaskStagedPlanSection(
             )
         }
 
-        if (plan == null) {
-            Text(
-                stringResource(Res.string.tasks_no_plan),
-                style = Theme[typography][bodySmall],
-                color = Theme[colors][textSecondary],
-            )
-        } else {
+        if (expanded) {
             val params = remember(plan.params) {
                 plan.params.map { ReplyInteraction.Param(key = it.key, label = it.label, options = it.options, defaultValue = it.default) }
             }
@@ -2043,37 +2246,72 @@ private fun TaskStagedPlanSection(
 }
 
 @Composable
-private fun QuickSteerBar(
+private fun TaskChatComposer(
     state: TextFieldState,
-    sending: Boolean,
+    connected: Boolean,
     onSend: () -> Unit,
 ) {
-    Row(
+    val keyboardUp = imeVisible
+    var focused by remember { mutableStateOf(false) }
+    val canSend = state.text.toString().isNotBlank() && connected
+    val shape = RoundedCornerShape(Theme[radii][radiusXLarge])
+    Column(
         Modifier
             .fillMaxWidth()
             .imePadding()
-            .border(1.dp, Theme[colors][stroke], RoundedCornerShape(0.dp))
-            .background(Theme[colors][surface])
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = if (keyboardUp) 8.dp else 12.dp),
     ) {
-        TextField(
-            state = state,
-            placeholder = stringResource(Res.string.tasks_quick_steer_hint),
-            singleLine = true,
-            enabled = !sending,
-            onKeyboardAction = { onSend() },
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(
-            Lucide.Send,
-            contentDescription = stringResource(Res.string.tasks_send),
-            onClick = onSend,
-            enabled = !sending && state.text.toString().isNotBlank(),
-            tint = Theme[colors][onAccent],
-            containerColor = Theme[colors][accent],
-        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .dropShadow(shape, DockShadow)
+                .clip(shape)
+                .background(Theme[colors][surface], shape)
+                .border(1.dp, if (focused) Theme[colors][textTertiary] else Theme[colors][strokeStrong], shape)
+                .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            UnstyledTextField(
+                state = state,
+                textStyle = Theme[typography][bodySmall],
+                textColor = Theme[colors][textColor],
+                cursorBrush = SolidColor(Theme[colors][accent]),
+                selectionColors = LocalTextSelectionColors.current,
+                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 4),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 30.dp)
+                    .padding(vertical = 5.dp)
+                    .onFocusChanged { focused = it.isFocused }
+                    .onPreviewKeyEvent { event ->
+                        if (composerKey(event) == ComposerKey.Send && canSend) {
+                            onSend()
+                            true
+                        } else {
+                            false
+                        }
+                    },
+            ) {
+                TextInput(
+                    placeholder = {
+                        Text(
+                            stringResource(Res.string.tasks_quick_steer_hint),
+                            style = Theme[typography][bodySmall],
+                            color = Theme[colors][textTertiary],
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                )
+            }
+            SendButton(
+                icon = SendIcon.Send,
+                onClick = onSend,
+                enabled = canSend,
+            )
+        }
     }
 }
 

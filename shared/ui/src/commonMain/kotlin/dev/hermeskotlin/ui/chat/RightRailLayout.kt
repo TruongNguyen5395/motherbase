@@ -187,6 +187,7 @@ internal fun RightRailLayout(
                             .width(shownWidth)
                             .fillMaxHeight()
                             .clipToBounds()
+                            .background(Theme[colors][sidebarColor])
                             .then(hidden),
                     ) {
                         Box(Modifier.requiredWidth(width).fillMaxHeight().align(Alignment.CenterStart)) {
