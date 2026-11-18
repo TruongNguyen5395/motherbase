@@ -288,7 +288,9 @@ class DesktopPdfTest {
             }
             onNodeWithText("2 pages", substring = true).assertExists()
             runOnIdle { expanded = true }
-            waitForIdle()
+            waitUntil(timeoutMillis = 10_000) {
+                onAllNodesWithText("2 pages", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
             assertEquals(1, streams)
             runOnIdle { visible = false }
             waitForIdle()
