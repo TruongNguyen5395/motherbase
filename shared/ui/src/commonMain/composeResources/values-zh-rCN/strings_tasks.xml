@@ -2,8 +2,8 @@
 <resources>
     <string name="tasks_title">任务</string>
     <string name="tasks_subtitle">Directus 指挥看板</string>
-    <string name="tasks_priority_toggle">优先审批栏</string>
-    <string name="tasks_priority_section">待决策 (%1$d)</string>
+    <string name="tasks_priority_toggle">需要关注</string>
+    <string name="tasks_priority_section">需要关注 (%1$d)</string>
     <string name="tasks_unassigned_project">未分配项目</string>
     <string name="tasks_show_done">显示已完成</string>
     <string name="tasks_hide_done">隐藏已完成</string>
@@ -54,4 +54,24 @@
     <string name="tasks_close_inspector">关闭详情</string>
     <string name="tasks_error_load">无法加载任务</string>
     <string name="tasks_plugin_missing">当前网关未启用 Directus 插件</string>
+    <string name="tasks_attention_plans">待审批 (%1$d)</string>
+    <string name="tasks_attention_risks">阻塞或已逾期 (%1$d)</string>
+    <string name="tasks_attention_empty_compact">需要关注 (0) · 暂无待批方案或逾期阻塞任务</string>
+    <string name="tasks_attention_more">另有 %1$d 项阻塞或逾期</string>
+    <string name="tasks_all_projects">全部项目 (%1$d)</string>
+    <string name="tasks_focus_group_workstream">按工作组</string>
+    <string name="tasks_focus_group_status">按状态</string>
+    <string name="tasks_show_more_tasks">展开其余 %1$d 项</string>
+    <string name="tasks_show_fewer_tasks">收起</string>
+    <string name="tasks_open_focus">聚焦</string>
+    <string name="tasks_overdue_days">逾期 %1$d 天</string>
+    <string name="tasks_due_date_short">截止 %1$s</string>
+    <string name="tasks_due_today">今日截止</string>
+    <string name="tasks_standalone_group">独立任务</string>
+    <string name="tasks_status_blocked_or_overdue">阻塞 / 逾期</string>
+    <string name="tasks_status_in_progress">进行中</string>
+    <string name="tasks_status_todo">待办</string>
+    <string name="tasks_status_done">已完成</string>
+    <string name="tasks_attention_count">%1$d 关注</string>
+    <string name="tasks_project_empty">该项目中暂无未完成任务。</string>
 </resources>

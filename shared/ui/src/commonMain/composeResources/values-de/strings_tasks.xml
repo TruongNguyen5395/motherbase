@@ -2,8 +2,8 @@
 <resources>
     <string name="tasks_title">Aufgaben</string>
     <string name="tasks_subtitle">Directus Command Board</string>
-    <string name="tasks_priority_toggle">Prioritätsleiste</string>
-    <string name="tasks_priority_section">Wartet auf Entscheidung (%1$d)</string>
+    <string name="tasks_priority_toggle">Handlungsbedarf</string>
+    <string name="tasks_priority_section">Handlungsbedarf (%1$d)</string>
     <string name="tasks_unassigned_project">Ohne Projekt</string>
     <string name="tasks_show_done">Erledigte zeigen</string>
     <string name="tasks_hide_done">Erledigte ausblenden</string>
@@ -54,4 +54,24 @@
     <string name="tasks_close_inspector">Details schließen</string>
     <string name="tasks_error_load">Aufgaben konnten nicht geladen werden</string>
     <string name="tasks_plugin_missing">Directus-Plugin auf diesem Gateway nicht verfügbar</string>
+    <string name="tasks_attention_plans">Wartet auf Freigabe (%1$d)</string>
+    <string name="tasks_attention_risks">Blockiert oder überfällig (%1$d)</string>
+    <string name="tasks_attention_empty_compact">Handlungsbedarf (0) · Keine offenen Pläne oder überfälligen Aufgaben</string>
+    <string name="tasks_attention_more">+%1$d weitere blockiert oder überfällig</string>
+    <string name="tasks_all_projects">Alle Projekte (%1$d)</string>
+    <string name="tasks_focus_group_workstream">Nach Arbeitsbereich</string>
+    <string name="tasks_focus_group_status">Nach Status</string>
+    <string name="tasks_show_more_tasks">+%1$d weitere</string>
+    <string name="tasks_show_fewer_tasks">Weniger anzeigen</string>
+    <string name="tasks_open_focus">Fokus</string>
+    <string name="tasks_overdue_days">%1$dT überfällig</string>
+    <string name="tasks_due_date_short">Fällig %1$s</string>
+    <string name="tasks_due_today">Heute fällig</string>
+    <string name="tasks_standalone_group">Einzelaufgaben</string>
+    <string name="tasks_status_blocked_or_overdue">Blockiert / Überfällig</string>
+    <string name="tasks_status_in_progress">In Arbeit</string>
+    <string name="tasks_status_todo">Offen</string>
+    <string name="tasks_status_done">Erledigt</string>
+    <string name="tasks_attention_count">%1$d Hinweis</string>
+    <string name="tasks_project_empty">Keine offenen Aufgaben in diesem Projekt.</string>
 </resources>

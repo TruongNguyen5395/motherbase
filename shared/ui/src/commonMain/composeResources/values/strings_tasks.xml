@@ -2,8 +2,8 @@
 <resources>
     <string name="tasks_title">Tasks</string>
     <string name="tasks_subtitle">Directus Command Board</string>
-    <string name="tasks_priority_toggle">Priority strip</string>
-    <string name="tasks_priority_section">Needs decision (%1$d)</string>
+    <string name="tasks_priority_toggle">Needs attention</string>
+    <string name="tasks_priority_section">Needs attention (%1$d)</string>
     <string name="tasks_unassigned_project">Unassigned project</string>
     <string name="tasks_show_done">Show done</string>
     <string name="tasks_hide_done">Hide done</string>
@@ -54,4 +54,24 @@
     <string name="tasks_close_inspector">Close details</string>
     <string name="tasks_error_load">Could not load tasks</string>
     <string name="tasks_plugin_missing">Directus plugin not available on this gateway</string>
+    <string name="tasks_attention_plans">Waiting for approval (%1$d)</string>
+    <string name="tasks_attention_risks">Blocked or overdue (%1$d)</string>
+    <string name="tasks_attention_empty_compact">Needs attention (0) · No pending plans or blocked/overdue tasks</string>
+    <string name="tasks_attention_more">+%1$d more blocked or overdue</string>
+    <string name="tasks_all_projects">All projects (%1$d)</string>
+    <string name="tasks_focus_group_workstream">By workstream</string>
+    <string name="tasks_focus_group_status">By status</string>
+    <string name="tasks_show_more_tasks">+%1$d more</string>
+    <string name="tasks_show_fewer_tasks">Show fewer</string>
+    <string name="tasks_open_focus">Focus</string>
+    <string name="tasks_overdue_days">Overdue %1$dd</string>
+    <string name="tasks_due_date_short">Due %1$s</string>
+    <string name="tasks_due_today">Due today</string>
+    <string name="tasks_standalone_group">Standalone tasks</string>
+    <string name="tasks_status_blocked_or_overdue">Blocked / Overdue</string>
+    <string name="tasks_status_in_progress">In progress</string>
+    <string name="tasks_status_todo">Todo</string>
+    <string name="tasks_status_done">Done</string>
+    <string name="tasks_attention_count">%1$d alert</string>
+    <string name="tasks_project_empty">No open tasks in this project.</string>
 </resources>

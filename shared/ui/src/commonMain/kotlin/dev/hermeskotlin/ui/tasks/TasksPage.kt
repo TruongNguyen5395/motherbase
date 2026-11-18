@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -50,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.composables.icons.lucide.Bot
 import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.CircleDot
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Folder
@@ -104,6 +106,7 @@ import dev.hermeskotlin.designsystem.components.TextField
 import dev.hermeskotlin.designsystem.components.handCursor
 import dev.hermeskotlin.designsystem.components.verticalScrollWithBar
 import dev.hermeskotlin.designsystem.danger
+import dev.hermeskotlin.designsystem.dangerSoft
 import dev.hermeskotlin.designsystem.eyebrow
 import dev.hermeskotlin.designsystem.heading
 import dev.hermeskotlin.designsystem.label as labelStyle
@@ -146,6 +149,10 @@ internal data class TasksBoardActions(
     val onSaveConfig: (url: String, token: String) -> Unit = { _, _ -> },
     val onTogglePriorityStrip: (Boolean) -> Unit = {},
     val onToggleIncludeDone: () -> Unit = {},
+    val onFocusProject: (String?) -> Unit = {},
+    val onSetFocusGrouping: (TaskFocusGrouping) -> Unit = {},
+    val onToggleProjectExpanded: (String) -> Unit = {},
+    val onToggleWorkstreamCollapsed: (String) -> Unit = {},
     val onSelectTask: (String?) -> Unit = {},
     val onSelectChannel: (Int) -> Unit = {},
     val onRefreshChannel: () -> Unit = {},
@@ -163,6 +170,7 @@ internal data class TasksBoardActions(
 )
 
 private val BENTO_TWO_COL_THRESHOLD = 620.dp
+private val KANBAN_THREE_COL_THRESHOLD = 840.dp
 private val PRIORITY_OPTIONS = listOf("low", "medium", "high", "urgent")
 private val STATUS_OPTIONS = listOf(
     DirectusTask.STATUS_TODO,
@@ -219,6 +227,10 @@ internal fun TasksPage(
             onSaveConfig = viewModel::saveConfig,
             onTogglePriorityStrip = viewModel::togglePriorityStrip,
             onToggleIncludeDone = viewModel::toggleIncludeDone,
+            onFocusProject = viewModel::focusProject,
+            onSetFocusGrouping = viewModel::setFocusGrouping,
+            onToggleProjectExpanded = viewModel::toggleProjectExpanded,
+            onToggleWorkstreamCollapsed = viewModel::toggleWorkstreamCollapsed,
             onSelectTask = viewModel::selectTask,
             onSelectChannel = viewModel::selectChannel,
             onRefreshChannel = viewModel::refreshActiveChannel,
@@ -344,10 +356,11 @@ internal fun TasksBoardContent(
 
             if (configured) {
                 BoardControlsBar(
-                    showPriorityStrip = state.showPriorityStrip,
-                    includeDone = state.includeDone,
+                    state = state,
                     onTogglePriorityStrip = actions.onTogglePriorityStrip,
                     onToggleIncludeDone = actions.onToggleIncludeDone,
+                    onFocusProject = actions.onFocusProject,
+                    onSetFocusGrouping = actions.onSetFocusGrouping,
                 )
             }
 
@@ -396,6 +409,9 @@ internal fun TasksBoardContent(
                         state = state,
                         onSelectTask = selectAndOpen,
                         onNewTask = { newTaskOpen = true },
+                        onFocusProject = actions.onFocusProject,
+                        onToggleProjectExpanded = actions.onToggleProjectExpanded,
+                        onToggleWorkstreamCollapsed = actions.onToggleWorkstreamCollapsed,
                     )
                 }
             }
@@ -465,41 +481,92 @@ internal fun TasksBoardContent(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BoardControlsBar(
-    showPriorityStrip: Boolean,
-    includeDone: Boolean,
+    state: TasksUiState,
     onTogglePriorityStrip: (Boolean) -> Unit,
     onToggleIncludeDone: () -> Unit,
+    onFocusProject: (String?) -> Unit,
+    onSetFocusGrouping: (TaskFocusGrouping) -> Unit,
 ) {
-    FlowRow(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        itemVerticalAlignment = Alignment.CenterVertically,
+    val buckets = remember(state.projects, state.tasks, state.todayEpochDay) {
+        buildProjectBuckets(state.projects, state.tasks, state.todayEpochDay)
+    }
+    val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
+
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(
-            Modifier
-                .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
-                .background(Theme[colors][surface])
-                .border(1.dp, Theme[colors][stroke], RoundedCornerShape(Theme[radii][radiusMedium]))
-                .toggleable(value = showPriorityStrip, role = Role.Switch, onValueChange = onTogglePriorityStrip)
-                .handCursor()
-                .padding(horizontal = 12.dp, vertical = 7.dp),
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                stringResource(Res.string.tasks_priority_toggle),
-                style = Theme[typography][labelStyle],
-                color = Theme[colors][textColor],
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+                    .background(Theme[colors][surface])
+                    .border(1.dp, Theme[colors][stroke], RoundedCornerShape(Theme[radii][radiusMedium]))
+                    .toggleable(value = state.showPriorityStrip, role = Role.Switch, onValueChange = onTogglePriorityStrip)
+                    .handCursor()
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(Res.string.tasks_priority_toggle),
+                    style = Theme[typography][labelStyle],
+                    color = Theme[colors][textColor],
+                )
+                Switch(checked = state.showPriorityStrip)
+            }
+
+            Chip(
+                text = stringResource(if (state.includeDone) Res.string.tasks_hide_done else Res.string.tasks_show_done),
+                selected = state.includeDone,
+                onClick = onToggleIncludeDone,
             )
-            Switch(checked = showPriorityStrip)
+
+            if (state.focusedProjectId != null) {
+                Chip(
+                    text = stringResource(Res.string.tasks_focus_group_workstream),
+                    selected = state.focusGrouping == TaskFocusGrouping.WORKSTREAM,
+                    onClick = { onSetFocusGrouping(TaskFocusGrouping.WORKSTREAM) },
+                )
+                Chip(
+                    text = stringResource(Res.string.tasks_focus_group_status),
+                    selected = state.focusGrouping == TaskFocusGrouping.STATUS,
+                    onClick = { onSetFocusGrouping(TaskFocusGrouping.STATUS) },
+                )
+            }
         }
 
-        Chip(
-            text = stringResource(if (includeDone) Res.string.tasks_hide_done else Res.string.tasks_show_done),
-            selected = includeDone,
-            onClick = onToggleIncludeDone,
-        )
+        if (buckets.isNotEmpty()) {
+            LazyRow(
+                Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item(key = "scope-all") {
+                    Chip(
+                        text = stringResource(Res.string.tasks_all_projects, state.tasks.size),
+                        selected = state.focusedProjectId == null,
+                        onClick = { onFocusProject(null) },
+                    )
+                }
+                items(buckets.size, key = { idx -> "scope-${buckets[idx].key}" }) { idx ->
+                    val bucket = buckets[idx]
+                    val label = bucket.project?.name ?: unassignedLabel
+                    val active = state.focusedProjectId == bucket.key
+                    Chip(
+                        text = label,
+                        count = bucket.tasks.size,
+                        selected = active,
+                        onClick = { onFocusProject(if (active) null else bucket.key) },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -595,25 +662,30 @@ private fun BoardScrollGrid(
     state: TasksUiState,
     onSelectTask: (String?) -> Unit,
     onNewTask: () -> Unit,
+    onFocusProject: (String?) -> Unit,
+    onToggleProjectExpanded: (String) -> Unit,
+    onToggleWorkstreamCollapsed: (String) -> Unit,
 ) {
-    val activeProjects = remember(state.projects) { state.projects.filterNot { it.archived } }
-    val projectById = remember(activeProjects) { activeProjects.associateBy { it.id } }
     val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
-
-    val projectBuckets = remember(activeProjects, state.tasks) {
-        val grouped = state.tasks.groupBy { task -> task.projectId?.takeIf { it in projectById } }
-        buildList<Pair<DirectusProject?, List<DirectusTask>>> {
-            activeProjects.forEach { project ->
-                add(project to grouped[project.id].orEmpty())
-            }
-            val unassigned = grouped[null].orEmpty()
-            if (unassigned.isNotEmpty() || activeProjects.isEmpty()) {
-                add(null to unassigned)
-            }
+    val standaloneLabel = stringResource(Res.string.tasks_standalone_group)
+    val buckets = remember(state.projects, state.tasks, state.todayEpochDay) {
+        buildProjectBuckets(state.projects, state.tasks, state.todayEpochDay)
+    }
+    val projectById = remember(buckets) {
+        buckets.mapNotNull { it.project }.associateBy { it.id }
+    }
+    val focusedBucket = remember(buckets, state.focusedProjectId) {
+        state.focusedProjectId?.let { fid -> buckets.firstOrNull { it.key == fid } }
+    }
+    val stripSplit = remember(focusedBucket, state.tasks, state.todayEpochDay) {
+        if (focusedBucket != null) {
+            buildAttentionSplit(focusedBucket.tasks, state.todayEpochDay)
+        } else {
+            state.attentionSplit
         }
     }
 
-    if (state.tasks.isEmpty() && activeProjects.isEmpty()) {
+    if (state.tasks.isEmpty() && buckets.all { it.project == null }) {
         EmptyState(
             icon = Lucide.ListTodo,
             title = stringResource(Res.string.tasks_empty_board),
@@ -631,17 +703,20 @@ private fun BoardScrollGrid(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val columns = if (maxWidth >= BENTO_TWO_COL_THRESHOLD) 2 else 1
+        val kanbanWide = maxWidth >= KANBAN_THREE_COL_THRESHOLD
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (state.showPriorityStrip) {
-                item(key = "priority-strip") {
-                    PriorityStripSection(
-                        tasks = state.priorityTasks,
+                item(key = "attention-strip") {
+                    AttentionStripSection(
+                        split = stripSplit,
                         projectById = projectById,
                         unassignedLabel = unassignedLabel,
+                        todayEpochDay = state.todayEpochDay,
+                        twoColumns = columns == 2,
                         selectedTaskId = state.selectedTaskId,
                         busyTaskIds = state.busyTaskIds,
                         onSelectTask = onSelectTask,
@@ -649,38 +724,103 @@ private fun BoardScrollGrid(
                 }
             }
 
-            if (columns == 2) {
-                val rows = projectBuckets.chunked(2)
-                items(rows.size, key = { idx -> rows[idx].joinToString("-") { it.first?.id ?: "unassigned" } }) { idx ->
-                    val pair = rows[idx]
+            if (focusedBucket != null) {
+                item(key = "focus-header-${focusedBucket.key}") {
+                    FocusedProjectHeader(
+                        project = focusedBucket.project,
+                        projectLabel = focusedBucket.project?.name ?: unassignedLabel,
+                        taskCount = focusedBucket.tasks.size,
+                        onClearFocus = { onFocusProject(null) },
+                    )
+                }
+
+                if (focusedBucket.tasks.isEmpty()) {
+                    item(key = "focus-empty-${focusedBucket.key}") {
+                        Text(
+                            stringResource(Res.string.tasks_project_empty),
+                            style = Theme[typography][bodySmall],
+                            color = Theme[colors][textSecondary],
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                } else if (state.focusGrouping == TaskFocusGrouping.WORKSTREAM) {
+                    val workstreams = buildWorkstreamGroups(
+                        tasks = focusedBucket.tasks,
+                        todayEpochDay = state.todayEpochDay,
+                        standaloneTitle = standaloneLabel,
+                    )
+                    items(workstreams.size, key = { idx -> "wg-${workstreams[idx].key}" }) { idx ->
+                        val group = workstreams[idx]
+                        WorkstreamSectionCard(
+                            group = group,
+                            projectLabel = focusedBucket.project?.name ?: unassignedLabel,
+                            todayEpochDay = state.todayEpochDay,
+                            twoColumns = columns == 2,
+                            collapsed = group.key in state.collapsedWorkstreamKeys,
+                            selectedTaskId = state.selectedTaskId,
+                            busyTaskIds = state.busyTaskIds,
+                            onToggleCollapse = { onToggleWorkstreamCollapsed(group.key) },
+                            onSelectTask = onSelectTask,
+                        )
+                    }
+                } else {
+                    item(key = "focus-kanban-${focusedBucket.key}") {
+                        StatusKanbanBoard(
+                            tasks = focusedBucket.tasks,
+                            projectLabel = focusedBucket.project?.name ?: unassignedLabel,
+                            todayEpochDay = state.todayEpochDay,
+                            includeDone = state.includeDone,
+                            wideThreeCols = kanbanWide,
+                            selectedTaskId = state.selectedTaskId,
+                            busyTaskIds = state.busyTaskIds,
+                            onSelectTask = onSelectTask,
+                        )
+                    }
+                }
+            } else if (columns == 2) {
+                val (leftBuckets, rightBuckets) = distributeBentoMasonry(
+                    buckets = buckets,
+                    expandedProjectIds = state.expandedProjectIds,
+                    previewLimit = DEFAULT_PROJECT_PREVIEW_LIMIT,
+                )
+                item(key = "bento-masonry") {
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        pair.forEach { (project, bucketTasks) ->
-                            ProjectBentoCard(
-                                project = project,
-                                projectLabel = project?.name ?: unassignedLabel,
-                                tasks = bucketTasks,
-                                selectedTaskId = state.selectedTaskId,
-                                busyTaskIds = state.busyTaskIds,
-                                onSelectTask = onSelectTask,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        BentoColumnStack(
+                            buckets = leftBuckets,
+                            state = state,
+                            unassignedLabel = unassignedLabel,
+                            onSelectTask = onSelectTask,
+                            onToggleProjectExpanded = onToggleProjectExpanded,
+                            onFocusProject = onFocusProject,
+                            modifier = Modifier.weight(1f),
+                        )
+                        BentoColumnStack(
+                            buckets = rightBuckets,
+                            state = state,
+                            unassignedLabel = unassignedLabel,
+                            onSelectTask = onSelectTask,
+                            onToggleProjectExpanded = onToggleProjectExpanded,
+                            onFocusProject = onFocusProject,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             } else {
-                items(projectBuckets.size, key = { idx -> projectBuckets[idx].first?.id ?: "unassigned" }) { idx ->
-                    val (project, bucketTasks) = projectBuckets[idx]
+                items(buckets.size, key = { idx -> buckets[idx].key }) { idx ->
+                    val bucket = buckets[idx]
                     ProjectBentoCard(
-                        project = project,
-                        projectLabel = project?.name ?: unassignedLabel,
-                        tasks = bucketTasks,
+                        bucket = bucket,
+                        projectLabel = bucket.project?.name ?: unassignedLabel,
+                        todayEpochDay = state.todayEpochDay,
+                        expanded = bucket.key in state.expandedProjectIds,
                         selectedTaskId = state.selectedTaskId,
                         busyTaskIds = state.busyTaskIds,
                         onSelectTask = onSelectTask,
+                        onToggleExpand = { onToggleProjectExpanded(bucket.key) },
+                        onFocusProject = { onFocusProject(bucket.key) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -689,22 +829,45 @@ private fun BoardScrollGrid(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PriorityStripSection(
-    tasks: List<DirectusTask>,
+private fun AttentionStripSection(
+    split: AttentionSplit,
     projectById: Map<String, DirectusProject>,
     unassignedLabel: String,
+    todayEpochDay: Long,
+    twoColumns: Boolean,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
     onSelectTask: (String?) -> Unit,
 ) {
+    if (split.isEmpty) {
+        val compactShape = RoundedCornerShape(Theme[radii][radiusMedium])
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(compactShape)
+                .background(Theme[colors][surface])
+                .border(1.dp, Theme[colors][stroke], compactShape)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(Theme[colors][success]))
+            Text(
+                stringResource(Res.string.tasks_attention_empty_compact),
+                style = Theme[typography][bodySmall],
+                color = Theme[colors][textSecondary],
+            )
+        }
+        return
+    }
+
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
     Column(
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Theme[colors][warningSoft].copy(alpha = 0.55f))
+            .background(Theme[colors][warningSoft].copy(alpha = 0.45f))
             .border(1.dp, Theme[colors][warning].copy(alpha = 0.4f), shape)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -715,51 +878,376 @@ private fun PriorityStripSection(
         ) {
             UnstyledIcon(Lucide.Sparkles, contentDescription = null, tint = Theme[colors][warning], modifier = Modifier.size(16.dp))
             Text(
-                stringResource(Res.string.tasks_priority_section, tasks.size).uppercase(),
+                stringResource(Res.string.tasks_priority_section, split.totalCount).uppercase(),
                 style = Theme[typography][eyebrow],
                 color = Theme[colors][textColor],
             )
         }
-        if (tasks.isEmpty()) {
-            Text(
-                stringResource(Res.string.tasks_empty_priority),
-                style = Theme[typography][bodySmall],
-                color = Theme[colors][textSecondary],
-            )
-        } else {
-            FlowRow(
+
+        if (twoColumns && split.plansReady.isNotEmpty() && split.riskAlerts.isNotEmpty()) {
+            Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                tasks.forEach { task ->
-                    val projectName = task.projectId?.let { projectById[it]?.name } ?: unassignedLabel
-                    TaskPill(
-                        task = task,
-                        projectName = projectName,
-                        selected = task.id == selectedTaskId,
-                        busy = task.id in busyTaskIds,
-                        onClick = { onSelectTask(task.id) },
-                        modifier = Modifier.widthIn(min = 240.dp, max = 380.dp),
-                    )
-                }
+                AttentionSubgroupColumn(
+                    heading = stringResource(Res.string.tasks_attention_plans, split.plansReady.size),
+                    headingColor = Theme[colors][warning],
+                    tasks = split.plansReady,
+                    extraCount = 0,
+                    projectById = projectById,
+                    unassignedLabel = unassignedLabel,
+                    todayEpochDay = todayEpochDay,
+                    selectedTaskId = selectedTaskId,
+                    busyTaskIds = busyTaskIds,
+                    onSelectTask = onSelectTask,
+                    modifier = Modifier.weight(1f),
+                )
+                AttentionSubgroupColumn(
+                    heading = stringResource(Res.string.tasks_attention_risks, split.riskAlerts.size + split.extraRiskCount),
+                    headingColor = Theme[colors][danger],
+                    tasks = split.riskAlerts,
+                    extraCount = split.extraRiskCount,
+                    projectById = projectById,
+                    unassignedLabel = unassignedLabel,
+                    todayEpochDay = todayEpochDay,
+                    selectedTaskId = selectedTaskId,
+                    busyTaskIds = busyTaskIds,
+                    onSelectTask = onSelectTask,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else {
+            if (split.plansReady.isNotEmpty()) {
+                AttentionSubgroupColumn(
+                    heading = stringResource(Res.string.tasks_attention_plans, split.plansReady.size),
+                    headingColor = Theme[colors][warning],
+                    tasks = split.plansReady,
+                    extraCount = 0,
+                    projectById = projectById,
+                    unassignedLabel = unassignedLabel,
+                    todayEpochDay = todayEpochDay,
+                    selectedTaskId = selectedTaskId,
+                    busyTaskIds = busyTaskIds,
+                    onSelectTask = onSelectTask,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (split.riskAlerts.isNotEmpty()) {
+                AttentionSubgroupColumn(
+                    heading = stringResource(Res.string.tasks_attention_risks, split.riskAlerts.size + split.extraRiskCount),
+                    headingColor = Theme[colors][danger],
+                    tasks = split.riskAlerts,
+                    extraCount = split.extraRiskCount,
+                    projectById = projectById,
+                    unassignedLabel = unassignedLabel,
+                    todayEpochDay = todayEpochDay,
+                    selectedTaskId = selectedTaskId,
+                    busyTaskIds = busyTaskIds,
+                    onSelectTask = onSelectTask,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ProjectBentoCard(
+private fun AttentionSubgroupColumn(
+    heading: String,
+    headingColor: Color,
+    tasks: List<DirectusTask>,
+    extraCount: Int,
+    projectById: Map<String, DirectusProject>,
+    unassignedLabel: String,
+    todayEpochDay: Long,
+    selectedTaskId: String?,
+    busyTaskIds: Set<String>,
+    onSelectTask: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            heading,
+            style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
+            color = headingColor,
+        )
+        tasks.forEach { task ->
+            val projectName = task.projectId?.let { projectById[it]?.name } ?: unassignedLabel
+            TaskPill(
+                task = task,
+                projectName = projectName,
+                showProjectBadge = true,
+                todayEpochDay = todayEpochDay,
+                selected = task.id == selectedTaskId,
+                busy = task.id in busyTaskIds,
+                onClick = { onSelectTask(task.id) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (extraCount > 0) {
+            Text(
+                stringResource(Res.string.tasks_attention_more, extraCount),
+                style = Theme[typography][caption],
+                color = Theme[colors][textSecondary],
+            )
+        }
+    }
+}
+
+@Composable
+private fun BentoColumnStack(
+    buckets: List<ProjectBucket>,
+    state: TasksUiState,
+    unassignedLabel: String,
+    onSelectTask: (String?) -> Unit,
+    onToggleProjectExpanded: (String) -> Unit,
+    onFocusProject: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        buckets.forEach { bucket ->
+            ProjectBentoCard(
+                bucket = bucket,
+                projectLabel = bucket.project?.name ?: unassignedLabel,
+                todayEpochDay = state.todayEpochDay,
+                expanded = bucket.key in state.expandedProjectIds,
+                selectedTaskId = state.selectedTaskId,
+                busyTaskIds = state.busyTaskIds,
+                onSelectTask = onSelectTask,
+                onToggleExpand = { onToggleProjectExpanded(bucket.key) },
+                onFocusProject = { onFocusProject(bucket.key) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FocusedProjectHeader(
     project: DirectusProject?,
     projectLabel: String,
+    taskCount: Int,
+    onClearFocus: () -> Unit,
+) {
+    val dotColor = project?.color?.let(::parseHexColorOrNull) ?: Theme[colors][accent]
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(9.dp).clip(CircleShape).background(dotColor))
+            Text(
+                projectLabel,
+                style = Theme[typography][heading],
+                color = Theme[colors][textColor],
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                stringResource(Res.string.tasks_project_count, taskCount),
+                style = Theme[typography][code].copy(fontSize = 11.sp),
+                color = Theme[colors][textTertiary],
+            )
+            IconButton(
+                Lucide.X,
+                contentDescription = stringResource(Res.string.tasks_all_projects, taskCount),
+                onClick = onClearFocus,
+            )
+        }
+        if (!project?.workspaceCwd.isNullOrBlank()) {
+            Text(
+                project?.workspaceCwd.orEmpty(),
+                style = Theme[typography][code].copy(fontSize = 11.sp),
+                color = Theme[colors][textMuted],
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkstreamSectionCard(
+    group: WorkstreamGroup,
+    projectLabel: String,
+    todayEpochDay: Long,
+    twoColumns: Boolean,
+    collapsed: Boolean,
+    selectedTaskId: String?,
+    busyTaskIds: Set<String>,
+    onToggleCollapse: () -> Unit,
+    onSelectTask: (String?) -> Unit,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Theme[colors][surface])
+            .border(1.dp, Theme[colors][stroke], shape),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClick = onToggleCollapse)
+                .handCursor()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            UnstyledIcon(
+                if (collapsed) Lucide.ChevronRight else Lucide.ChevronDown,
+                contentDescription = null,
+                tint = Theme[colors][textTertiary],
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                group.title,
+                style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
+                color = Theme[colors][textColor],
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (group.alertCount > 0) {
+                MiniBadge(
+                    text = stringResource(Res.string.tasks_attention_count, group.alertCount),
+                    backgroundColor = Theme[colors][dangerSoft],
+                    contentColor = Theme[colors][danger],
+                )
+            }
+            Text(
+                stringResource(Res.string.tasks_project_count, group.tasks.size),
+                style = Theme[typography][code].copy(fontSize = 11.sp),
+                color = Theme[colors][textTertiary],
+            )
+        }
+
+        if (!collapsed) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (twoColumns && group.tasks.size > 1) {
+                    group.tasks.chunked(2).forEach { pair ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            pair.forEach { task ->
+                                TaskPill(
+                                    task = task,
+                                    projectName = projectLabel,
+                                    showProjectBadge = false,
+                                    todayEpochDay = todayEpochDay,
+                                    selected = task.id == selectedTaskId,
+                                    busy = task.id in busyTaskIds,
+                                    onClick = { onSelectTask(task.id) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                } else {
+                    group.tasks.forEach { task ->
+                        TaskPill(
+                            task = task,
+                            projectName = projectLabel,
+                            showProjectBadge = false,
+                            todayEpochDay = todayEpochDay,
+                            selected = task.id == selectedTaskId,
+                            busy = task.id in busyTaskIds,
+                            onClick = { onSelectTask(task.id) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class KanbanBucket(
+    val title: String,
+    val tasks: List<DirectusTask>,
+    val accentColor: Color,
+)
+
+@Composable
+private fun StatusKanbanBoard(
     tasks: List<DirectusTask>,
+    projectLabel: String,
+    todayEpochDay: Long,
+    includeDone: Boolean,
+    wideThreeCols: Boolean,
+    selectedTaskId: String?,
+    busyTaskIds: Set<String>,
+    onSelectTask: (String?) -> Unit,
+) {
+    val blockedOrOverdue = tasks.filter { it.status != DirectusTask.STATUS_DONE && isAttentionRisk(it, todayEpochDay) }
+    val inProgress = tasks.filter { it.status == DirectusTask.STATUS_IN_PROGRESS && !isAttentionRisk(it, todayEpochDay) }
+    val todo = tasks.filter { it.status == DirectusTask.STATUS_TODO && !isAttentionRisk(it, todayEpochDay) }
+    val done = if (includeDone) tasks.filter { it.status == DirectusTask.STATUS_DONE } else emptyList()
+
+    val columns = buildList {
+        add(KanbanBucket(stringResource(Res.string.tasks_status_blocked_or_overdue), blockedOrOverdue, Theme[colors][danger]))
+        add(KanbanBucket(stringResource(Res.string.tasks_status_in_progress), inProgress, Theme[colors][accent]))
+        add(KanbanBucket(stringResource(Res.string.tasks_status_todo), todo, Theme[colors][textTertiary]))
+        if (includeDone) {
+            add(KanbanBucket(stringResource(Res.string.tasks_status_done), done, Theme[colors][success]))
+        }
+    }
+
+    if (wideThreeCols) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            columns.forEach { col ->
+                KanbanColumnCard(
+                    column = col,
+                    projectLabel = projectLabel,
+                    todayEpochDay = todayEpochDay,
+                    selectedTaskId = selectedTaskId,
+                    busyTaskIds = busyTaskIds,
+                    onSelectTask = onSelectTask,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            columns.forEach { col ->
+                KanbanColumnCard(
+                    column = col,
+                    projectLabel = projectLabel,
+                    todayEpochDay = todayEpochDay,
+                    selectedTaskId = selectedTaskId,
+                    busyTaskIds = busyTaskIds,
+                    onSelectTask = onSelectTask,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun KanbanColumnCard(
+    column: KanbanBucket,
+    projectLabel: String,
+    todayEpochDay: Long,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
     onSelectTask: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
-    val dotColor = project?.color?.let(::parseHexColorOrNull) ?: Theme[colors][accent]
     Column(
         modifier
             .clip(shape)
@@ -773,6 +1261,73 @@ private fun ProjectBentoCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(column.accentColor))
+            Text(
+                column.title,
+                style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
+                color = Theme[colors][textColor],
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                column.tasks.size.toString(),
+                style = Theme[typography][code].copy(fontSize = 11.sp),
+                color = Theme[colors][textTertiary],
+            )
+        }
+        column.tasks.forEach { task ->
+            TaskPill(
+                task = task,
+                projectName = projectLabel,
+                showProjectBadge = false,
+                todayEpochDay = todayEpochDay,
+                selected = task.id == selectedTaskId,
+                busy = task.id in busyTaskIds,
+                onClick = { onSelectTask(task.id) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProjectBentoCard(
+    bucket: ProjectBucket,
+    projectLabel: String,
+    todayEpochDay: Long,
+    expanded: Boolean,
+    selectedTaskId: String?,
+    busyTaskIds: Set<String>,
+    onSelectTask: (String?) -> Unit,
+    onToggleExpand: () -> Unit,
+    onFocusProject: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val project = bucket.project
+    val tasks = bucket.tasks
+    val hiddenCount = (tasks.size - DEFAULT_PROJECT_PREVIEW_LIMIT).coerceAtLeast(0)
+    val shown = if (expanded || hiddenCount == 0) tasks else tasks.take(DEFAULT_PROJECT_PREVIEW_LIMIT)
+    val alertCount = tasks.count { it.agentState == TaskContext.STATE_NEEDS_YOU || isAttentionRisk(it, todayEpochDay) }
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    val dotColor = project?.color?.let(::parseHexColorOrNull) ?: Theme[colors][accent]
+
+    Column(
+        modifier
+            .clip(shape)
+            .background(Theme[colors][surface])
+            .border(1.dp, Theme[colors][stroke], shape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                .clickable(role = Role.Button, onClick = onFocusProject)
+                .handCursor()
+                .padding(vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(Modifier.size(9.dp).clip(CircleShape).background(dotColor))
             Text(
                 projectLabel,
@@ -782,6 +1337,13 @@ private fun ProjectBentoCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (alertCount > 0) {
+                MiniBadge(
+                    text = stringResource(Res.string.tasks_attention_count, alertCount),
+                    backgroundColor = Theme[colors][dangerSoft],
+                    contentColor = Theme[colors][danger],
+                )
+            }
             Text(
                 stringResource(Res.string.tasks_project_count, tasks.size),
                 style = Theme[typography][code].copy(fontSize = 11.sp),
@@ -799,15 +1361,54 @@ private fun ProjectBentoCard(
             )
         }
 
-        tasks.forEach { task ->
-            TaskPill(
-                task = task,
-                projectName = projectLabel,
-                selected = task.id == selectedTaskId,
-                busy = task.id in busyTaskIds,
-                onClick = { onSelectTask(task.id) },
-                modifier = Modifier.fillMaxWidth(),
+        if (tasks.isEmpty()) {
+            Text(
+                stringResource(Res.string.tasks_project_empty),
+                style = Theme[typography][bodySmall],
+                color = Theme[colors][textTertiary],
             )
+        } else {
+            shown.forEach { task ->
+                TaskPill(
+                    task = task,
+                    projectName = projectLabel,
+                    showProjectBadge = false,
+                    todayEpochDay = todayEpochDay,
+                    selected = task.id == selectedTaskId,
+                    busy = task.id in busyTaskIds,
+                    onClick = { onSelectTask(task.id) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        if (hiddenCount > 0) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(if (expanded) Res.string.tasks_show_fewer_tasks else Res.string.tasks_show_more_tasks, hiddenCount),
+                    style = Theme[typography][labelStyle],
+                    color = Theme[colors][textSecondary],
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                        .clickable(role = Role.Button, onClick = onToggleExpand)
+                        .handCursor()
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+                Text(
+                    stringResource(Res.string.tasks_open_focus),
+                    style = Theme[typography][labelStyle],
+                    color = Theme[colors][accentText],
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                        .clickable(role = Role.Button, onClick = onFocusProject)
+                        .handCursor()
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
         }
     }
 }
@@ -817,19 +1418,30 @@ private fun ProjectBentoCard(
 private fun TaskPill(
     task: DirectusTask,
     projectName: String,
+    showProjectBadge: Boolean,
+    todayEpochDay: Long,
     selected: Boolean,
     busy: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val overdueDays = taskOverdueDays(task, todayEpochDay)
+    val dueEpochDay = parseDueEpochDay(task.dueDate)
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
     val fill = if (selected) Theme[colors][accentSoft] else Theme[colors][surface2]
     val borderColor = when {
         selected -> Theme[colors][accent]
         task.agentState == TaskContext.STATE_NEEDS_YOU -> Theme[colors][warning].copy(alpha = 0.6f)
+        task.status == DirectusTask.STATUS_BLOCKED || overdueDays > 0 -> Theme[colors][danger].copy(alpha = 0.45f)
         else -> Theme[colors][stroke]
     }
-    val dotColor = stateDotColor(task)
+    val dotColor = stateDotColor(task, overdueDays)
+    val hasMetaBadges = showProjectBadge ||
+        task.agentState != TaskContext.STATE_IDLE ||
+        task.status != DirectusTask.STATUS_TODO ||
+        overdueDays > 0 ||
+        (dueEpochDay != null && task.status != DirectusTask.STATUS_DONE) ||
+        task.assignedBots.isNotEmpty()
 
     Column(
         modifier
@@ -838,8 +1450,8 @@ private fun TaskPill(
             .border(1.dp, borderColor, shape)
             .clickable(role = Role.Button, onClick = onClick)
             .handCursor()
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -861,35 +1473,63 @@ private fun TaskPill(
             )
         }
 
-        FlowRow(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
-        ) {
-            MiniBadge(
-                text = projectName,
-                backgroundColor = Theme[colors][surface3],
-                contentColor = Theme[colors][textSecondary],
-            )
-            MiniBadge(
-                text = taskStatusLabel(task.status),
-                backgroundColor = Theme[colors][surface],
-                contentColor = Theme[colors][textTertiary],
-            )
-            if (task.agentState != TaskContext.STATE_IDLE) {
-                MiniBadge(
-                    text = agentStateLabel(task.agentState),
-                    backgroundColor = if (task.agentState == TaskContext.STATE_NEEDS_YOU) Theme[colors][warningSoft] else Theme[colors][accentSoft],
-                    contentColor = if (task.agentState == TaskContext.STATE_NEEDS_YOU) Theme[colors][warning] else Theme[colors][accentText],
-                )
-            }
-            task.assignedBots.take(3).forEach { bot ->
-                MiniBadge(
-                    text = "@$bot",
-                    backgroundColor = Theme[colors][well],
-                    contentColor = Theme[colors][textTertiary],
-                )
+        if (hasMetaBadges) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showProjectBadge) {
+                    MiniBadge(
+                        text = projectName,
+                        backgroundColor = Theme[colors][surface3],
+                        contentColor = Theme[colors][textSecondary],
+                    )
+                }
+                if (task.agentState != TaskContext.STATE_IDLE) {
+                    MiniBadge(
+                        text = agentStateLabel(task.agentState),
+                        backgroundColor = if (task.agentState == TaskContext.STATE_NEEDS_YOU) Theme[colors][warningSoft] else Theme[colors][accentSoft],
+                        contentColor = if (task.agentState == TaskContext.STATE_NEEDS_YOU) Theme[colors][warning] else Theme[colors][accentText],
+                    )
+                }
+                if (task.status != DirectusTask.STATUS_TODO) {
+                    val isBlocked = task.status == DirectusTask.STATUS_BLOCKED
+                    MiniBadge(
+                        text = taskStatusLabel(task.status),
+                        backgroundColor = if (isBlocked) Theme[colors][dangerSoft] else Theme[colors][surface],
+                        contentColor = if (isBlocked) Theme[colors][danger] else Theme[colors][textTertiary],
+                    )
+                }
+                if (overdueDays > 0) {
+                    MiniBadge(
+                        text = stringResource(Res.string.tasks_overdue_days, overdueDays),
+                        backgroundColor = Theme[colors][dangerSoft],
+                        contentColor = Theme[colors][danger],
+                    )
+                } else if (dueEpochDay != null && task.status != DirectusTask.STATUS_DONE) {
+                    if (dueEpochDay == todayEpochDay) {
+                        MiniBadge(
+                            text = stringResource(Res.string.tasks_due_today),
+                            backgroundColor = Theme[colors][warningSoft],
+                            contentColor = Theme[colors][warning],
+                        )
+                    } else {
+                        MiniBadge(
+                            text = stringResource(Res.string.tasks_due_date_short, formatShortDueLabel(dueEpochDay)),
+                            backgroundColor = Theme[colors][surface],
+                            contentColor = Theme[colors][textTertiary],
+                        )
+                    }
+                }
+                task.assignedBots.take(2).forEach { bot ->
+                    MiniBadge(
+                        text = "@$bot",
+                        backgroundColor = Theme[colors][well],
+                        contentColor = Theme[colors][textTertiary],
+                    )
+                }
             }
         }
     }
@@ -1740,10 +2380,12 @@ private fun PickRoomBotsDialog(
 }
 
 @Composable
-private fun stateDotColor(task: DirectusTask): Color = when (task.agentState) {
-    TaskContext.STATE_NEEDS_YOU -> Theme[colors][warning]
-    TaskContext.STATE_RUNNING, TaskContext.STATE_QUEUED -> Theme[colors][accent]
-    else -> if (task.status == DirectusTask.STATUS_DONE) Theme[colors][success] else Theme[colors][textTertiary]
+private fun stateDotColor(task: DirectusTask, overdueDays: Int): Color = when {
+    task.agentState == TaskContext.STATE_NEEDS_YOU -> Theme[colors][warning]
+    task.status == DirectusTask.STATUS_BLOCKED || overdueDays > 0 -> Theme[colors][danger]
+    task.agentState == TaskContext.STATE_RUNNING || task.agentState == TaskContext.STATE_QUEUED || task.status == DirectusTask.STATUS_IN_PROGRESS -> Theme[colors][accent]
+    task.status == DirectusTask.STATUS_DONE -> Theme[colors][success]
+    else -> Theme[colors][textTertiary]
 }
 
 private fun taskStatusLabel(status: String): String = when (status) {

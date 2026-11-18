@@ -2,8 +2,8 @@
 <resources>
     <string name="tasks_title">Tareas</string>
     <string name="tasks_subtitle">Tablero Directus</string>
-    <string name="tasks_priority_toggle">Franja prioritaria</string>
-    <string name="tasks_priority_section">Pendiente de decisión (%1$d)</string>
+    <string name="tasks_priority_toggle">Requiere atención</string>
+    <string name="tasks_priority_section">Requiere atención (%1$d)</string>
     <string name="tasks_unassigned_project">Sin proyecto</string>
     <string name="tasks_show_done">Mostrar completadas</string>
     <string name="tasks_hide_done">Ocultar completadas</string>
@@ -54,4 +54,24 @@
     <string name="tasks_close_inspector">Cerrar detalles</string>
     <string name="tasks_error_load">No se pudieron cargar las tareas</string>
     <string name="tasks_plugin_missing">El plugin de Directus no está disponible en este gateway</string>
+    <string name="tasks_attention_plans">Pendiente de aprobación (%1$d)</string>
+    <string name="tasks_attention_risks">Bloqueadas o vencidas (%1$d)</string>
+    <string name="tasks_attention_empty_compact">Requiere atención (0) · Sin planes pendientes ni tareas vencidas</string>
+    <string name="tasks_attention_more">+%1$d más bloqueadas o vencidas</string>
+    <string name="tasks_all_projects">Todos los proyectos (%1$d)</string>
+    <string name="tasks_focus_group_workstream">Por flujo</string>
+    <string name="tasks_focus_group_status">Por estado</string>
+    <string name="tasks_show_more_tasks">+%1$d más</string>
+    <string name="tasks_show_fewer_tasks">Mostrar menos</string>
+    <string name="tasks_open_focus">Enfocar</string>
+    <string name="tasks_overdue_days">Atrasada %1$dd</string>
+    <string name="tasks_due_date_short">Vence %1$s</string>
+    <string name="tasks_due_today">Vence hoy</string>
+    <string name="tasks_standalone_group">Tareas sueltas</string>
+    <string name="tasks_status_blocked_or_overdue">Bloqueadas / Vencidas</string>
+    <string name="tasks_status_in_progress">En progreso</string>
+    <string name="tasks_status_todo">Pendiente</string>
+    <string name="tasks_status_done">Completada</string>
+    <string name="tasks_attention_count">%1$d alerta</string>
+    <string name="tasks_project_empty">No hay tareas abiertas en este proyecto.</string>
 </resources>

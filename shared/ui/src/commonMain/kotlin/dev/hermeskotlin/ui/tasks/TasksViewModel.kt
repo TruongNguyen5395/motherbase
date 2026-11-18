@@ -75,6 +75,11 @@ data class TasksUiState(
     val bots: List<Bot> = emptyList(),
     val includeDone: Boolean = false,
     val showPriorityStrip: Boolean = true,
+    val focusedProjectId: String? = null,
+    val focusGrouping: TaskFocusGrouping = TaskFocusGrouping.WORKSTREAM,
+    val expandedProjectIds: Set<String> = emptySet(),
+    val collapsedWorkstreamKeys: Set<String> = emptySet(),
+    val todayEpochDay: Long = currentLocalEpochDay(),
     val selectedTaskId: String? = null,
     val activeChannelIdx: Int = 0,
     val channelLoading: Boolean = false,
@@ -92,6 +97,9 @@ data class TasksUiState(
 
     val priorityTasks: List<DirectusTask>
         get() = tasks.filter { it.agentState == TaskContext.STATE_NEEDS_YOU }
+
+    internal val attentionSplit: AttentionSplit
+        get() = buildAttentionSplit(tasks, todayEpochDay)
 }
 
 @OptIn(ExperimentalUuidApi::class)
@@ -120,6 +128,8 @@ class TasksViewModel(
                 loading = true,
                 showPriorityStrip = it.showPriorityStrip,
                 includeDone = it.includeDone,
+                focusGrouping = it.focusGrouping,
+                todayEpochDay = currentLocalEpochDay(),
             )
         }
         refresh()
@@ -181,15 +191,21 @@ class TasksViewModel(
             is ApiResult.InvalidCredentials, ApiResult.RateLimited -> _state.update { it.copy(loading = false, sessionExpired = true) }
             is ApiResult.Success -> {
                 val board = boardResult.value
+                val today = currentLocalEpochDay()
                 _state.update { cur ->
                     val keptSelected = cur.selectedTaskId?.takeIf { sid -> board.tasks.any { it.id == sid } }
                     val selectedObj = keptSelected?.let { sid -> board.tasks.firstOrNull { it.id == sid } }
                     val safeChannelIdx = if (selectedObj != null && cur.activeChannelIdx < selectedObj.channels.size) cur.activeChannelIdx else 0
+                    val keptFocused = cur.focusedProjectId?.takeIf { fid ->
+                        fid == UNASSIGNED_PROJECT_BUCKET_ID || board.projects.any { it.id == fid && !it.archived }
+                    }
                     cur.copy(
                         loading = false,
                         error = null,
                         projects = board.projects,
                         tasks = board.tasks,
+                        todayEpochDay = today,
+                        focusedProjectId = keptFocused,
                         selectedTaskId = keptSelected,
                         activeChannelIdx = safeChannelIdx,
                     )
@@ -238,6 +254,28 @@ class TasksViewModel(
     fun toggleIncludeDone() {
         _state.update { it.copy(includeDone = !it.includeDone) }
         refresh()
+    }
+
+    fun focusProject(projectId: String?) {
+        _state.update { it.copy(focusedProjectId = projectId, collapsedWorkstreamKeys = emptySet()) }
+    }
+
+    fun setFocusGrouping(grouping: TaskFocusGrouping) {
+        _state.update { it.copy(focusGrouping = grouping) }
+    }
+
+    fun toggleProjectExpanded(projectKey: String) {
+        _state.update { cur ->
+            val next = if (projectKey in cur.expandedProjectIds) cur.expandedProjectIds - projectKey else cur.expandedProjectIds + projectKey
+            cur.copy(expandedProjectIds = next)
+        }
+    }
+
+    fun toggleWorkstreamCollapsed(groupKey: String) {
+        _state.update { cur ->
+            val next = if (groupKey in cur.collapsedWorkstreamKeys) cur.collapsedWorkstreamKeys - groupKey else cur.collapsedWorkstreamKeys + groupKey
+            cur.copy(collapsedWorkstreamKeys = next)
+        }
     }
 
     fun selectTask(taskId: String?) {

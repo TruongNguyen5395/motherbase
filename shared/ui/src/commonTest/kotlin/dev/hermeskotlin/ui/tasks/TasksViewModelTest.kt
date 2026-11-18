@@ -376,4 +376,43 @@ class TasksViewModelTest {
             h.connection.stop()
         }
     }
+
+    @Test
+    fun focusProjectExpandAndWorkstreamCollapseUpdateStateAndSurviveRefresh() = runTest(dispatcher) {
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            h.vm.focusProject("proj-1")
+            h.vm.setFocusGrouping(TaskFocusGrouping.STATUS)
+            h.vm.toggleProjectExpanded("proj-1")
+            h.vm.toggleWorkstreamCollapsed("wg-1")
+
+            assertEquals("proj-1", h.vm.state.value.focusedProjectId)
+            assertEquals(TaskFocusGrouping.STATUS, h.vm.state.value.focusGrouping)
+            assertTrue("proj-1" in h.vm.state.value.expandedProjectIds)
+            assertTrue("wg-1" in h.vm.state.value.collapsedWorkstreamKeys)
+
+            h.vm.refresh()
+            withTimeout(5_000) { h.vm.state.first { !it.loading } }
+            assertEquals("proj-1", h.vm.state.value.focusedProjectId)
+
+            h.vm.focusProject(null)
+            assertEquals(null, h.vm.state.value.focusedProjectId)
+            assertTrue(h.vm.state.value.collapsedWorkstreamKeys.isEmpty())
+        } finally {
+            h.connection.stop()
+        }
+    }
 }

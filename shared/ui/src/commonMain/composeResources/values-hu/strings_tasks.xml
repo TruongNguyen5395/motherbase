@@ -2,8 +2,8 @@
 <resources>
     <string name="tasks_title">Feladatok</string>
     <string name="tasks_subtitle">Directus vezérlőpult</string>
-    <string name="tasks_priority_toggle">Kiemelt sáv</string>
-    <string name="tasks_priority_section">Döntésre vár (%1$d)</string>
+    <string name="tasks_priority_toggle">Figyelmet igényel</string>
+    <string name="tasks_priority_section">Figyelmet igényel (%1$d)</string>
     <string name="tasks_unassigned_project">Projekt nélkül</string>
     <string name="tasks_show_done">Készek mutatása</string>
     <string name="tasks_hide_done">Készek elrejtése</string>
@@ -54,4 +54,24 @@
     <string name="tasks_close_inspector">Részletek bezárása</string>
     <string name="tasks_error_load">Nem sikerült betölteni a feladatokat</string>
     <string name="tasks_plugin_missing">A Directus bővítmény nem érhető el ezen az átjárón</string>
+    <string name="tasks_attention_plans">Jóváhagyásra vár (%1$d)</string>
+    <string name="tasks_attention_risks">Blokkolt vagy lejárt (%1$d)</string>
+    <string name="tasks_attention_empty_compact">Figyelmet igényel (0) · Nincs függő terv vagy lejárt feladat</string>
+    <string name="tasks_attention_more">+%1$d további blokkolt vagy lejárt</string>
+    <string name="tasks_all_projects">Összes projekt (%1$d)</string>
+    <string name="tasks_focus_group_workstream">Munkafolyamat szerint</string>
+    <string name="tasks_focus_group_status">Állapot szerint</string>
+    <string name="tasks_show_more_tasks">+%1$d további</string>
+    <string name="tasks_show_fewer_tasks">Kevesebb</string>
+    <string name="tasks_open_focus">Fókusz</string>
+    <string name="tasks_overdue_days">%1$dn késés</string>
+    <string name="tasks_due_date_short">Határidő: %1$s</string>
+    <string name="tasks_due_today">Ma esedékes</string>
+    <string name="tasks_standalone_group">Önálló feladatok</string>
+    <string name="tasks_status_blocked_or_overdue">Blokkolt / Lejárt</string>
+    <string name="tasks_status_in_progress">Folyamatban</string>
+    <string name="tasks_status_todo">Teendő</string>
+    <string name="tasks_status_done">Kész</string>
+    <string name="tasks_attention_count">%1$d jelzés</string>
+    <string name="tasks_project_empty">Nincs nyitott feladat ebben a projektben.</string>
 </resources>
