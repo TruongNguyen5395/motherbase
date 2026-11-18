@@ -100,3 +100,8 @@ compose.resources {
 providers.systemProperty("rtl.geometry").orNull?.let { dir ->
     tasks.withType<Test>().configureEach { systemProperty("rtl.geometry", dir) }
 }
+
+// A failed assertion's message shows in the CI log, not only in the HTML report.
+tasks.withType<Test>().configureEach {
+    testLogging { exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
+}

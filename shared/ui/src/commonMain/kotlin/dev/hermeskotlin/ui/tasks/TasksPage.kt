@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -1722,13 +1723,27 @@ private fun TaskDetailInspector(
             error = channelError,
             turnRunning = sendingToChannel || channelTurnRunning,
             turnStatus = channelTurnStatus,
-            inputRequests = channelInputRequests,
-            gatewayConnected = gatewayConnected,
             onRefresh = onRefreshChannel,
             onOpenFullscreen = activeChannel?.let { ch -> { onOpenFullscreen(ch) } },
-            onAnswerRequest = onAnswerRequest,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
+
+        if (channelInputRequests.isNotEmpty()) {
+            val requestScroll = rememberScrollState()
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+                    .scrollbar(requestScroll)
+                    .verticalScroll(requestScroll),
+            ) {
+                InputRequestPanel(
+                    requests = channelInputRequests,
+                    connected = gatewayConnected,
+                    onAnswer = onAnswerRequest,
+                )
+            }
+        }
 
         // Floating rounded pill chat composer matching chat & left sidebar controls.
         TaskChatComposer(
@@ -1955,17 +1970,14 @@ private fun TaskChannelLog(
     error: String?,
     turnRunning: Boolean,
     turnStatus: String?,
-    inputRequests: List<InputRequest>,
-    gatewayConnected: Boolean,
     onRefresh: () -> Unit,
     onOpenFullscreen: (() -> Unit)?,
-    onAnswerRequest: (InputRequest, JsonObject) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
     val lastTextLen = messages.lastOrNull()?.text?.length ?: 0
-    LaunchedEffect(activeChannel?.id, messages.size, lastTextLen, turnRunning, inputRequests.size) {
-        if (messages.isNotEmpty() || turnRunning || inputRequests.isNotEmpty()) {
+    LaunchedEffect(activeChannel?.id, messages.size, lastTextLen, turnRunning) {
+        if (messages.isNotEmpty() || turnRunning) {
             scrollState.animateScrollTo(scrollState.maxValue)
         }
     }
@@ -2107,7 +2119,6 @@ private fun TaskChannelLog(
                             MarkdownText(
                                 text = line.text,
                                 streaming = line.streaming,
-                                textStyle = Theme[typography][bodySmall],
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -2129,14 +2140,6 @@ private fun TaskChannelLog(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                }
-
-                if (inputRequests.isNotEmpty()) {
-                    InputRequestPanel(
-                        requests = inputRequests,
-                        connected = gatewayConnected,
-                        onAnswer = onAnswerRequest,
-                    )
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -2282,6 +2285,7 @@ private fun TaskChatComposer(
                     .weight(1f)
                     .heightIn(min = 30.dp)
                     .padding(vertical = 5.dp)
+                    .testTag("task_chat_composer_input")
                     .onFocusChanged { focused = it.isFocused }
                     .onPreviewKeyEvent { event ->
                         if (composerKey(event) == ComposerKey.Send && canSend) {

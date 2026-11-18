@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -360,12 +359,15 @@ class TasksPageUiTest {
 
         onNodeWithText("LIVE CHAT LOG").assertIsDisplayed()
         onNodeWithText("Check storage deploy").assertIsDisplayed()
+        waitUntil(timeoutMillis = 3_000) {
+            onAllNodesWithText("Checking nginx workers…", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
         onNodeWithText("Checking nginx workers…", substring = true).assertIsDisplayed()
         onNodeWithText("directus_task_board").assertIsDisplayed()
         onNodeWithText("Confirm storage domain?").assertIsDisplayed()
         onNodeWithText("cloud.example.com").assertIsDisplayed()
 
-        onNode(hasSetTextAction()).performTextInput("Restart php-fpm")
+        onNodeWithTag("task_chat_composer_input").performTextInput("Restart php-fpm")
         waitForIdle()
         onNodeWithContentDescription("Send").performClick()
         waitForIdle()
