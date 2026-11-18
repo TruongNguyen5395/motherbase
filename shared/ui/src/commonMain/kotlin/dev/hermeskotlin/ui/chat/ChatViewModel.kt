@@ -900,7 +900,7 @@ class ChatViewModel(
         val profile = target?.profile
         val res = media.downloadTo(gateway, cleanPath, profile, maxBytes = null, onProgress = onProgress, write = write)
         if (res is ApiResult.Success) return null
-        if (res is ApiResult.Failed && (res.status == 404 || res.status == 405)) {
+        if (res is ApiResult.Failed && res.status in setOf(404, 405, 501)) {
             val legacy = media.file(gateway, cleanPath)
             if (legacy is ApiResult.Success) {
                 if (legacy.value.isNotEmpty()) write(legacy.value)
