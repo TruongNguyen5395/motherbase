@@ -1077,7 +1077,7 @@ class TasksViewModel(
     /**
      * Keeps gateway session archive state in sync with Dispatch task transitions:
      * - Moving into `Done` archives auto-managed session channels unless still referenced by another non-`Done` task.
-     * - Reopening out of `Done` unarchives those session channels so they return cleanly to the `DISPATCH` group.
+     * - Reopening out of `Done` unarchives those session channels (skipping ones already active on sibling tasks).
      */
     private suspend fun syncSessionLifecycleOnStatusChange(
         gateway: SavedGateway,
@@ -1100,44 +1100,39 @@ class TasksViewModel(
             return
         }
 
+        val activeInBoard = _state.value.tasks
+            .filter { it.id != updatedTask.id && it.status != DirectusTask.STATUS_DONE }
+            .flatMap { it.channels }
+            .filter { it.isSession }
+            .mapTo(HashSet()) { it.id }
+        val activeInStore = store?.byGateway?.value?.get(gateway.gatewayUrl)?.values
+            ?.filter { it.taskId != updatedTask.id && it.taskStatus != DirectusTask.STATUS_DONE }
+            ?.mapTo(HashSet()) { it.sessionId }
+            .orEmpty()
+        val sharedActiveIds = activeInBoard + activeInStore
+
         val changedIds = LinkedHashSet<String>()
         var firstError: String? = null
-        if (movedToDone) {
-            val activeInBoard = _state.value.tasks
-                .filter { it.id != updatedTask.id && it.status != DirectusTask.STATUS_DONE }
-                .flatMap { it.channels }
-                .filter { it.isSession }
-                .mapTo(HashSet()) { it.id }
-            val activeInStore = store?.byGateway?.value?.get(gateway.gatewayUrl)?.values
-                ?.filter { it.taskId != updatedTask.id && it.taskStatus != DirectusTask.STATUS_DONE }
-                ?.mapTo(HashSet()) { it.sessionId }
-                .orEmpty()
-            val sharedActiveIds = activeInBoard + activeInStore
-
-            for (ch in managedChannels) {
-                if (ch.id in sharedActiveIds) continue
-                when (val res = sessionsApi.setArchived(gateway.gatewayUrl, ch.id, archived = true, profile = ch.profile)) {
-                    is ApiResult.Success -> changedIds += ch.id
-                    is ApiResult.Failed -> {
-                        if (res.status == 404) changedIds += ch.id
-                        else if (firstError == null) firstError = res.message
+        for (ch in managedChannels) {
+            if (ch.id in sharedActiveIds) continue
+            when (val res = sessionsApi.setArchived(gateway.gatewayUrl, ch.id, archived = movedToDone, profile = ch.profile)) {
+                is ApiResult.Success -> changedIds += ch.id
+                is ApiResult.Failed -> {
+                    if (res.status == 404) {
+                        if (movedToDone) changedIds += ch.id
+                    } else if (firstError == null) {
+                        firstError = res.message
                     }
-                    else -> if (firstError == null) firstError = res.errorMessage
                 }
+                else -> if (firstError == null) firstError = res.errorMessage
             }
-            store?.syncTask(gateway.gatewayUrl, updatedTask)
-            store?.notifyLifecycleChange(gateway.gatewayUrl, archivedIds = changedIds)
-        } else {
-            for (ch in managedChannels) {
-                when (val res = sessionsApi.setArchived(gateway.gatewayUrl, ch.id, archived = false, profile = ch.profile)) {
-                    is ApiResult.Success -> changedIds += ch.id
-                    is ApiResult.Failed -> if (res.status != 404 && firstError == null) firstError = res.message
-                    else -> if (firstError == null) firstError = res.errorMessage
-                }
-            }
-            store?.syncTask(gateway.gatewayUrl, updatedTask)
-            store?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = changedIds)
         }
+        store?.syncTask(gateway.gatewayUrl, updatedTask)
+        store?.notifyLifecycleChange(
+            gateway = gateway.gatewayUrl,
+            archivedIds = if (movedToDone) changedIds else emptySet(),
+            unarchivedIds = if (movedToDone) emptySet() else changedIds,
+        )
 
         if (firstError != null && boundGateway == gateway) {
             _state.update { it.copy(actionFeedback = firstError) }
