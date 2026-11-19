@@ -156,6 +156,7 @@ class TasksViewModel(
 
     private var boundGateway: SavedGateway? = null
     private var activeRuntimeSessionId: String? = null
+    private var activeRuntimeChannelId: String? = null
     private var lastStreamEventAtMs: Long = 0L
     private var turnPollJob: Job? = null
     private var modelsLoadJob: Job? = null
@@ -164,6 +165,10 @@ class TasksViewModel(
         viewModelScope.launch {
             connection.state.collect { connState ->
                 val connected = connState is ConnectionState.Connected
+                if (!connected) {
+                    activeRuntimeSessionId = null
+                    activeRuntimeChannelId = null
+                }
                 _state.update { it.copy(gatewayConnected = connected) }
                 if (connected && _state.value.selectedTask != null && _state.value.activeChannel?.isRoom != true && _state.value.modelPicker.catalog == null) {
                     loadModels(withPrices = false)
@@ -188,6 +193,7 @@ class TasksViewModel(
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
+        activeRuntimeChannelId = null
         boundGateway = gateway
         _state.update {
             TasksUiState(
@@ -351,6 +357,7 @@ class TasksViewModel(
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
+        activeRuntimeChannelId = null
         _state.update {
             it.copy(
                 selectedTaskId = taskId,
@@ -377,6 +384,7 @@ class TasksViewModel(
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
+        activeRuntimeChannelId = null
         _state.update {
             it.copy(
                 activeChannelIdx = index,
@@ -704,6 +712,8 @@ class TasksViewModel(
                 is ApiResult.Success -> {
                     if (boundGateway != gateway) return@launch
                     val created = res.value
+                    activeRuntimeSessionId = null
+                    activeRuntimeChannelId = null
                     _state.update { cur ->
                         cur.copy(
                             tasks = listOf(created) + cur.tasks,
@@ -1123,6 +1133,7 @@ class TasksViewModel(
             )
         }
         activeRuntimeSessionId = runtimeId ?: storedId
+        activeRuntimeChannelId = storedId
         if (info != null) {
             _state.update { it.copy(channelChatState = it.channelChatState.withChannelInfo(info)) }
         }
@@ -1148,6 +1159,7 @@ class TasksViewModel(
         }.getOrNull() ?: return
         val runtimeId = resumed.str("session_id") ?: return
         activeRuntimeSessionId = runtimeId
+        activeRuntimeChannelId = channel.id
         val info = resumed["info"] as? JsonObject
         val running = resumed.bool("running") == true
         val openRequests = resumed["open_requests"].asObjects().mapNotNull { snapshot ->
@@ -1384,7 +1396,7 @@ class TasksViewModel(
     ): JsonObject? {
         val client = (connection.state.value as? ConnectionState.Connected)?.client
             ?: throw RpcException(0, "Not connected to gateway.")
-        val runtimeId = ensureRuntimeSession(client, channel)
+        val runtimeId = ensureRuntimeSession(client, channel, applyInfo = false)
         return client.request(
             "config.set",
             buildJsonObject {
@@ -1396,7 +1408,13 @@ class TasksViewModel(
         ) as? JsonObject
     }
 
-    private suspend fun ensureRuntimeSession(client: JsonRpcClient, channel: TaskChannel): String {
+    private suspend fun ensureRuntimeSession(
+        client: JsonRpcClient,
+        channel: TaskChannel,
+        applyInfo: Boolean = true,
+    ): String {
+        val existing = activeRuntimeSessionId
+        if (existing != null && activeRuntimeChannelId == channel.id) return existing
         val resumed = client.request(
             "session.resume",
             buildJsonObject {
@@ -1409,10 +1427,13 @@ class TasksViewModel(
         ) as? JsonObject
         val runtimeId = resumed.str("session_id") ?: error("Could not resume session.")
         activeRuntimeSessionId = runtimeId
-        (resumed?.get("info") as? JsonObject)?.let { info ->
-            _state.update { cur ->
-                if (cur.activeChannel?.id == channel.id) cur.copy(channelChatState = cur.channelChatState.withChannelInfo(info))
-                else cur
+        activeRuntimeChannelId = channel.id
+        if (applyInfo) {
+            (resumed?.get("info") as? JsonObject)?.let { info ->
+                _state.update { cur ->
+                    if (cur.activeChannel?.id == channel.id) cur.copy(channelChatState = cur.channelChatState.withChannelInfo(info))
+                    else cur
+                }
             }
         }
         return runtimeId
