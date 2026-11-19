@@ -149,6 +149,25 @@
     <string name="inbox_copied_truncated">Relatório copiado até onde o Gateway envia: os primeiros 48 KB.</string>
     <string name="inbox_copied">Relatório copiado.</string>
 
+    <string name="inbox_channels_header">CANAIS E SESSÕES DO ACTION INBOX</string>
+    <string name="inbox_channels_subtitle">Cada fonte tem uma sessão oculta dedicada e um interruptor. Adicione novas fontes com a configuração guiada.</string>
+    <string name="inbox_add_source">Adicionar fonte</string>
+    <string name="inbox_channels_empty">Nenhuma fonte do Action Inbox ainda. Adicione uma fonte para conectar e verificar passo a passo.</string>
+    <string name="inbox_channels_loading">Carregando sessões dos canais…</string>
+    <string name="inbox_channel_active">Coletor ativo</string>
+    <string name="inbox_channel_paused">Coletor pausado</string>
+    <string name="inbox_channel_draft">Configuração incompleta</string>
+    <string name="inbox_channel_error">Erro no coletor</string>
+    <string name="inbox_channel_view_session">Ver sessão</string>
+    <string name="inbox_channel_reset_session">Reiniciar sessão</string>
+    <string name="inbox_channel_resetting">Reiniciando…</string>
+    <string name="inbox_channel_resume_setup">Retomar configuração</string>
+    <string name="inbox_channel_configure">Configurar %1$s</string>
+    <string name="inbox_channel_remove">Remover %1$s</string>
+    <string name="inbox_channel_remove_title">Remover %1$s?</string>
+    <string name="inbox_channel_remove_detail">Remove %1$s do Action Inbox e exclui o coletor vinculado (tarefa cron ou webhook). As sessões anteriores permanecem no histórico.</string>
+    <string name="inbox_channel_remove_confirm">Remover</string>
+
     <string name="assistant_not_signed_in">Sem login</string>
     <string name="assistant_circle_part">Circular parte da tela</string>
     <string name="assistant_open_in_app">Abrir no MotherBase</string>

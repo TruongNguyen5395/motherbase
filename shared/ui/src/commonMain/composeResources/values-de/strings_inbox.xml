@@ -149,6 +149,25 @@
     <string name="inbox_copied_truncated">Bericht kopiert, so weit das Gateway ihn sendet: die ersten 48 KB.</string>
     <string name="inbox_copied">Bericht kopiert.</string>
 
+    <string name="inbox_channels_header">ACTION-INBOX-KANÄLE &amp; SITZUNGEN</string>
+    <string name="inbox_channels_subtitle">Jede Quelle hat eine eigene versteckte Sitzung und einen Ein-/Ausschalter. Neue Quellen lassen sich geführt einrichten.</string>
+    <string name="inbox_add_source">Quelle hinzufügen</string>
+    <string name="inbox_channels_empty">Noch keine Action-Inbox-Quellen. Füge eine Quelle hinzu, um sie Schritt für Schritt zu verbinden und zu prüfen.</string>
+    <string name="inbox_channels_loading">Kanalsitzungen werden geladen…</string>
+    <string name="inbox_channel_active">Collector aktiv</string>
+    <string name="inbox_channel_paused">Collector pausiert</string>
+    <string name="inbox_channel_draft">Einrichtung unvollständig</string>
+    <string name="inbox_channel_error">Collector-Fehler</string>
+    <string name="inbox_channel_view_session">Sitzung öffnen</string>
+    <string name="inbox_channel_reset_session">Sitzung zurücksetzen</string>
+    <string name="inbox_channel_resetting">Wird zurückgesetzt…</string>
+    <string name="inbox_channel_resume_setup">Einrichtung fortsetzen</string>
+    <string name="inbox_channel_configure">%1$s konfigurieren</string>
+    <string name="inbox_channel_remove">%1$s entfernen</string>
+    <string name="inbox_channel_remove_title">%1$s entfernen?</string>
+    <string name="inbox_channel_remove_detail">Entfernt %1$s aus der Action Inbox und löscht den verknüpften Collector (Cronjob oder Webhook). Frühere Chats bleiben im Verlauf.</string>
+    <string name="inbox_channel_remove_confirm">Entfernen</string>
+
     <string name="assistant_not_signed_in">Nicht angemeldet</string>
     <string name="assistant_circle_part">Teil des Bildschirms einkreisen</string>
     <string name="assistant_open_in_app">In MotherBase öffnen</string>

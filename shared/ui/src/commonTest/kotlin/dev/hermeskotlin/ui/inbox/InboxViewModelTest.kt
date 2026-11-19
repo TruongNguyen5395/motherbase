@@ -100,7 +100,13 @@ class InboxViewModelTest {
         override suspend fun send(text: String) {
             val message = Json.parseToJsonElement(text).jsonObject
             val id = message["id"] ?: return
-            val arg = message["params"]?.jsonObject?.get("arg")?.jsonPrimitive?.content.orEmpty().removePrefix("cron ")
+            val params = message["params"]?.jsonObject
+            val name = params?.get("name")?.jsonPrimitive?.content.orEmpty()
+            val rawArg = params?.get("arg")?.jsonPrimitive?.content.orEmpty()
+            val arg = when (name) {
+                PushApi.MOTHERBASE_INBOX_COMMAND -> "mb_inbox $rawArg"
+                else -> rawArg.removePrefix("cron ")
+            }
             sent += arg
             scope.launch {
                 val output = JsonPrimitive(plugin(arg)).toString()
@@ -788,5 +794,61 @@ class InboxViewModelTest {
         vm.setVisible(true)
         runCurrent()
         assertEquals(listOf(rUnread.key), vm.state.value.runs.map { it.key })
+    }
+
+    @Test
+    fun channelOnboardingToggleAndRemoveFlow() = runTest(dispatcher) {
+        var enabled = true
+        var removed = false
+        fun channelsJson(): String = if (removed) {
+            "[]"
+        } else {
+            """[{"key":"slack","label":"Slack","icon":"message-square","collector_kind":"realtime","schedule_label":"Realtime","status":"${if (enabled) "active" else "paused"}","enabled":$enabled,"can_toggle":true,"setup_session_id":"setup-slack-1","registry_managed":true,"session_id":"sess-s1","session_title":"Inbox · Slack #1","epoch":1,"exists":true}]"""
+        }
+        val socket = PluginGateway(CoroutineScope(dispatcher)) { arg ->
+            when {
+                arg.startsWith("inbox") -> """{"ok":true,"runs":[]}"""
+                arg.startsWith("mb_inbox list") -> """{"ok":true,"items":[]}"""
+                arg.startsWith("mb_inbox channels") -> """{"ok":true,"channels":${channelsJson()}}"""
+                arg.startsWith("mb_inbox toggle_channel") -> {
+                    enabled = arg.contains("\"enabled\":true")
+                    """{"ok":true,"channels":${channelsJson()}}"""
+                }
+                arg.startsWith("mb_inbox remove_channel") -> {
+                    removed = true
+                    """{"ok":true,"channels":${channelsJson()}}"""
+                }
+                else -> """{"ok":true,"jobs":{},"failures":false,"default":"quiet"}"""
+            }
+        }
+        val vm = viewModel(socket)
+        vm.bind(one)
+
+        // 1. Add source opens a fresh chat and auto-sends the guided plugin skill command
+        vm.startAddInboxSource()
+        val addChat = (vm.events.first() as InboxEvent.OpenChat).chat
+        assertNull(addChat.storedSessionId)
+        assertEquals(InboxViewModel.ADD_SOURCE_SETUP_COMMAND, addChat.draft?.text)
+        assertEquals(DraftStart.Send, addChat.draft?.start)
+
+        // 2. Load channels, open setup session, toggle realtime source without cron job, and remove it
+        vm.loadChannelSessions()
+        runCurrent()
+        val slack = vm.state.value.channelSessions.single()
+        assertTrue(slack.isEnabled)
+        assertEquals("Realtime", slack.scheduleLabel)
+
+        vm.openChannelSetupSession(slack)
+        val setupChat = (vm.events.first() as InboxEvent.OpenChat).chat
+        assertEquals("setup-slack-1", setupChat.storedSessionId)
+
+        vm.toggleChannel(slack, enabled = false)
+        runCurrent()
+        assertFalse(vm.state.value.channelSessions.single().isEnabled)
+        assertEquals("paused", vm.state.value.channelSessions.single().status)
+
+        vm.removeChannel(vm.state.value.channelSessions.single(), deleteCollector = true)
+        runCurrent()
+        assertTrue(vm.state.value.channelSessions.isEmpty())
     }
 }

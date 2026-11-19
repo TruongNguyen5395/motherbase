@@ -149,6 +149,25 @@
     <string name="inbox_copied_truncated">A jelentés kimásolva, ameddig a Gateway elküldi: az első 48 KB.</string>
     <string name="inbox_copied">Jelentés kimásolva.</string>
 
+    <string name="inbox_channels_header">ACTION INBOX CSATORNÁK ÉS MUNKAMENETEK</string>
+    <string name="inbox_channels_subtitle">Minden forrás saját rejtett munkamenettel és kapcsolóval rendelkezik. Új forrásokat lépésről lépésre állíthatsz be.</string>
+    <string name="inbox_add_source">Forrás hozzáadása</string>
+    <string name="inbox_channels_empty">Még nincs Action Inbox forrás. Adj hozzá egy forrást a vezetett beállítással.</string>
+    <string name="inbox_channels_loading">Csatornamunkamenetek betöltése…</string>
+    <string name="inbox_channel_active">Gyűjtő aktív</string>
+    <string name="inbox_channel_paused">Gyűjtő szüneteltetve</string>
+    <string name="inbox_channel_draft">Beállítás nincs kész</string>
+    <string name="inbox_channel_error">Gyűjtő hiba</string>
+    <string name="inbox_channel_view_session">Munkamenet</string>
+    <string name="inbox_channel_reset_session">Újraindítás</string>
+    <string name="inbox_channel_resetting">Újraindítás…</string>
+    <string name="inbox_channel_resume_setup">Beállítás folytatása</string>
+    <string name="inbox_channel_configure">%1$s beállítása</string>
+    <string name="inbox_channel_remove">%1$s eltávolítása</string>
+    <string name="inbox_channel_remove_title">Eltávolítod: %1$s?</string>
+    <string name="inbox_channel_remove_detail">Eltávolítja a(z) %1$s forrást az Action Inboxból, és törli a kapcsolt gyűjtőt (cron feladat vagy webhook). A korábbi csevegések megmaradnak az előzményekben.</string>
+    <string name="inbox_channel_remove_confirm">Eltávolítás</string>
+
     <string name="assistant_not_signed_in">Nincs bejelentkezve</string>
     <string name="assistant_circle_part">A képernyő egy részének bekarikázása</string>
     <string name="assistant_open_in_app">Megnyitás a MotherBase-ben</string>

@@ -421,8 +421,11 @@ class PushApi(private val connection: GatewayConnection) {
     /** What `/herald-push cron <arg>` printed (the Inbox's calls), or null when the plugin isn't loaded. */
     suspend fun cron(arg: String): String? = output("cron $arg")
 
-    /** What `/herald-push mb_inbox <arg>` printed (MotherBase Action Inbox calls), or null when the plugin isn't loaded. */
+    /** What `/herald-push mb_inbox <arg>` printed (legacy Action Inbox bridge), or null when the plugin isn't loaded. */
     suspend fun mbInbox(arg: String): String? = output("mb_inbox $arg")
+
+    /** What `/motherbase-inbox <arg>` printed (dedicated Action Inbox plugin), or null when not loaded. */
+    suspend fun motherbaseInbox(arg: String): String? = output(MOTHERBASE_INBOX_COMMAND, arg)
 
     private fun phoneReply(output: String): PhoneReply? =
         runCatching { HermesJson.decodeFromString(PhoneReply.serializer(), output) }.getOrNull()
@@ -432,13 +435,15 @@ class PushApi(private val connection: GatewayConnection) {
         return runCatching { HermesJson.decodeFromString(PushPluginReply.serializer(), output) }.getOrNull()
     }
 
-    /** What `/herald-push <arg>` printed, or null when the plugin isn't loaded. */
-    private suspend fun output(arg: String): String? {
+    /** What `/<command> <arg>` printed, or null when the plugin isn't loaded. */
+    private suspend fun output(arg: String): String? = output(PLUGIN_COMMAND, arg)
+
+    private suspend fun output(command: String, arg: String): String? {
         val reply = try {
             client().request(
                 "command.dispatch",
                 buildJsonObject {
-                    put("name", PLUGIN_COMMAND)
+                    put("name", command)
                     put("arg", arg)
                 },
             )
@@ -457,6 +462,7 @@ class PushApi(private val connection: GatewayConnection) {
 
     companion object {
         const val PLUGIN_COMMAND = "herald-push"
+        const val MOTHERBASE_INBOX_COMMAND = "motherbase-inbox"
         const val PLUGIN_REPO = "https://github.com/Giton22/hermes-herald-push"
 
         /** The plugin commit this Herald was built and reviewed against. */

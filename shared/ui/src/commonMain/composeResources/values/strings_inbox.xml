@@ -165,6 +165,24 @@
     <string name="inbox_clear_confirm">Clear</string>
     <string name="inbox_cleared_one">Cleared %1$d read report.</string>
     <string name="inbox_cleared_many">Cleared %1$d read reports.</string>
+    <string name="inbox_channels_header">ACTION INBOX CHANNELS &amp; SESSIONS</string>
+    <string name="inbox_channels_subtitle">Each source keeps a dedicated hidden session and on/off toggle. Add new sources through guided setup.</string>
+    <string name="inbox_add_source">Add source</string>
+    <string name="inbox_channels_empty">No Action Inbox sources yet. Add a source to connect and verify one step by step.</string>
+    <string name="inbox_channels_loading">Loading channel sessions…</string>
+    <string name="inbox_channel_active">Collector active</string>
+    <string name="inbox_channel_paused">Collector paused</string>
+    <string name="inbox_channel_draft">Setup incomplete</string>
+    <string name="inbox_channel_error">Collector error</string>
+    <string name="inbox_channel_view_session">View session</string>
+    <string name="inbox_channel_reset_session">Reset session</string>
+    <string name="inbox_channel_resetting">Resetting…</string>
+    <string name="inbox_channel_resume_setup">Resume setup</string>
+    <string name="inbox_channel_configure">Configure %1$s</string>
+    <string name="inbox_channel_remove">Remove %1$s</string>
+    <string name="inbox_channel_remove_title">Remove %1$s?</string>
+    <string name="inbox_channel_remove_detail">Removes %1$s from Action Inbox and deletes its linked collector (cron job or webhook). Past chat sessions stay in history.</string>
+    <string name="inbox_channel_remove_confirm">Remove</string>
 
     <string name="assistant_not_signed_in">Not signed in</string>
     <string name="assistant_circle_part">Circle part of the screen</string>

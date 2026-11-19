@@ -149,6 +149,25 @@
     <string name="inbox_copied_truncated">Rapport copié aussi loin que le Gateway l’envoie : les 48 premiers Ko.</string>
     <string name="inbox_copied">Rapport copié.</string>
 
+    <string name="inbox_channels_header">CANAUX ET SESSIONS ACTION INBOX</string>
+    <string name="inbox_channels_subtitle">Chaque source dispose d’une session masquée dédiée et d’un interrupteur. Ajoutez de nouvelles sources via la configuration guidée.</string>
+    <string name="inbox_add_source">Ajouter une source</string>
+    <string name="inbox_channels_empty">Aucune source Action Inbox pour le moment. Ajoutez une source pour la connecter et la vérifier étape par étape.</string>
+    <string name="inbox_channels_loading">Chargement des sessions de canaux…</string>
+    <string name="inbox_channel_active">Collecteur actif</string>
+    <string name="inbox_channel_paused">Collecteur en pause</string>
+    <string name="inbox_channel_draft">Configuration incomplète</string>
+    <string name="inbox_channel_error">Erreur du collecteur</string>
+    <string name="inbox_channel_view_session">Voir la session</string>
+    <string name="inbox_channel_reset_session">Réinitialiser</string>
+    <string name="inbox_channel_resetting">Réinitialisation…</string>
+    <string name="inbox_channel_resume_setup">Reprendre la configuration</string>
+    <string name="inbox_channel_configure">Configurer %1$s</string>
+    <string name="inbox_channel_remove">Supprimer %1$s</string>
+    <string name="inbox_channel_remove_title">Supprimer %1$s ?</string>
+    <string name="inbox_channel_remove_detail">Supprime %1$s d’Action Inbox et efface son collecteur lié (tâche cron ou webhook). Les discussions passées restent dans l’historique.</string>
+    <string name="inbox_channel_remove_confirm">Supprimer</string>
+
     <string name="assistant_not_signed_in">Non connecté</string>
     <string name="assistant_circle_part">Entourer une partie de l’écran</string>
     <string name="assistant_open_in_app">Ouvrir dans MotherBase</string>

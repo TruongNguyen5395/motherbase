@@ -164,4 +164,58 @@ class InboxApiTest {
         val api = api { """{"ok":true,"runs":[{"run":"2026-10-12_08-00-00"}]}""" }
         assertFailsWith<RpcException> { api.runs() }
     }
+
+    @Test
+    fun motherbaseInboxPluginIsPreferredAndFallsBackToHeraldPush() = runTest {
+        val dispatched = mutableListOf<Pair<String, String>>()
+        var pluginInstalled = true
+        val fake = FakeGateway(backgroundScope)
+        fake.answer = { call ->
+            if (call.method == "command.dispatch") {
+                val name = call.param("name").orEmpty()
+                val arg = call.param("arg").orEmpty()
+                dispatched += name to arg
+                when {
+                    name == PushApi.MOTHERBASE_INBOX_COMMAND && !pluginInstalled -> "error:4018"
+                    arg.startsWith("toggle_channel ") -> {
+                        val out = JsonPrimitive("""{"ok":true,"channels":[{"key":"slack","label":"Slack","collector_kind":"webhook","schedule_label":"Realtime · Webhook","status":"paused","enabled":false,"can_toggle":true,"registry_managed":true}]}""").toString()
+                        """{"type":"plugin","output":$out}"""
+                    }
+                    arg.startsWith("remove_channel ") -> {
+                        val out = JsonPrimitive("""{"ok":true,"channels":[]}""").toString()
+                        """{"type":"plugin","output":$out}"""
+                    }
+                    arg.endsWith("channels") -> {
+                        val out = JsonPrimitive("""{"ok":true,"channels":[{"key":"slack","label":"Slack","collector_kind":"webhook","schedule_label":"Realtime · Webhook","status":"active","enabled":true,"can_toggle":true,"registry_managed":true}]}""").toString()
+                        """{"type":"plugin","output":$out}"""
+                    }
+                    else -> """{"type":"plugin","output":"{\"ok\":true}"}"""
+                }
+            } else {
+                "{}"
+            }
+        }
+        val api = InboxApi(PushApi(fake.start()), Keys)
+
+        // Primary path uses /motherbase-inbox directly.
+        val listed = api.channelSessions()
+        assertEquals("slack", listed.single().key)
+        assertTrue(listed.single().registryManaged)
+        assertEquals(PushApi.MOTHERBASE_INBOX_COMMAND, dispatched.last().first)
+
+        val paused = api.toggleChannel("slack", enabled = false)
+        assertFalse(paused.single().isEnabled)
+        assertEquals("paused", paused.single().status)
+
+        val removed = api.removeChannel("slack", deleteCollector = true)
+        assertTrue(removed.isEmpty())
+
+        // Legacy gateway without motherbase-inbox (4018) transparently falls back to /herald-push mb_inbox.
+        pluginInstalled = false
+        dispatched.clear()
+        val fallback = api.channelSessions()
+        assertEquals("slack", fallback.single().key)
+        assertEquals(listOf(PushApi.MOTHERBASE_INBOX_COMMAND, PushApi.PLUGIN_COMMAND), dispatched.map { it.first })
+        assertEquals("mb_inbox channels", dispatched.last().second)
+    }
 }

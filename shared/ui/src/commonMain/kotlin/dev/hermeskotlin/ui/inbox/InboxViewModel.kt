@@ -282,6 +282,10 @@ interface InboxActions {
     fun undoPendingAction() {}
     fun escalateActionItemToChat(item: ActionInboxItem) {}
     fun toggleInboxChannel(job: CronJob, enabled: Boolean) {}
+    fun toggleChannel(channel: InboxChannelSession, enabled: Boolean) {}
+    fun removeChannel(channel: InboxChannelSession, deleteCollector: Boolean = true) {}
+    fun startAddInboxSource() {}
+    fun openChannelSetupSession(channel: InboxChannelSession) {}
     fun loadChannelSessions() {}
     fun openChannelSession(channel: InboxChannelSession) {}
     fun resetChannelSession(channel: InboxChannelSession) {}
@@ -360,6 +364,8 @@ data class InboxUiState(
     val selectedActionItem: ActionInboxItem? = null,
     val pendingUndo: PendingInboxUndo? = null,
     val togglingJobIds: Set<String> = emptySet(),
+    val togglingChannels: Set<String> = emptySet(),
+    val removingChannels: Set<String> = emptySet(),
     val channelSessions: List<InboxChannelSession> = emptyList(),
     val channelSessionsLoading: Boolean = false,
     val resettingChannels: Set<String> = emptySet(),
@@ -506,6 +512,7 @@ class InboxViewModel(
                     if (idle()) {
                         load(quiet = true)
                         if (actionInboxActive) loadActionItems(quiet = true)
+                        if (_state.value.choosing) loadChannelSessions()
                     }
                 }
         }
@@ -584,7 +591,10 @@ class InboxViewModel(
     private fun lookAgain() {
         load(quiet = _state.value.runs.isNotEmpty())
         val s = _state.value
-        if (s.choosing && !s.followingLoaded && !s.saving && followJob?.isActive != true) chooseJobs()
+        if (s.choosing) {
+            loadChannelSessions()
+            if (!s.followingLoaded && !s.saving && followJob?.isActive != true) chooseJobs()
+        }
     }
 
     fun refresh() {
@@ -885,6 +895,129 @@ class InboxViewModel(
                     )
                 }
             }
+        }
+    }
+
+    override fun toggleChannel(channel: InboxChannelSession, enabled: Boolean) {
+        if (channel.key in _state.value.togglingChannels) return
+        val gen = generation
+        val display = channel.label.ifBlank { channel.key }
+        _state.update { it.copy(togglingChannels = it.togglingChannels + channel.key) }
+        viewModelScope.launch {
+            val res = runCatching { api.toggleChannel(channel.key, enabled) }
+            if (gen != generation) return@launch
+            res.onSuccess { list ->
+                val updated = list.firstOrNull { it.key == channel.key }
+                val active = updated?.isEnabled ?: enabled
+                _state.update { state ->
+                    state.copy(
+                        channelSessions = list,
+                        togglingChannels = state.togglingChannels - channel.key,
+                        jobs = state.jobs.map { j ->
+                            if (channel.cronJobId.isNotBlank() && j.id == channel.cronJobId) {
+                                j.copy(enabled = active, state = if (active) "scheduled" else "paused")
+                            } else {
+                                j
+                            }
+                        },
+                        message = Words.Raw("$display: ${if (active) "Enabled" else "Paused"}"),
+                    )
+                }
+            }.onFailure { e ->
+                _state.update { state -> state.copy(togglingChannels = state.togglingChannels - channel.key) }
+                val matchingJob = channel.cronJobId.takeIf(String::isNotBlank)
+                    ?.let { cid -> _state.value.jobs.firstOrNull { it.id == cid } }
+                if (matchingJob != null && InboxApi.isUsage(e.message)) {
+                    toggleInboxChannel(matchingJob, enabled)
+                } else {
+                    _state.update { state ->
+                        state.copy(message = Words.Raw(e.message ?: "Couldn't update channel $display"))
+                    }
+                }
+            }
+        }
+    }
+
+    override fun removeChannel(channel: InboxChannelSession, deleteCollector: Boolean) {
+        if (channel.key in _state.value.removingChannels) return
+        val gen = generation
+        val display = channel.label.ifBlank { channel.key }
+        _state.update { it.copy(removingChannels = it.removingChannels + channel.key) }
+        viewModelScope.launch {
+            val res = runCatching { api.removeChannel(channel.key, deleteCollector) }
+            if (gen != generation) return@launch
+            res.onSuccess { list ->
+                _state.update { state ->
+                    state.copy(
+                        channelSessions = list,
+                        removingChannels = state.removingChannels - channel.key,
+                        jobs = if (deleteCollector && channel.cronJobId.isNotBlank()) {
+                            state.jobs.filterNot { it.id == channel.cronJobId }
+                        } else {
+                            state.jobs
+                        },
+                        message = Words.Raw("Removed $display"),
+                    )
+                }
+                if (actionInboxActive) loadActionItems(quiet = true)
+            }.onFailure { e ->
+                _state.update { state ->
+                    state.copy(
+                        removingChannels = state.removingChannels - channel.key,
+                        message = Words.Raw(e.message ?: "Couldn't remove channel $display"),
+                    )
+                }
+            }
+        }
+    }
+
+    override fun startAddInboxSource() {
+        val url = gateway?.gatewayUrl?.value ?: return
+        val gen = generation
+        viewModelScope.launch {
+            if (gen != generation) return@launch
+            _events.send(
+                InboxEvent.OpenChat(
+                    ReportChat(
+                        gatewayUrl = url,
+                        profile = "default",
+                        title = "Add Inbox Source",
+                        draft = ComposeDraft(
+                            text = ADD_SOURCE_SETUP_COMMAND,
+                            start = DraftStart.Send,
+                        ),
+                    ),
+                ),
+            )
+        }
+    }
+
+    override fun openChannelSetupSession(channel: InboxChannelSession) {
+        val url = gateway?.gatewayUrl?.value ?: return
+        val display = channel.label.ifBlank { channel.key }
+        val setupSid = channel.setupSessionId.trim()
+        val gen = generation
+        viewModelScope.launch {
+            if (gen != generation) return@launch
+            val chat = if (setupSid.isNotEmpty()) {
+                ReportChat(
+                    gatewayUrl = url,
+                    profile = "default",
+                    title = "Setup Inbox · $display",
+                    storedSessionId = setupSid,
+                )
+            } else {
+                ReportChat(
+                    gatewayUrl = url,
+                    profile = "default",
+                    title = "Setup Inbox · $display",
+                    draft = ComposeDraft(
+                        text = "$ADD_SOURCE_SETUP_COMMAND ${channel.key}",
+                        start = DraftStart.Send,
+                    ),
+                )
+            }
+            _events.send(InboxEvent.OpenChat(chat))
         }
     }
 
@@ -1448,5 +1581,8 @@ class InboxViewModel(
 
         /** 3-second optimistic undo window before committing an Action Inbox choice/dismissal. */
         const val UNDO_DELAY_MS = 3_000L
+
+        /** Plugin skill slash command auto-sent when opening a guided Add Source chat session. */
+        const val ADD_SOURCE_SETUP_COMMAND = "/motherbase-inbox:setup"
     }
 }

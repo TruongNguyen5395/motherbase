@@ -258,11 +258,22 @@ data class ActionInboxItem(
     val hasReply: Boolean get() = agentReply.isNotBlank()
 }
 
-/** Dedicated hidden (`source='tool'`) session binding and usage stats for an Action Inbox channel. */
+/** Dedicated hidden (`source='tool'`) session binding, collector metadata, and usage stats for an Action Inbox channel. */
 @Serializable
 data class InboxChannelSession(
     val key: String,
     val label: String = "",
+    val icon: String = "",
+    @SerialName("collector_kind") val collectorKind: String = "cron",
+    @SerialName("schedule_label") val scheduleLabel: String = "",
+    @SerialName("webhook_route") val webhookRoute: String = "",
+    val status: String = "active",
+    val enabled: Boolean? = null,
+    @SerialName("can_toggle") val canToggle: Boolean = true,
+    @SerialName("setup_session_id") val setupSessionId: String = "",
+    @SerialName("last_verified_at") val lastVerifiedAt: Long = 0,
+    @SerialName("last_error") val lastError: String = "",
+    @SerialName("registry_managed") val registryManaged: Boolean = false,
     @SerialName("cron_job_id") val cronJobId: String = "",
     @SerialName("cron_job_name") val cronJobName: String = "",
     @SerialName("cron_enabled") val cronEnabled: Boolean = true,
@@ -277,7 +288,11 @@ data class InboxChannelSession(
     @SerialName("last_activity_at") val lastActivityAt: Long = 0,
     val exists: Boolean = false,
     val warning: String = "",
-)
+) {
+    val isEnabled: Boolean get() = enabled ?: cronEnabled
+    val isDraft: Boolean get() = status == "draft"
+    val isError: Boolean get() = status == "error"
+}
 
 @Serializable
 private data class ActionInboxListReply(
@@ -369,9 +384,11 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         throw RpcException(0, reply.error ?: "The gateway couldn't read the run.")
     }
 
-    /** Lists consolidated open decision items from Miller's Action Inbox (`/herald-push mb_inbox list`). */
+    private suspend fun inboxCommand(arg: String): String? = push.motherbaseInbox(arg) ?: push.mbInbox(arg)
+
+    /** Lists consolidated open decision items from the Action Inbox (`/motherbase-inbox list`). */
     suspend fun actionItems(): List<ActionInboxItem> {
-        val output = push.mbInbox("list {}") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val output = inboxCommand("list {}") ?: throw RpcException(0, INBOX_PLUGIN_MISSING)
         val reply = runCatching { HermesJson.decodeFromString(ActionInboxListReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
         if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't load Action Inbox.")
@@ -385,13 +402,13 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
             put("reason", reason)
             if (mergedIds.isNotEmpty()) put("merged_ids", JsonArray(mergedIds.map(::JsonPrimitive)))
         }
-        val output = push.mbInbox("resolve $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val output = inboxCommand("resolve $body") ?: throw RpcException(0, INBOX_PLUGIN_MISSING)
         val reply = runCatching { HermesJson.decodeFromString(ActionInboxMutationReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
         if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't dismiss this item on the server.")
     }
 
-    /** Claims option A/B/C/FOLLOWUP for an Action Inbox item and triggers background execution on Miller. */
+    /** Claims option A/B/C/FOLLOWUP for an Action Inbox item and triggers background execution. */
     suspend fun actActionItem(
         id: String,
         option: String,
@@ -406,29 +423,55 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
             put("spawn_agent", spawnAgent)
             if (mergedIds.isNotEmpty()) put("merged_ids", JsonArray(mergedIds.map(::JsonPrimitive)))
         }
-        val output = push.mbInbox("act $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val output = inboxCommand("act $body") ?: throw RpcException(0, INBOX_PLUGIN_MISSING)
         val reply = runCatching { HermesJson.decodeFromString(ActionInboxMutationReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
         if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't execute this action.")
         return reply.prompt
     }
 
-    /** Lists Action Inbox channels and their bound dedicated session stats (`/herald-push mb_inbox channels`). */
+    /** Lists Action Inbox channels and their bound dedicated session stats (`/motherbase-inbox channels`). */
     suspend fun channelSessions(): List<InboxChannelSession> {
-        val output = push.mbInbox("channels") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val output = inboxCommand("channels") ?: throw RpcException(0, INBOX_PLUGIN_MISSING)
         val reply = runCatching { HermesJson.decodeFromString(InboxChannelsReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
         if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't load channel sessions.")
         return reply.channels
     }
 
-    /** Rotates a channel to a fresh hidden session (`/herald-push mb_inbox reset_channel`). */
+    /** Rotates a channel to a fresh hidden session (`/motherbase-inbox reset_channel`). */
     suspend fun resetChannelSession(channel: String): List<InboxChannelSession> {
         val body = buildJsonObject { put("channel", channel) }
-        val output = push.mbInbox("reset_channel $body") ?: throw RpcException(0, "The gateway's herald-push plugin isn't there.")
+        val output = inboxCommand("reset_channel $body") ?: throw RpcException(0, INBOX_PLUGIN_MISSING)
         val reply = runCatching { HermesJson.decodeFromString(InboxChannelsReply.serializer(), output) }
             .getOrElse { throw RpcException(0, UNREADABLE) }
         if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't reset the $channel session.")
+        return reply.channels
+    }
+
+    /** Toggles an Action Inbox channel on/off via the unified Registry gate and linked collector. */
+    suspend fun toggleChannel(channel: String, enabled: Boolean): List<InboxChannelSession> {
+        val body = buildJsonObject {
+            put("channel", channel)
+            put("enabled", enabled)
+        }
+        val output = inboxCommand("toggle_channel $body") ?: throw RpcException(0, INBOX_PLUGIN_MISSING)
+        val reply = runCatching { HermesJson.decodeFromString(InboxChannelsReply.serializer(), output) }
+            .getOrElse { throw RpcException(0, UNREADABLE) }
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't update channel $channel.")
+        return reply.channels
+    }
+
+    /** Removes an Action Inbox channel from the Registry and optionally deletes its linked collector. */
+    suspend fun removeChannel(channel: String, deleteCollector: Boolean = true): List<InboxChannelSession> {
+        val body = buildJsonObject {
+            put("channel", channel)
+            put("delete_collector", deleteCollector)
+        }
+        val output = inboxCommand("remove_channel $body") ?: throw RpcException(0, INBOX_PLUGIN_MISSING)
+        val reply = runCatching { HermesJson.decodeFromString(InboxChannelsReply.serializer(), output) }
+            .getOrElse { throw RpcException(0, UNREADABLE) }
+        if (!reply.ok) throw RpcException(0, reply.error ?: "Couldn't remove channel $channel.")
         return reply.channels
     }
 
@@ -474,7 +517,8 @@ class InboxApi(private val push: PushApi, private val keys: PushKeys) {
         const val PAGE = 100
 
         private const val NO_SUCH_RUN = "no such run"
-        private const val UNREADABLE = "The gateway's herald-push plugin gave an answer the Inbox can't read."
+        private const val INBOX_PLUGIN_MISSING = "The gateway's motherbase-inbox plugin isn't installed."
+        private const val UNREADABLE = "The gateway's inbox plugin gave an answer the Inbox can't read."
         private const val REFUSES_OFF = "mode must be notify or quiet"
 
         /**

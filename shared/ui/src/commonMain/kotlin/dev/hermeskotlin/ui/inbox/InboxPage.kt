@@ -84,17 +84,21 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.composables.icons.lucide.BellRing
 import com.composables.icons.lucide.CheckCheck
+import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.Inbox
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Mail
 import com.composables.icons.lucide.MessageCircle
 import com.composables.icons.lucide.MessageSquare
+import com.composables.icons.lucide.PlugZap
+import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
 import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Send
 import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.TriangleAlert
+import com.composables.icons.lucide.Wrench
 import com.composables.icons.lucide.X
 import com.composables.icons.lucide.Zap
 import com.composeunstyled.Text
@@ -1242,58 +1246,124 @@ internal fun FollowView(state: InboxUiState, viewModel: InboxActions) {
     val enabled = state.canEditFollowing
     val inboxChannels = state.inboxChannelJobs
     val channelSessions = state.channelSessions
+    val registryManaged = remember(channelSessions) { channelSessions.any { it.registryManaged } }
     val matchedJobIds = remember(channelSessions) { channelSessions.mapNotNull { it.cronJobId.takeIf(String::isNotBlank) }.toSet() }
-    val unmatchedChannelJobs = remember(inboxChannels, matchedJobIds) { inboxChannels.filterNot { it.id in matchedJobIds } }
+    val unmatchedChannelJobs = remember(inboxChannels, matchedJobIds, registryManaged) {
+        if (registryManaged) emptyList() else inboxChannels.filterNot { it.id in matchedJobIds }
+    }
+    var pendingRemove by remember { mutableStateOf<InboxChannelSession?>(null) }
+    val removeTarget = pendingRemove
+    if (removeTarget != null) {
+        val display = removeTarget.label.ifBlank { removeTarget.key }
+        Dialog(
+            visible = true,
+            onDismissRequest = { pendingRemove = null },
+            title = stringResource(Res.string.inbox_channel_remove_title, display),
+            message = stringResource(Res.string.inbox_channel_remove_detail, display),
+            actions = {
+                Button(
+                    stringResource(Res.string.common_cancel),
+                    onClick = { pendingRemove = null },
+                    variant = ButtonVariant.Ghost,
+                    size = ButtonSize.Small,
+                )
+                Button(
+                    stringResource(Res.string.inbox_channel_remove_confirm),
+                    onClick = {
+                        pendingRemove = null
+                        viewModel.removeChannel(removeTarget, deleteCollector = true)
+                    },
+                    variant = ButtonVariant.Danger,
+                    size = ButtonSize.Small,
+                )
+            },
+        )
+    }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (channelSessions.isNotEmpty() || state.channelSessionsLoading || inboxChannels.isNotEmpty()) {
-            item(key = "inbox-channels-header") {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    DayLabel("ACTION INBOX CHANNELS & SESSIONS")
+        item(key = "inbox-channels-header") {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f)) {
+                        DayLabel(stringResource(Res.string.inbox_channels_header))
+                    }
+                    Button(
+                        text = stringResource(Res.string.inbox_add_source),
+                        onClick = viewModel::startAddInboxSource,
+                        variant = ButtonVariant.Secondary,
+                        size = ButtonSize.Small,
+                        leadingIcon = Lucide.Plus,
+                    )
+                }
+                Text(
+                    stringResource(Res.string.inbox_channels_subtitle),
+                    style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp),
+                    color = Theme[colors][textTertiary],
+                    modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
+                )
+            }
+        }
+        if (state.channelSessionsLoading && channelSessions.isEmpty()) {
+            item(key = "inbox-channels-loading") {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Spinner(Modifier.size(14.dp), color = Theme[colors][accentText])
                     Text(
-                        "Each channel keeps a dedicated hidden session to prevent context drift. View history anytime or reset to a clean session.",
-                        style = Theme[typography][bodySmall].copy(fontSize = 12.5.sp),
+                        stringResource(Res.string.inbox_channels_loading),
+                        style = Theme[typography][bodySmall],
                         color = Theme[colors][textTertiary],
-                        modifier = Modifier.padding(start = 6.dp, bottom = 4.dp),
                     )
                 }
             }
-            if (state.channelSessionsLoading && channelSessions.isEmpty()) {
-                item(key = "inbox-channels-loading") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Spinner(Modifier.size(14.dp), color = Theme[colors][accentText])
-                        Text("Loading channel sessions...", style = Theme[typography][bodySmall], color = Theme[colors][textTertiary])
-                    }
+        } else if (channelSessions.isEmpty() && unmatchedChannelJobs.isEmpty()) {
+            item(key = "inbox-channels-empty") {
+                val emptyShape = RoundedCornerShape(Theme[radii][radiusLarge])
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Theme[colors][surface], emptyShape)
+                        .border(1.dp, Theme[colors][stroke], emptyShape)
+                        .padding(14.dp),
+                ) {
+                    Text(
+                        stringResource(Res.string.inbox_channels_empty),
+                        style = Theme[typography][bodySmall],
+                        color = Theme[colors][textSecondary],
+                    )
                 }
             }
-            items(channelSessions, key = { "cs-${it.key}" }) { channel ->
-                val cronJob = inboxChannels.firstOrNull { it.id == channel.cronJobId }
-                InboxChannelSessionCard(
-                    channel = channel,
-                    job = cronJob,
-                    toggling = cronJob != null && cronJob.id in state.togglingJobIds,
-                    resetting = channel.key in state.resettingChannels,
-                    onToggleCron = { enabledNext ->
-                        if (cronJob != null) viewModel.toggleInboxChannel(cronJob, enabledNext)
-                    },
-                    onOpenSession = { viewModel.openChannelSession(channel) },
-                    onResetSession = { viewModel.resetChannelSession(channel) },
-                )
-            }
-            items(unmatchedChannelJobs, key = { "ch-${it.profile ?: "default"}/${it.id}" }) { job ->
-                InboxChannelSwitchRow(
-                    job = job,
-                    toggling = job.id in state.togglingJobIds,
-                    onToggle = { viewModel.toggleInboxChannel(job, it) },
-                )
-            }
+        }
+        items(channelSessions, key = { "cs-${it.key}" }) { channel ->
+            val cronJob = inboxChannels.firstOrNull { it.id == channel.cronJobId }
+            InboxChannelSessionCard(
+                channel = channel,
+                job = cronJob,
+                toggling = channel.key in state.togglingChannels || (cronJob != null && cronJob.id in state.togglingJobIds),
+                resetting = channel.key in state.resettingChannels,
+                removing = channel.key in state.removingChannels,
+                onToggle = { enabledNext -> viewModel.toggleChannel(channel, enabledNext) },
+                onOpenSession = { viewModel.openChannelSession(channel) },
+                onResetSession = { viewModel.resetChannelSession(channel) },
+                onOpenSetup = { viewModel.openChannelSetupSession(channel) },
+                onAskRemove = { pendingRemove = channel },
+            )
+        }
+        items(unmatchedChannelJobs, key = { "ch-${it.profile ?: "default"}/${it.id}" }) { job ->
+            InboxChannelSwitchRow(
+                job = job,
+                toggling = job.id in state.togglingJobIds,
+                onToggle = { viewModel.toggleInboxChannel(job, it) },
+            )
         }
         if (!isDesktop || state.followingLoaded || state.canEditFollowing) {
             state.followingError?.let { error ->
@@ -2100,16 +2170,34 @@ private fun InboxChannelSessionCard(
     job: CronJob?,
     toggling: Boolean,
     resetting: Boolean,
-    onToggleCron: (Boolean) -> Unit,
+    removing: Boolean,
+    onToggle: (Boolean) -> Unit,
     onOpenSession: () -> Unit,
     onResetSession: () -> Unit,
+    onOpenSetup: () -> Unit,
+    onAskRemove: () -> Unit,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
-    val isActive = job?.let { it.enabled && !it.paused } ?: channel.cronEnabled
-    val channelIcon = when {
-        channel.key.contains("mail", ignoreCase = true) -> Lucide.Mail
-        channel.key.contains("lark", ignoreCase = true) -> Lucide.MessageSquare
-        else -> Lucide.Zap
+    val displayLabel = channel.label.ifBlank { channel.key.uppercase() }
+    val isActive = if (channel.registryManaged) {
+        channel.isEnabled && !channel.isDraft
+    } else {
+        job?.let { it.enabled && !it.paused } ?: channel.isEnabled
+    }
+    val showToggle = (channel.registryManaged && channel.canToggle) || (!channel.registryManaged && job != null)
+    val channelIcon = when (channel.icon.lowercase()) {
+        "mail" -> Lucide.Mail
+        "message-square" -> Lucide.MessageSquare
+        "zap" -> Lucide.Zap
+        "globe" -> Lucide.Globe
+        "bell" -> Lucide.BellRing
+        "inbox" -> Lucide.Inbox
+        "radio" -> Lucide.PlugZap
+        else -> when {
+            channel.key.contains("mail", ignoreCase = true) -> Lucide.Mail
+            channel.key.contains("lark", ignoreCase = true) || channel.key.contains("slack", ignoreCase = true) -> Lucide.MessageSquare
+            else -> Lucide.Zap
+        }
     }
     Column(
         Modifier
@@ -2131,7 +2219,7 @@ private fun InboxChannelSessionCard(
                     .background(if (isActive) Theme[colors][accentSoft] else Theme[colors][surface2], RoundedCornerShape(Theme[radii][radiusSmall])),
                 contentAlignment = Alignment.Center,
             ) {
-                if (toggling) {
+                if (toggling || removing) {
                     Spinner(Modifier.size(16.dp), color = Theme[colors][accentText])
                 } else {
                     UnstyledIcon(
@@ -2144,29 +2232,40 @@ private fun InboxChannelSessionCard(
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    channel.label.ifBlank { channel.key.uppercase() },
+                    displayLabel,
                     style = Theme[typography][body].copy(fontWeight = FontWeight.SemiBold),
                     color = Theme[colors][text],
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val statusLabel = if (isActive) "Collector active" else "Collector paused"
-                val sched = job?.scheduleDisplay?.takeIf { it.isNotBlank() && it != "?" }
+                val statusLabel = when {
+                    channel.isDraft -> stringResource(Res.string.inbox_channel_draft)
+                    channel.isError -> stringResource(Res.string.inbox_channel_error)
+                    isActive -> stringResource(Res.string.inbox_channel_active)
+                    else -> stringResource(Res.string.inbox_channel_paused)
+                }
+                val sched = channel.scheduleLabel.takeIf { it.isNotBlank() && it != "?" }
+                    ?: job?.scheduleDisplay?.takeIf { it.isNotBlank() && it != "?" }
+                val statusColor = when {
+                    channel.isError -> Theme[colors][danger]
+                    isActive -> Theme[colors][accentText]
+                    else -> Theme[colors][textTertiary]
+                }
                 Text(
                     if (sched != null) "$statusLabel · $sched" else statusLabel,
                     style = Theme[typography][bodySmall].copy(fontSize = 12.sp),
-                    color = if (isActive) Theme[colors][accentText] else Theme[colors][textTertiary],
+                    color = statusColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (job != null) {
+            if (showToggle) {
                 Box(
                     Modifier.toggleable(
                         value = isActive,
-                        enabled = !toggling,
+                        enabled = !toggling && !removing,
                         role = Role.Switch,
-                        onValueChange = onToggleCron,
+                        onValueChange = onToggle,
                     ),
                 ) {
                     Switch(isActive)
@@ -2187,7 +2286,7 @@ private fun InboxChannelSessionCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    channel.sessionTitle.ifBlank { "Inbox · ${channel.label}" },
+                    channel.sessionTitle.ifBlank { "Inbox · $displayLabel" },
                     style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold),
                     color = Theme[colors][text],
                     maxLines = 1,
@@ -2195,7 +2294,11 @@ private fun InboxChannelSessionCard(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    if (channel.exists && channel.sessionId.isNotBlank()) "Hidden session" else "Ready",
+                    when {
+                        channel.isDraft -> "Draft"
+                        channel.exists && channel.sessionId.isNotBlank() -> "Hidden session"
+                        else -> "Ready"
+                    },
                     style = Theme[typography][code].copy(fontSize = 10.5.sp, fontWeight = FontWeight.Medium),
                     color = if (channel.exists) Theme[colors][accentText] else Theme[colors][textMuted],
                 )
@@ -2221,14 +2324,15 @@ private fun InboxChannelSessionCard(
                     color = Theme[colors][textTertiary],
                 )
             }
-            if (channel.warning.isNotBlank()) {
+            val alertText = channel.warning.ifBlank { channel.lastError }
+            if (alertText.isNotBlank()) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     UnstyledIcon(Lucide.TriangleAlert, contentDescription = null, tint = Theme[colors][danger], modifier = Modifier.size(13.dp))
                     Text(
-                        channel.warning,
+                        alertText,
                         style = Theme[typography][bodySmall].copy(fontSize = 11.5.sp, fontWeight = FontWeight.Medium),
                         color = Theme[colors][danger],
                     )
@@ -2239,25 +2343,53 @@ private fun InboxChannelSessionCard(
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(
-                text = "View session",
-                onClick = onOpenSession,
-                enabled = channel.sessionId.isNotBlank(),
-                modifier = Modifier.weight(1f),
-                variant = ButtonVariant.Secondary,
-                size = ButtonSize.Small,
-                leadingIcon = Lucide.MessageSquare,
-            )
-            Button(
-                text = if (resetting) "Resetting..." else "Reset session",
-                onClick = onResetSession,
-                enabled = !resetting && (channel.exists || channel.sessionId.isNotBlank()),
-                loading = resetting,
-                modifier = Modifier.weight(1f),
-                variant = ButtonVariant.Ghost,
-                size = ButtonSize.Small,
-                leadingIcon = Lucide.RotateCcw,
+            if (channel.isDraft) {
+                Button(
+                    text = stringResource(Res.string.inbox_channel_resume_setup),
+                    onClick = onOpenSetup,
+                    enabled = !removing,
+                    modifier = Modifier.weight(1f),
+                    variant = ButtonVariant.Primary,
+                    size = ButtonSize.Small,
+                    leadingIcon = Lucide.Wrench,
+                )
+            } else {
+                Button(
+                    text = stringResource(Res.string.inbox_channel_view_session),
+                    onClick = onOpenSession,
+                    enabled = !removing && channel.sessionId.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    variant = ButtonVariant.Secondary,
+                    size = ButtonSize.Small,
+                    leadingIcon = Lucide.MessageSquare,
+                )
+                Button(
+                    text = if (resetting) stringResource(Res.string.inbox_channel_resetting) else stringResource(Res.string.inbox_channel_reset_session),
+                    onClick = onResetSession,
+                    enabled = !resetting && !removing && (channel.exists || channel.sessionId.isNotBlank()),
+                    loading = resetting,
+                    modifier = Modifier.weight(1f),
+                    variant = ButtonVariant.Ghost,
+                    size = ButtonSize.Small,
+                    leadingIcon = Lucide.RotateCcw,
+                )
+                IconButton(
+                    Lucide.Wrench,
+                    contentDescription = stringResource(Res.string.inbox_channel_configure, displayLabel),
+                    onClick = onOpenSetup,
+                    enabled = !removing,
+                    iconSize = 17.dp,
+                )
+            }
+            IconButton(
+                Lucide.Trash2,
+                contentDescription = stringResource(Res.string.inbox_channel_remove, displayLabel),
+                onClick = onAskRemove,
+                enabled = !removing && !toggling,
+                tint = Theme[colors][danger],
+                iconSize = 17.dp,
             )
         }
     }
