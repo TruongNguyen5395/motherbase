@@ -396,7 +396,7 @@ class TasksViewModel(
     fun addAttachments(picked: List<OutgoingAttachment>) {
         if (picked.isEmpty()) return
         val isRoom = _state.value.activeChannel?.isRoom == true
-        val maxBytes = if (isRoom) OutgoingAttachment.MAX_INLINE_BYTES.toLong() else OutgoingAttachment.MAX_BYTES
+        val maxBytes: Long = if (isRoom) OutgoingAttachment.MAX_INLINE_BYTES.toLong() else OutgoingAttachment.MAX_BYTES.toLong()
         val maxLabel = if (isRoom) "${OutgoingAttachment.MAX_INLINE_BYTES / 1_000_000} MB" else OutgoingAttachment.MAX_SIZE
         val room = (OutgoingAttachment.MAX_COUNT - _state.value.channelAttachments.size).coerceAtLeast(0)
         val fitting = picked.filter { it.size <= maxBytes }

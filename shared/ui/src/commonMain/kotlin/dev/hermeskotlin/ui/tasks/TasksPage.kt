@@ -1,6 +1,5 @@
 package dev.hermeskotlin.ui.tasks
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -1861,7 +1860,7 @@ private fun TaskDetailInspector(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = plan != null && planSheetOpen,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
