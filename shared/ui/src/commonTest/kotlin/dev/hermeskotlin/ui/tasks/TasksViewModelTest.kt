@@ -957,7 +957,7 @@ class TasksViewModelTest {
                     "config.set" -> {
                         val key = params["key"]?.jsonPrimitive?.content
                         if (key == "model" && params["confirm_expensive_model"]?.jsonPrimitive?.content != "true") {
-                            """{"confirm_required":true,"message":"Opus costs 5x more."}"""
+                            """{"confirm_required":true,"confirm_message":"Opus costs 5x more."}"""
                         } else {
                             """{"ok":true}"""
                         }
