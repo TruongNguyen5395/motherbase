@@ -3,11 +3,15 @@ package dev.hermeskotlin.ui.tasks
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
 import dev.hermeskotlin.core.bots.BotsApi
+import dev.hermeskotlin.core.chat.AttachmentKind
 import dev.hermeskotlin.core.chat.InputRequest
+import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.models.ModelOption
+import dev.hermeskotlin.core.models.ModelsApi
 import dev.hermeskotlin.core.network.createHttpClient
 import dev.hermeskotlin.core.projects.ProjectsApi
 import dev.hermeskotlin.core.rooms.RoomsApi
@@ -55,6 +59,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -98,7 +103,12 @@ class TasksViewModelTest {
             calls += method to params
             scope.launch {
                 val reply = answer(method, params)
-                inbound.send("""{"jsonrpc":"2.0","id":$id,"result":$reply}""")
+                if (reply.startsWith("ERROR:")) {
+                    val msg = reply.removePrefix("ERROR:")
+                    inbound.send("""{"jsonrpc":"2.0","id":$id,"error":{"code":-32000,"message":"$msg"}}""")
+                } else {
+                    inbound.send("""{"jsonrpc":"2.0","id":$id,"result":$reply}""")
+                }
             }
         }
 
@@ -123,10 +133,12 @@ class TasksViewModelTest {
             when (method) {
                 "profiles.list" -> """{"profiles":[]}"""
                 "projects.tree", "projects.list" -> """{"projects":[]}"""
+                "model.options" -> """{"providers":[]}"""
                 else -> """{}"""
             }
         },
         dispatchStore: DispatchSessionsStore = DispatchSessionsStore(InMemoryKeyValueStore()),
+        includeModelsApi: Boolean = true,
     ): Harness {
         val requests = mutableListOf<RecordedHttp>()
         val cfg = MockEngineConfig().apply {
@@ -158,6 +170,7 @@ class TasksViewModelTest {
             botsApi = BotsApi(connection),
             connection = connection,
             dispatchStore = dispatchStore,
+            modelsApi = if (includeModelsApi) ModelsApi(connection) else null,
         )
         return Harness(vm, requests, socket, connection, dispatchStore)
     }
@@ -914,6 +927,285 @@ class TasksViewModelTest {
             }
             assertEquals(1, sessionPatches.size)
             assertTrue(""""archived":true""" in sessionPatches.single().second)
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun sessionModelPickerLoadsOptionsSwitchesWithExpensiveConfirmAndAppliesEffortAndFast() = runTest(dispatcher) {
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    "/api/sessions/sess-t1/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-t1","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, params ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "groups.state" -> """{"room":{"room_id":"task-t1","name":"Prune backup snapshots","members":[],"latest_seq":0}}"""
+                    "groups.log" -> """{"events":[],"cursor":0,"latest_seq":0,"has_more":false}"""
+                    "session.resume" -> """{"session_id":"rt-t1","stored_session_id":"sess-t1","running":false,"open_requests":[],"info":{"model":"claude-sonnet-4","provider":"anthropic","reasoning_effort":"medium","fast":false}}"""
+                    "model.options" -> """{"current_model":"claude-sonnet-4","current_provider":"anthropic","providers":[{"slug":"anthropic","name":"Anthropic","authenticated":true,"models":["claude-sonnet-4","claude-opus-5"],"capabilities":{"claude-opus-5":{"reasoning":true,"fast":true}}}]}"""
+                    "config.set" -> {
+                        val key = params["key"]?.jsonPrimitive?.content
+                        if (key == "model" && params["confirm_expensive_model"]?.jsonPrimitive?.content != "true") {
+                            """{"confirm_required":true,"message":"Opus costs 5x more."}"""
+                        } else {
+                            """{"ok":true}"""
+                        }
+                    }
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            h.vm.selectTask("t1")
+            h.vm.selectChannel(1)
+            val ready = withTimeout(5_000) {
+                h.vm.state.first {
+                    it.activeChannelIdx == 1 &&
+                        it.channelChatState.model == "claude-sonnet-4" &&
+                        it.modelPicker.catalog?.providers?.isNotEmpty() == true
+                }
+            }
+            assertEquals("anthropic", ready.channelChatState.provider)
+            assertEquals("medium", ready.channelChatState.reasoningEffort)
+            assertEquals(false, ready.channelChatState.fast)
+
+            val opus = ModelOption(id = "claude-opus-5", provider = "anthropic", reasoning = true, fast = true)
+            h.vm.selectModel(opus, confirmed = false)
+            val needsConfirm = withTimeout(5_000) { h.vm.state.first { it.modelPicker.confirm != null } }
+            assertEquals("Opus costs 5x more.", needsConfirm.modelPicker.confirm?.message)
+            assertEquals("claude-sonnet-4", needsConfirm.channelChatState.model)
+
+            h.vm.selectModel(opus, confirmed = true)
+            val switched = withTimeout(5_000) {
+                h.vm.state.first { it.modelPicker.confirm == null && it.channelChatState.model == "claude-opus-5" }
+            }
+            assertEquals("anthropic", switched.channelChatState.provider)
+
+            h.vm.setReasoningEffort("high")
+            h.vm.setFast(true)
+            withTimeout(5_000) {
+                h.vm.state.first { it.channelChatState.reasoningEffort == "high" && it.channelChatState.fast == true }
+            }
+
+            val configCalls = h.socket.calls.filter { it.first == "config.set" }
+            assertTrue(configCalls.any { it.second["key"]?.jsonPrimitive?.content == "model" && it.second["confirm_expensive_model"]?.jsonPrimitive?.content == "true" })
+            assertTrue(configCalls.any { it.second["key"]?.jsonPrimitive?.content == "reasoning" && it.second["value"]?.jsonPrimitive?.content == "high" })
+            assertTrue(configCalls.any { it.second["key"]?.jsonPrimitive?.content == "fast" && it.second["value"]?.jsonPrimitive?.content == "fast" })
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun prePickedModelIsSentWhenCreatingNewSessionOnUnlinkedTask() = runTest(dispatcher) {
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    "/api/plugins/directus-tasks/tasks/t2/context" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "task": {
+                                "id":"t2",
+                                "title":"Rotate TLS certificates",
+                                "status":"in_progress",
+                                "priority":"medium",
+                                "context":{
+                                  "id":"ctx-2",
+                                  "task_id":"t2",
+                                  "project_id":"proj-1",
+                                  "agent_state":"running",
+                                  "channels":[{"type":"session","id":"sess-new-t2","label":"Session (@Hermes)","managed":true}]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    "/api/sessions/sess-new-t2/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-new-t2","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "model.options" -> """{"providers":[{"slug":"openai-codex","name":"Codex","authenticated":true,"models":["gpt-5.4"]}]}"""
+                    "session.create" -> """{"session_id":"rt-new-t2","stored_session_id":"sess-new-t2","info":{"model":"gpt-5.4","provider":"openai-codex","reasoning_effort":"high","fast":true}}"""
+                    "session.resume" -> """{"session_id":"rt-new-t2","stored_session_id":"sess-new-t2","running":false,"open_requests":[]}"""
+                    "prompt.submit" -> """{"accepted":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            h.vm.selectTask("t2")
+            withTimeout(5_000) { h.vm.state.first { it.selectedTaskId == "t2" && it.modelPicker.catalog != null } }
+
+            h.vm.selectModel(ModelOption(id = "gpt-5.4", provider = "openai-codex", reasoning = true, fast = true))
+            h.vm.setReasoningEffort("high")
+            h.vm.setFast(true)
+
+            val task = h.vm.state.value.selectedTask!!
+            h.vm.sendToActiveChannel(task, "Check cert expiry")
+            withTimeout(5_000) { h.vm.state.first { !it.sendingToChannel && h.socket.calls.any { c -> c.first == "prompt.submit" } } }
+
+            val createCall = h.socket.calls.firstOrNull { it.first == "session.create" }
+            assertNotNull(createCall)
+            assertEquals("gpt-5.4", createCall.second["model"]?.jsonPrimitive?.content)
+            assertEquals("openai-codex", createCall.second["provider"]?.jsonPrimitive?.content)
+            assertEquals("high", createCall.second["reasoning_effort"]?.jsonPrimitive?.content)
+            assertEquals("true", createCall.second["fast"]?.jsonPrimitive?.content)
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun sessionAttachmentsUploadImagesAndFilesAndRollbackOnSubmitFailure() = runTest(dispatcher) {
+        var failSubmit = false
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    "/api/sessions/sess-t1/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-t1","messages":[{"id":1,"role":"user","content":"@file:/srv/report.pdf\n\nPlease review"}]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "groups.state" -> """{"room":{"room_id":"task-t1","name":"Prune backup snapshots","members":[],"latest_seq":0}}"""
+                    "groups.log" -> """{"events":[],"cursor":0,"latest_seq":0,"has_more":false}"""
+                    "model.options" -> """{"providers":[]}"""
+                    "session.resume" -> """{"session_id":"rt-t1","stored_session_id":"sess-t1","running":false,"open_requests":[]}"""
+                    "image.attach_bytes" -> """{"attached":true,"path":"/tmp/hermes-img-1.png"}"""
+                    "file.attach" -> """{"attached":true,"ref_text":"@file:/tmp/spec.pdf","path":"/tmp/spec.pdf"}"""
+                    "image.detach" -> """{"detached":true}"""
+                    "prompt.submit" -> if (failSubmit) "ERROR:gateway busy" else """{"accepted":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            h.vm.selectTask("t1")
+            h.vm.selectChannel(1)
+            val loaded = withTimeout(5_000) {
+                h.vm.state.first { it.activeChannelIdx == 1 && !it.channelLoading && it.channelMessages.isNotEmpty() }
+            }
+            // History @file: ref is parsed into a clean attachment chip without raw directive text.
+            assertEquals("Please review", loaded.channelMessages.single().text)
+            assertEquals(listOf("report.pdf"), loaded.channelMessages.single().attachments.map { it.name })
+
+            val photo = OutgoingAttachment("a1", "rack.png", "image/png", byteArrayOf(1, 2, 3))
+            val doc = OutgoingAttachment("a2", "spec.pdf", "application/pdf", byteArrayOf(4, 5, 6))
+            val extra = OutgoingAttachment("a3", "drop.txt", "text/plain", byteArrayOf(7))
+            h.vm.addAttachments(listOf(photo, doc, extra))
+            assertEquals(3, h.vm.state.value.channelAttachments.size)
+            h.vm.removeAttachment("a3")
+            assertEquals(2, h.vm.state.value.channelAttachments.size)
+
+            val task = h.vm.state.value.selectedTask!!
+            h.vm.sendToActiveChannel(task, "Inspect these")
+            withTimeout(5_000) { h.vm.state.first { !it.sendingToChannel && h.socket.calls.any { c -> c.first == "prompt.submit" } } }
+
+            assertTrue(h.vm.state.value.channelAttachments.isEmpty())
+            assertTrue(h.socket.calls.any { it.first == "image.attach_bytes" && it.second["filename"]?.jsonPrimitive?.content == "rack.png" })
+            assertTrue(h.socket.calls.any { it.first == "file.attach" && it.second["name"]?.jsonPrimitive?.content == "spec.pdf" })
+            val submit = h.socket.calls.last { it.first == "prompt.submit" }
+            assertEquals("@file:/tmp/spec.pdf\n\nInspect these", submit.second["text"]?.jsonPrimitive?.content)
+            val optimistic = h.vm.state.value.channelMessages.last()
+            assertEquals(listOf(AttachmentKind.Image, AttachmentKind.Pdf), optimistic.attachments.map { it.kind })
+
+            // Failure restores queued attachments and detaches queued images on the gateway.
+            failSubmit = true
+            h.vm.addAttachments(listOf(photo))
+            h.vm.sendToActiveChannel(task, "")
+            val rolledBack = withTimeout(5_000) {
+                h.vm.state.first { !it.sendingToChannel && it.channelError != null }
+            }
+            assertEquals(listOf("a1"), rolledBack.channelAttachments.map { it.id })
+            assertTrue(h.socket.calls.any { it.first == "image.detach" && it.second["path"]?.jsonPrimitive?.content == "/tmp/hermes-img-1.png" })
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun roomAttachmentsUploadViaGroupsApiAndSkipSessionModelConfig() = runTest(dispatcher) {
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "groups.state" -> """{"room":{"room_id":"task-t1","name":"Prune backup snapshots","members":[],"latest_seq":0}}"""
+                    "groups.log" -> """{"events":[],"cursor":0,"latest_seq":0,"has_more":false}"""
+                    "groups.attachment.upload" -> """{"attachment_id":"att-room-1","kind":"file","name":"notes.txt","mime":"text/plain","size":5}"""
+                    "groups.send" -> """{"event":{"room_id":"task-t1","seq":1,"event_id":"ev-1","kind":"message.user","actor":{"kind":"user","id":"u"},"payload":{"text":""}}}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            h.vm.selectTask("t1")
+            withTimeout(5_000) { h.vm.state.first { it.selectedTaskId == "t1" && !it.channelLoading } }
+
+            // Room channel ignores session-level model/effort/fast calls.
+            h.vm.selectModel(ModelOption(id = "claude-opus-5", provider = "anthropic"))
+            h.vm.setReasoningEffort("high")
+            h.vm.setFast(true)
+            assertNull(h.vm.state.value.channelChatState.model)
+            assertTrue(h.socket.calls.none { it.first == "config.set" })
+
+            val note = OutgoingAttachment("r1", "notes.txt", "text/plain", "hello".encodeToByteArray())
+            h.vm.addAttachments(listOf(note))
+            val task = h.vm.state.value.selectedTask!!
+            h.vm.sendToActiveChannel(task, "")
+            withTimeout(5_000) { h.vm.state.first { !it.sendingToChannel && h.socket.calls.any { c -> c.first == "groups.send" } } }
+
+            assertTrue(h.vm.state.value.channelAttachments.isEmpty())
+            assertTrue(h.socket.calls.any { it.first == "groups.attachment.upload" && it.second["name"]?.jsonPrimitive?.content == "notes.txt" })
+            val sendCall = h.socket.calls.last { it.first == "groups.send" }
+            assertTrue(sendCall.second.toString().contains("att-room-1"))
         } finally {
             h.connection.stop()
         }

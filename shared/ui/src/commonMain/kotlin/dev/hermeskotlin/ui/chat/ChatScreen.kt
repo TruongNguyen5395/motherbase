@@ -4395,7 +4395,7 @@ internal val DockShadow =Shadow(radius = 24.dp, color = Color.Black.copy(alpha =
 
 /** The composer's +. */
 @Composable
-private fun AttachButton(onClick: () -> Unit, enabled: Boolean) =
+internal fun AttachButton(onClick: () -> Unit, enabled: Boolean) =
     DiscButton(Lucide.Plus, contentDescription = stringResource(Res.string.chat_add_files), onClick = onClick, enabled = enabled, iconSize = 20.dp)
 
 /** Voice chat, on a disc like + and Send so the row reads as three round buttons and the mic. */
@@ -4454,7 +4454,7 @@ private val ComposerDisc: Dp get() = if (isDesktop) 30.dp else 36.dp
  * each still takes taps over its full touch target, which only overlap at their edges.
  */
 @Composable
-private fun Snug(button: @Composable () -> Unit) {
+internal fun Snug(button: @Composable () -> Unit) {
     Layout(button) { measurables, constraints ->
         val placeable = measurables.first().measure(constraints)
         // The desktop's targets are already tight around their discs.
@@ -4572,11 +4572,11 @@ internal fun DictationButton(state: DictationState, onClick: () -> Unit, enabled
 }
 
 /** Where the composer's model pill is in the window, for the desktop's model picker to open over. */
-private val LocalModelPillBounds = staticCompositionLocalOf<MutableState<Rect?>?> { null }
+internal val LocalModelPillBounds = staticCompositionLocalOf<MutableState<Rect?>?> { null }
 
 /** "✦ Opus 5.5 | Medium ⌄" in a pill, the model and thinking level; opens the model sheet. */
 @Composable
-private fun ModelPill(
+internal fun ModelPill(
     state: ChatState,
     picker: ModelPickerState,
     onClick: () -> Unit,

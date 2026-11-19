@@ -4,12 +4,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.bots.BotsApi
+import dev.hermeskotlin.core.chat.AttachmentKind
+import dev.hermeskotlin.core.chat.ChatState
+import dev.hermeskotlin.core.chat.IMAGE_ONLY_FALLBACK_PROMPT
 import dev.hermeskotlin.core.chat.InputRequest
+import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
+import dev.hermeskotlin.core.chat.ShownAttachment
+import dev.hermeskotlin.core.chat.attachToSession
+import dev.hermeskotlin.core.chat.detachSessionImages
+import dev.hermeskotlin.core.chat.splitAttachmentRefs
 import dev.hermeskotlin.core.chat.formatActionCardReply
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.models.ModelOption
+import dev.hermeskotlin.core.models.ModelsApi
 import dev.hermeskotlin.core.network.ApiResult
 import dev.hermeskotlin.core.network.errorMessage
 import dev.hermeskotlin.core.projects.Project
@@ -20,6 +30,8 @@ import dev.hermeskotlin.core.rooms.RoomMemberInput
 import dev.hermeskotlin.core.rooms.RoomsApi
 import dev.hermeskotlin.core.rooms.roomLines
 import dev.hermeskotlin.core.rpc.GatewayEvent
+import dev.hermeskotlin.core.rpc.JsonRpcClient
+import dev.hermeskotlin.core.rpc.RpcException
 import dev.hermeskotlin.core.rpc.ServerRequest
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.tasks.ApproveTaskRequest
@@ -36,6 +48,8 @@ import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.core.tasks.UpdateTaskRequest
 import dev.hermeskotlin.core.tasks.UpsertContextRequest
+import dev.hermeskotlin.ui.chat.ModelPickerState
+import dev.hermeskotlin.ui.chat.PendingSwitch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -71,6 +85,7 @@ data class ChannelChatLine(
     val fromUser: Boolean,
     val profile: String? = null,
     val streaming: Boolean = false,
+    val attachments: List<ShownAttachment> = emptyList(),
 )
 
 data class TasksUiState(
@@ -96,6 +111,9 @@ data class TasksUiState(
     val activeChannelIdx: Int = 0,
     val channelLoading: Boolean = false,
     val channelMessages: List<ChannelChatLine> = emptyList(),
+    val channelAttachments: List<OutgoingAttachment> = emptyList(),
+    val channelChatState: ChatState = ChatState(),
+    val modelPicker: ModelPickerState = ModelPickerState(),
     val channelError: String? = null,
     val busyTaskIds: Set<String> = emptySet(),
     val sendingToChannel: Boolean = false,
@@ -127,6 +145,7 @@ class TasksViewModel(
     private val botsApi: BotsApi,
     private val connection: GatewayConnection,
     private val dispatchStore: DispatchSessionsStore? = null,
+    private val modelsApi: ModelsApi? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TasksUiState())
@@ -139,11 +158,16 @@ class TasksViewModel(
     private var activeRuntimeSessionId: String? = null
     private var lastStreamEventAtMs: Long = 0L
     private var turnPollJob: Job? = null
+    private var modelsLoadJob: Job? = null
 
     init {
         viewModelScope.launch {
             connection.state.collect { connState ->
-                _state.update { it.copy(gatewayConnected = connState is ConnectionState.Connected) }
+                val connected = connState is ConnectionState.Connected
+                _state.update { it.copy(gatewayConnected = connected) }
+                if (connected && _state.value.selectedTask != null && _state.value.activeChannel?.isRoom != true && _state.value.modelPicker.catalog == null) {
+                    loadModels(withPrices = false)
+                }
             }
         }
         viewModelScope.launch {
@@ -156,11 +180,13 @@ class TasksViewModel(
 
     override fun onCleared() {
         turnPollJob?.cancel()
+        modelsLoadJob?.cancel()
     }
 
     fun bind(gateway: SavedGateway) {
         if (boundGateway == gateway && _state.value.config != null) return
         turnPollJob?.cancel()
+        modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         boundGateway = gateway
         _state.update {
@@ -323,12 +349,16 @@ class TasksViewModel(
 
     fun selectTask(taskId: String?) {
         turnPollJob?.cancel()
+        modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         _state.update {
             it.copy(
                 selectedTaskId = taskId,
                 activeChannelIdx = 0,
                 channelMessages = emptyList(),
+                channelAttachments = emptyList(),
+                channelChatState = ChatState(),
+                modelPicker = ModelPickerState(),
                 channelError = null,
                 channelTurnRunning = false,
                 channelTurnStatus = null,
@@ -338,17 +368,21 @@ class TasksViewModel(
         val gateway = boundGateway ?: return
         val task = _state.value.selectedTask ?: return
         viewModelScope.launch { loadChannelLog(gateway, task, 0) }
+        if (task.channels.isEmpty()) loadModels(withPrices = false)
     }
 
     fun selectChannel(index: Int) {
         val task = _state.value.selectedTask ?: return
         if (index !in task.channels.indices) return
         turnPollJob?.cancel()
+        modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         _state.update {
             it.copy(
                 activeChannelIdx = index,
                 channelMessages = emptyList(),
+                channelChatState = ChatState(),
+                modelPicker = ModelPickerState(),
                 channelError = null,
                 channelTurnRunning = false,
                 channelTurnStatus = null,
@@ -357,6 +391,161 @@ class TasksViewModel(
         }
         val gateway = boundGateway ?: return
         viewModelScope.launch { loadChannelLog(gateway, task, index) }
+    }
+
+    fun addAttachments(picked: List<OutgoingAttachment>) {
+        if (picked.isEmpty()) return
+        val isRoom = _state.value.activeChannel?.isRoom == true
+        val maxBytes = if (isRoom) OutgoingAttachment.MAX_INLINE_BYTES.toLong() else OutgoingAttachment.MAX_BYTES
+        val maxLabel = if (isRoom) "${OutgoingAttachment.MAX_INLINE_BYTES / 1_000_000} MB" else OutgoingAttachment.MAX_SIZE
+        val room = (OutgoingAttachment.MAX_COUNT - _state.value.channelAttachments.size).coerceAtLeast(0)
+        val fitting = picked.filter { it.size <= maxBytes }
+        val rejectedSize = picked.size - fitting.size
+        val accepted = fitting.take(room)
+        val rejectedCount = fitting.size - accepted.size
+        _state.update { cur ->
+            val notice = when {
+                rejectedSize > 0 -> "Skipped file larger than $maxLabel."
+                rejectedCount > 0 -> "Up to ${OutgoingAttachment.MAX_COUNT} attachments per message."
+                else -> cur.actionFeedback
+            }
+            cur.copy(
+                channelAttachments = cur.channelAttachments + accepted,
+                actionFeedback = notice,
+            )
+        }
+    }
+
+    fun removeAttachment(id: String) {
+        _state.update { cur -> cur.copy(channelAttachments = cur.channelAttachments.filterNot { it.id == id }) }
+    }
+
+    fun reportAttachmentError(message: String) {
+        if (message.isNotBlank()) _state.update { it.copy(actionFeedback = message) }
+    }
+
+    fun loadModels(withPrices: Boolean = false) {
+        val api = modelsApi ?: return
+        if (_state.value.activeChannel?.isRoom == true) return
+        modelsLoadJob?.cancel()
+        _state.update { it.copy(modelPicker = it.modelPicker.copy(loading = true, error = null)) }
+        modelsLoadJob = viewModelScope.launch {
+            try {
+                val profile = _state.value.activeChannel?.profile ?: _state.value.selectedTask?.assignedBots?.firstOrNull()
+                val runtimeId = activeRuntimeSessionId
+                val catalog = api.options(runtimeId, profile)
+                _state.update { it.copy(modelPicker = it.modelPicker.copy(catalog = catalog, loading = false)) }
+                if (!withPrices) return@launch
+                val prices = try {
+                    api.missingPrices(catalog, runtimeId, profile)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+                prices?.let { found ->
+                    _state.update { cur ->
+                        cur.copy(modelPicker = cur.modelPicker.copy(catalog = cur.modelPicker.catalog?.withPrices(found)))
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(modelPicker = it.modelPicker.copy(loading = false, error = e.message.orEmpty())) }
+            }
+        }
+    }
+
+    fun selectModel(model: ModelOption, confirmed: Boolean = false) {
+        val channel = _state.value.activeChannel
+        if (channel?.isRoom == true) return
+        _state.update { it.copy(modelPicker = it.modelPicker.copy(confirm = null)) }
+        val previous = _state.value.channelChatState
+        _state.update { it.copy(channelChatState = previous.copy(model = model.id, provider = model.provider)) }
+        if (channel == null) return
+        viewModelScope.launch {
+            try {
+                val result = setSessionConfig(
+                    channel = channel,
+                    key = "model",
+                    value = JsonPrimitive("${model.id} --provider ${model.provider} --session"),
+                    confirmExpensive = confirmed,
+                )
+                if (result.bool("confirm_required") == true) {
+                    val message = result.str("confirm_message") ?: "This model costs more than usual. Switch anyway?"
+                    _state.update {
+                        it.copy(
+                            channelChatState = previous,
+                            modelPicker = it.modelPicker.copy(confirm = PendingSwitch(model, message)),
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        channelChatState = previous,
+                        actionFeedback = e.message ?: "Couldn't switch the model.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissModelConfirm() {
+        _state.update { it.copy(modelPicker = it.modelPicker.copy(confirm = null)) }
+    }
+
+    fun setReasoningEffort(wire: String) {
+        val channel = _state.value.activeChannel
+        if (channel?.isRoom == true) return
+        val previous = _state.value.channelChatState
+        _state.update {
+            it.copy(
+                channelChatState = previous.copy(
+                    reasoningEffort = wire,
+                    reasoningRevision = previous.reasoningRevision + 1,
+                ),
+            )
+        }
+        if (channel == null) return
+        viewModelScope.launch {
+            try {
+                setSessionConfig(channel, "reasoning", JsonPrimitive(wire))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        channelChatState = previous,
+                        actionFeedback = e.message ?: "Couldn't change reasoning level.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun setFast(on: Boolean) {
+        val channel = _state.value.activeChannel
+        if (channel?.isRoom == true) return
+        val previous = _state.value.channelChatState
+        _state.update { it.copy(channelChatState = previous.copy(fast = on)) }
+        if (channel == null) return
+        viewModelScope.launch {
+            try {
+                setSessionConfig(channel, "fast", JsonPrimitive(if (on) "fast" else "normal"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        channelChatState = previous,
+                        actionFeedback = e.message ?: "Couldn't change fast mode.",
+                    )
+                }
+            }
+        }
     }
 
     fun refreshActiveChannel() {
@@ -387,12 +576,24 @@ class TasksViewModel(
                     .filterIsInstance<RoomLine.Message>()
                     .takeLast(30)
                     .map { msg ->
+                        val shownAttachments = msg.attachments.map { file ->
+                            ShownAttachment(
+                                key = file.attachmentId,
+                                name = file.name,
+                                kind = when (file.kind) {
+                                    "image" -> AttachmentKind.Image
+                                    "pdf" -> AttachmentKind.Pdf
+                                    else -> AttachmentKind.File
+                                },
+                            )
+                        }
                         ChannelChatLine(
                             key = "room-${msg.seq}-${msg.eventId}",
                             speaker = if (msg.fromUser) null else msg.speaker ?: msg.profile,
                             text = msg.text,
                             fromUser = msg.fromUser,
                             profile = msg.profile,
+                            attachments = shownAttachments,
                         )
                     }
                 parsed to null
@@ -408,13 +609,22 @@ class TasksViewModel(
                     val parsed = res.value.messages
                         .filterNot { it.isHidden || it.role == "tool" || it.role == "system" }
                         .mapNotNull { msg ->
-                            val txt = msg.text.trim()
-                            if (txt.isEmpty()) null else ChannelChatLine(
-                                key = "sess-${msg.id ?: txt.hashCode()}",
-                                speaker = if (msg.role == "user") null else botLabel,
-                                text = txt,
-                                fromUser = msg.role == "user",
+                            val raw = msg.text.trim()
+                            val key = "sess-${msg.id ?: raw.hashCode()}"
+                            val isUser = msg.role == "user"
+                            val (refs, cleanText) = if (isUser) splitAttachmentRefs(raw, key) else emptyList<ShownAttachment>() to raw
+                            val attachments = if (isUser) {
+                                List(msg.imageCount) { ShownAttachment("$key-img$it", "Image", AttachmentKind.Image) } + refs
+                            } else {
+                                emptyList()
+                            }
+                            if (cleanText.isEmpty() && attachments.isEmpty()) null else ChannelChatLine(
+                                key = key,
+                                speaker = if (isUser) null else botLabel,
+                                text = cleanText,
+                                fromUser = isUser,
                                 profile = channel.profile,
+                                attachments = attachments,
                             )
                         }
                         .takeLast(30)
@@ -500,9 +710,13 @@ class TasksViewModel(
                             selectedTaskId = created.id,
                             activeChannelIdx = 0,
                             channelMessages = emptyList(),
+                            channelAttachments = emptyList(),
+                            channelChatState = ChatState(),
+                            modelPicker = ModelPickerState(catalog = cur.modelPicker.catalog),
                         )
                     }
                     dispatchStore?.syncTask(gateway.gatewayUrl, created)
+                    loadModels(withPrices = false)
                 }
                 is ApiResult.Failed -> _state.update { it.copy(actionFeedback = res.message) }
                 is ApiResult.Unavailable -> _state.update { it.copy(actionFeedback = res.message) }
@@ -604,19 +818,25 @@ class TasksViewModel(
     fun sendToActiveChannel(task: DirectusTask, text: String) {
         val gateway = boundGateway ?: return
         val clean = text.trim()
-        if (clean.isEmpty()) return
+        val attachments = _state.value.channelAttachments
+        if (clean.isEmpty() && attachments.isEmpty()) return
+        val visibleText = clean.ifEmpty {
+            if (attachments.any { it.kind == AttachmentKind.Image }) IMAGE_ONLY_FALLBACK_PROMPT else ""
+        }
         val optimisticKey = "user-${Uuid.random()}"
         val optimisticLine = ChannelChatLine(
             key = optimisticKey,
             speaker = null,
-            text = clean,
+            text = visibleText,
             fromUser = true,
+            attachments = attachments.map { it.toShown() },
         )
         _state.update { cur ->
             val sameChat = cur.selectedTaskId == task.id
             cur.copy(
                 sendingToChannel = true,
                 channelError = null,
+                channelAttachments = emptyList(),
                 channelMessages = if (sameChat) cur.channelMessages + optimisticLine else cur.channelMessages,
                 channelTurnRunning = if (sameChat) true else cur.channelTurnRunning,
                 channelTurnStatus = if (sameChat) null else cur.channelTurnStatus,
@@ -634,6 +854,7 @@ class TasksViewModel(
                 if (created == null) {
                     _state.update { cur ->
                         cur.copy(
+                            channelAttachments = attachments + cur.channelAttachments,
                             channelMessages = cur.channelMessages.filterNot { it.key == optimisticKey },
                             channelTurnRunning = false,
                             channelTurnStatus = null,
@@ -650,13 +871,15 @@ class TasksViewModel(
                     )
                 }
                 lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
-                dispatchMessage(channel, clean)
+                dispatchMessage(channel, visibleText, attachments)
                 startTurnFallbackPoll(gateway, latestTask, idx, channel)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update {
-                    it.copy(
+                _state.update { cur ->
+                    cur.copy(
+                        channelAttachments = attachments + cur.channelAttachments,
+                        channelMessages = cur.channelMessages.filterNot { it.key == optimisticKey },
                         channelTurnRunning = false,
                         channelTurnStatus = null,
                         channelError = e.message ?: "Send failed",
@@ -858,6 +1081,7 @@ class TasksViewModel(
         }
         val project = task.projectId?.let { pid -> _state.value.projects.firstOrNull { it.id == pid } }
         val cwd = project?.workspaceCwd?.takeIf { it.isNotBlank() }
+        val picks = _state.value.channelChatState
         val result = client.request(
             "session.create",
             buildJsonObject {
@@ -865,10 +1089,17 @@ class TasksViewModel(
                 put("source", "desktop")
                 put("cols", 80)
                 cwd?.let { put("cwd", it) }
+                if (picks.model != null && picks.provider != null) {
+                    put("model", picks.model)
+                    put("provider", picks.provider)
+                }
+                picks.reasoningEffort?.let { put("reasoning_effort", it) }
+                picks.fast?.let { put("fast", it) }
             },
         ) as? JsonObject
         val runtimeId = (result?.get("session_id") as? JsonPrimitive)?.contentOrNull
         val storedId = (result?.get("stored_session_id") as? JsonPrimitive)?.contentOrNull ?: runtimeId ?: return null
+        val info = result?.get("info") as? JsonObject
         val botName = profile ?: "Hermes"
         val channel = TaskChannel(
             type = TaskChannel.TYPE_SESSION,
@@ -892,6 +1123,9 @@ class TasksViewModel(
             )
         }
         activeRuntimeSessionId = runtimeId ?: storedId
+        if (info != null) {
+            _state.update { it.copy(channelChatState = it.channelChatState.withChannelInfo(info)) }
+        }
         replaceTask(updated)
         dispatchStore?.syncTask(gateway.gatewayUrl, updated)
         dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf(storedId))
@@ -914,6 +1148,7 @@ class TasksViewModel(
         }.getOrNull() ?: return
         val runtimeId = resumed.str("session_id") ?: return
         activeRuntimeSessionId = runtimeId
+        val info = resumed["info"] as? JsonObject
         val running = resumed.bool("running") == true
         val openRequests = resumed["open_requests"].asObjects().mapNotNull { snapshot ->
             InputRequest.parse(
@@ -939,11 +1174,13 @@ class TasksViewModel(
                 cur.channelMessages
             }
             cur.copy(
+                channelChatState = cur.channelChatState.withChannelInfo(info),
                 channelTurnRunning = running || openRequests.isNotEmpty(),
                 channelInputRequests = openRequests,
                 channelMessages = nextMsgs,
             )
         }
+        loadModels(withPrices = false)
     }
 
     private fun handleGatewayEvent(event: GatewayEvent) {
@@ -1139,18 +1376,27 @@ class TasksViewModel(
         }
     }
 
-    private suspend fun dispatchMessage(channel: TaskChannel, text: String) {
-        if (channel.isRoom) {
-            roomsApi.send(
-                roomId = channel.id,
-                text = text,
-                threadId = "main",
-                eventId = "mb-${Uuid.random()}",
-            )
-            return
-        }
+    private suspend fun setSessionConfig(
+        channel: TaskChannel,
+        key: String,
+        value: JsonElement,
+        confirmExpensive: Boolean = false,
+    ): JsonObject? {
         val client = (connection.state.value as? ConnectionState.Connected)?.client
-            ?: error("Not connected to gateway.")
+            ?: throw RpcException(0, "Not connected to gateway.")
+        val runtimeId = ensureRuntimeSession(client, channel)
+        return client.request(
+            "config.set",
+            buildJsonObject {
+                put("session_id", runtimeId)
+                put("key", key)
+                put("value", value)
+                if (confirmExpensive) put("confirm_expensive_model", true)
+            },
+        ) as? JsonObject
+    }
+
+    private suspend fun ensureRuntimeSession(client: JsonRpcClient, channel: TaskChannel): String {
         val resumed = client.request(
             "session.resume",
             buildJsonObject {
@@ -1161,15 +1407,70 @@ class TasksViewModel(
                 put("omit_messages", true)
             },
         ) as? JsonObject
-        val runtimeId = (resumed?.get("session_id") as? JsonPrimitive)?.contentOrNull ?: error("Could not resume session.")
+        val runtimeId = resumed.str("session_id") ?: error("Could not resume session.")
         activeRuntimeSessionId = runtimeId
-        client.request(
-            "prompt.submit",
-            buildJsonObject {
-                put("session_id", runtimeId)
-                put("text", text)
-            },
-        )
+        (resumed?.get("info") as? JsonObject)?.let { info ->
+            _state.update { cur ->
+                if (cur.activeChannel?.id == channel.id) cur.copy(channelChatState = cur.channelChatState.withChannelInfo(info))
+                else cur
+            }
+        }
+        return runtimeId
+    }
+
+    private suspend fun dispatchMessage(
+        channel: TaskChannel,
+        text: String,
+        attachments: List<OutgoingAttachment> = emptyList(),
+    ) {
+        if (channel.isRoom) {
+            val uploaded = attachments.map { file ->
+                if (file.size > OutgoingAttachment.MAX_INLINE_BYTES) {
+                    throw RpcException(
+                        JsonRpcClient.MESSAGE_TOO_LARGE,
+                        "${file.name} is larger than ${OutgoingAttachment.MAX_INLINE_BYTES / 1_000_000} MB.",
+                    )
+                }
+                roomsApi.upload(channel.id, "mb-${Uuid.random()}", file)
+            }
+            roomsApi.send(
+                roomId = channel.id,
+                text = text,
+                threadId = "main",
+                eventId = "mb-${Uuid.random()}",
+                attachments = uploaded,
+            )
+            return
+        }
+        val client = (connection.state.value as? ConnectionState.Connected)?.client
+            ?: error("Not connected to gateway.")
+        val runtimeId = ensureRuntimeSession(client, channel)
+        val gatewayUrl = boundGateway?.gatewayUrl
+        val queuedImages = mutableListOf<String>()
+        val refs = mutableListOf<String>()
+        try {
+            if (attachments.isNotEmpty()) {
+                val gwUrl = gatewayUrl ?: error("No gateway bound.")
+                for (att in attachments) {
+                    val uploaded = sessionsApi.attachToSession(gwUrl, client, runtimeId, att, queuedImages)
+                    uploaded.refText?.let { refs += it }
+                }
+            }
+            val payloadText = (refs + text).filter { it.isNotEmpty() }.joinToString("\n\n")
+            client.request(
+                "prompt.submit",
+                buildJsonObject {
+                    put("session_id", runtimeId)
+                    put("text", payloadText)
+                },
+            )
+        } catch (e: CancellationException) {
+            detachSessionImages(client, runtimeId, queuedImages)
+            throw e
+        } catch (e: Exception) {
+            detachSessionImages(client, runtimeId, queuedImages)
+            throw e
+        }
     }
 
     private fun replaceTask(updated: DirectusTask) {
@@ -1186,6 +1487,17 @@ class TasksViewModel(
             cur.copy(busyTaskIds = next)
         }
     }
+}
+
+private fun ChatState.withChannelInfo(info: JsonObject?): ChatState {
+    if (info == null) return this
+    return copy(
+        model = info.str("model")?.takeIf { it.isNotBlank() } ?: model,
+        provider = info.str("provider")?.takeIf { it.isNotBlank() } ?: provider,
+        reasoningEffort = info.str("reasoning_effort")?.let { it.ifBlank { null } } ?: reasoningEffort.takeIf { "reasoning_effort" !in info },
+        reasoningRevision = if ("reasoning_effort" in info) reasoningRevision + 1 else reasoningRevision,
+        fast = info.bool("fast") ?: fast,
+    )
 }
 
 private fun JsonObject?.str(key: String): String? = (this?.get(key) as? JsonPrimitive)?.contentOrNull

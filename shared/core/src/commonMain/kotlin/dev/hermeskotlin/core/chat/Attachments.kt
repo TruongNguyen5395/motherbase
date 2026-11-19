@@ -113,7 +113,7 @@ private val REF_LINE = Regex("""^@(file|image):(?:(["'`])([^\r\n]+?)\2|(\S+))\s*
  * front of it, and the `@image:` lines the gateway adds for the images that went with it. Returns
  * the attachments and the prompt without them, so history shows chips and thumbnails, not raw refs.
  */
-internal fun splitAttachmentRefs(text: String, keyPrefix: String): Pair<List<ShownAttachment>, String> {
+fun splitAttachmentRefs(text: String, keyPrefix: String): Pair<List<ShownAttachment>, String> {
     val attachments = mutableListOf<ShownAttachment>()
     // The gateway appends what each @file: expanded to (agent/context_references.py); like Desktop,
     // show the files as chips and drop the pasted contents and warnings.

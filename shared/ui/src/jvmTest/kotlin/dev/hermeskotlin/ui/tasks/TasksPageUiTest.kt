@@ -15,12 +15,19 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.composeunstyled.theme.ColorScheme
+import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.ClarifyQuestion
 import dev.hermeskotlin.core.chat.InputRequest
+import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
+import dev.hermeskotlin.core.models.ModelCatalog
+import dev.hermeskotlin.core.models.ModelOption
+import dev.hermeskotlin.core.models.ModelProvider
 import dev.hermeskotlin.core.tasks.DirectusConfigStatus
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
+import dev.hermeskotlin.core.tasks.PlanAction
+import dev.hermeskotlin.core.tasks.StagedPlan
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
@@ -28,6 +35,7 @@ import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
 import dev.hermeskotlin.ui.LocalWindowControls
 import dev.hermeskotlin.ui.WindowControls
+import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.components.ProvideAppWords
 import dev.hermeskotlin.ui.preview.PageSamples
 import kotlin.test.Test
@@ -297,7 +305,7 @@ class TasksPageUiTest {
         onNodeWithText("Audit gateway rate-limit middleware").performClick()
         waitForIdle()
         onNodeWithText("LIVE CHAT LOG").assertIsDisplayed()
-        onNodeWithText("Prepare plan").performScrollTo().assertIsDisplayed()
+        onNodeWithText("Prepare plan").assertIsDisplayed()
     }
 
     @Test
@@ -425,5 +433,204 @@ class TasksPageUiTest {
             closeBounds.right <= 1080f - 140f + 1f,
             "Close details button (${closeBounds.right}) overlaps right window controls region (${1080f - 140f})",
         )
+    }
+
+    @Test
+    fun composerSupportsMultilineGrowthAttachmentsAndSessionVsRoomModelPicker() = runDesktopComposeUiTest(width = 1080, height = 760) {
+        val session = TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-ops", label = "Session (@ops)", profile = "ops")
+        val room = TaskChannel(type = TaskChannel.TYPE_ROOM, id = "room-ops", label = "Room (@ops, @dev)")
+        val task = DirectusTask(
+            id = "t-comp",
+            title = "Review cluster telemetry",
+            status = DirectusTask.STATUS_IN_PROGRESS,
+            context = TaskContext(
+                taskId = "t-comp",
+                projectId = "p1",
+                channels = listOf(session, room),
+            ),
+        )
+        val catalog = ModelCatalog(
+            providers = listOf(
+                ModelProvider(
+                    slug = "anthropic",
+                    name = "Anthropic",
+                    models = listOf(ModelOption(id = "claude-opus-5", provider = "anthropic", reasoning = true)),
+                ),
+            ),
+            currentModel = "claude-opus-5",
+            currentProvider = "anthropic",
+        )
+        val attachment = OutgoingAttachment("att-1", "brief.pdf", "application/pdf", byteArrayOf(1, 2, 3))
+        var removedId: String? = null
+        var sentTexts = mutableListOf<String>()
+        var state by mutableStateOf(
+            TasksUiState(
+                config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+                projects = listOf(DirectusProject(id = "p1", name = "Infra", sort = 1)),
+                tasks = listOf(task),
+                selectedTaskId = task.id,
+                activeChannelIdx = 0,
+                channelAttachments = listOf(attachment),
+                channelChatState = ChatState(model = "claude-opus-5", provider = "anthropic"),
+                modelPicker = ModelPickerState(catalog = catalog),
+                gatewayConnected = true,
+                todayEpochDay = epochDayFromCivilIso("2026-11-18")!!,
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides false) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onSelectChannel = { idx -> state = state.copy(activeChannelIdx = idx) },
+                                onRemoveAttachment = { id ->
+                                    removedId = id
+                                    state = state.copy(channelAttachments = state.channelAttachments.filterNot { it.id == id })
+                                },
+                                onSendToChannel = { _, txt -> sentTexts += txt },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        // + attachment button, queued attachment chip, and Session model pill are displayed.
+        onNodeWithContentDescription("Add photos or files").assertIsDisplayed()
+        onNodeWithText("brief.pdf").assertIsDisplayed()
+        onNodeWithContentDescription("Change model", substring = true).assertIsDisplayed()
+
+        // Attachment-only message enables Send and dispatches even when text box is empty.
+        onNodeWithContentDescription("Send").performClick()
+        waitForIdle()
+        assertEquals(listOf(""), sentTexts)
+
+        // Removing the attachment calls onRemoveAttachment.
+        onNodeWithContentDescription("Remove brief.pdf").performClick()
+        waitForIdle()
+        assertEquals("att-1", removedId)
+
+        // Multiline text grows the composer input height cleanly.
+        val singleHeight = onNodeWithTag("task_chat_composer_input").fetchSemanticsNode().boundsInRoot.height
+        onNodeWithTag("task_chat_composer_input").performTextInput("First line of notes\nSecond line of notes\nThird line of notes")
+        waitForIdle()
+        val multiHeight = onNodeWithTag("task_chat_composer_input").fetchSemanticsNode().boundsInRoot.height
+        assertTrue(
+            multiHeight > singleHeight + 20f,
+            "Expected multiline composer to expand (single=$singleHeight, multi=$multiHeight)",
+        )
+
+        // Switching to a multi-bot Room channel hides the session-only model pill while keeping +.
+        onNodeWithText("Room (@ops, @dev)").performClick()
+        waitForIdle()
+        onNodeWithContentDescription("Change model", substring = true).assertDoesNotExist()
+        onNodeWithContentDescription("Add photos or files").assertIsDisplayed()
+    }
+
+    @Test
+    fun slideUpPlanDrawerAutoOpensForPendingPlanAndStartsCollapsedForApprovedOrEmptyTasks() = runDesktopComposeUiTest(width = 1080, height = 760) {
+        val pendingTask = DirectusTask(
+            id = "t-pending",
+            title = "Pending proposal task",
+            status = DirectusTask.STATUS_TODO,
+            context = TaskContext(
+                taskId = "t-pending",
+                projectId = "p1",
+                agentState = TaskContext.STATE_NEEDS_YOU,
+                stagedPlan = StagedPlan(
+                    summary = "Ready for review before execution.",
+                    actions = listOf(PlanAction(label = "Execute plan", instruction = "Run step 1")),
+                    generatedAt = "2026-11-19T10:00:00Z",
+                ),
+            ),
+        )
+        val approvedTask = DirectusTask(
+            id = "t-approved",
+            title = "Already approved task",
+            status = DirectusTask.STATUS_IN_PROGRESS,
+            context = TaskContext(
+                taskId = "t-approved",
+                projectId = "p1",
+                agentState = TaskContext.STATE_RUNNING,
+                stagedPlan = StagedPlan(
+                    summary = "Previously approved rollout plan.",
+                    actions = listOf(PlanAction(label = "Re-run rollout", instruction = "Re-run")),
+                    generatedAt = "2026-11-19T09:00:00Z",
+                    approvedAt = "2026-11-19T09:15:00Z",
+                ),
+            ),
+        )
+        val noPlanTask = DirectusTask(
+            id = "t-empty",
+            title = "Unplanned task",
+            status = DirectusTask.STATUS_TODO,
+            context = TaskContext(taskId = "t-empty", projectId = "p1", agentState = TaskContext.STATE_IDLE),
+        )
+        var preparedFor: String? = null
+        var state by mutableStateOf(
+            TasksUiState(
+                config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+                projects = listOf(DirectusProject(id = "p1", name = "Ops", sort = 1)),
+                tasks = listOf(pendingTask, approvedTask, noPlanTask),
+                selectedTaskId = null,
+                gatewayConnected = true,
+                todayEpochDay = epochDayFromCivilIso("2026-11-18")!!,
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onSelectTask = { id -> state = state.copy(selectedTaskId = id) },
+                                onPreparePlan = { t -> preparedFor = t.id },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        // 1. Clicking a task with an unapproved plan auto-slides the plan sheet up from the bottom.
+        onAllNodesWithText("Pending proposal task")[0].performClick()
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertIsDisplayed()
+        onNodeWithText("Ready for review before execution.").assertIsDisplayed()
+
+        // Tapping the docked handle collapses the sheet, and tapping again re-opens it.
+        onNodeWithTag("task_plan_dock_button").performClick()
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertDoesNotExist()
+        onNodeWithTag("task_plan_dock_button").performClick()
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertIsDisplayed()
+
+        // 2. Clicking a task with an already-approved plan keeps the sheet collapsed until tapped.
+        onAllNodesWithText("Already approved task")[0].performClick()
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertDoesNotExist()
+        onNodeWithTag("task_plan_dock_button").performClick()
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertIsDisplayed()
+        onNodeWithText("Previously approved rollout plan.").assertIsDisplayed()
+
+        // 3. Clicking a task without a plan shows the docked Prepare plan button and triggers immediately.
+        onAllNodesWithText("Unplanned task")[0].performClick()
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertDoesNotExist()
+        onNodeWithText("Prepare plan").assertIsDisplayed()
+        onNodeWithTag("task_plan_dock_button").performClick()
+        waitForIdle()
+        assertEquals("t-empty", preparedFor)
     }
 }

@@ -1,5 +1,10 @@
 package dev.hermeskotlin.ui.tasks
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,15 +32,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,23 +55,28 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.composables.icons.lucide.Bot
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.CircleDot
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Folder
@@ -87,16 +95,20 @@ import com.composables.icons.lucide.TriangleAlert
 import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
 import com.composeunstyled.Text
-import com.composeunstyled.TextInput
 import com.composeunstyled.UnstyledIcon
-import com.composeunstyled.UnstyledTextField
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.bots.Bot
+import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.InputRequest
+import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.models.ModelOption
+import dev.hermeskotlin.core.models.ReasoningEffort
 import dev.hermeskotlin.core.projects.Project
 import dev.hermeskotlin.core.rooms.Room
+import dev.hermeskotlin.core.settings.AppSettings
+import dev.hermeskotlin.core.settings.SettingsStore
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.TaskChannel
@@ -120,6 +132,7 @@ import dev.hermeskotlin.designsystem.components.DropdownMenu
 import dev.hermeskotlin.designsystem.components.IconButton
 import dev.hermeskotlin.designsystem.components.MarkdownText
 import dev.hermeskotlin.designsystem.components.MenuChoice
+import dev.hermeskotlin.designsystem.components.MinTouchTarget
 import dev.hermeskotlin.designsystem.components.Spinner
 import dev.hermeskotlin.designsystem.components.Switch
 import dev.hermeskotlin.designsystem.components.TextField
@@ -156,21 +169,38 @@ import dev.hermeskotlin.designsystem.warning
 import dev.hermeskotlin.designsystem.warningSoft
 import dev.hermeskotlin.designsystem.well
 import dev.hermeskotlin.ui.PlatformBackHandler
-import dev.hermeskotlin.ui.clearOfWindowControls
+import dev.hermeskotlin.ui.chat.AttachButton
+import dev.hermeskotlin.ui.chat.AttachSheet
+import dev.hermeskotlin.ui.chat.AttachmentPicker
 import dev.hermeskotlin.ui.chat.ComposerKey
+import dev.hermeskotlin.ui.chat.ComposerTextInput
+import dev.hermeskotlin.ui.chat.ComposerTray
 import dev.hermeskotlin.ui.chat.DEFAULT_RAIL_WIDTH
 import dev.hermeskotlin.ui.chat.DockShadow
 import dev.hermeskotlin.ui.chat.InputRequestPanel
+import dev.hermeskotlin.ui.chat.LocalModelPillBounds
+import dev.hermeskotlin.ui.chat.ModelConfirmDialog
+import dev.hermeskotlin.ui.chat.ModelPickerState
+import dev.hermeskotlin.ui.chat.ModelPill
+import dev.hermeskotlin.ui.chat.ModelSelection
+import dev.hermeskotlin.ui.chat.ModelSheet
 import dev.hermeskotlin.ui.chat.ParameterizedActionContent
 import dev.hermeskotlin.ui.chat.RightRailLayout
 import dev.hermeskotlin.ui.chat.SendButton
 import dev.hermeskotlin.ui.chat.SendIcon
+import dev.hermeskotlin.ui.chat.SentAttachments
+import dev.hermeskotlin.ui.chat.Snug
 import dev.hermeskotlin.ui.chat.bubbleGlow
 import dev.hermeskotlin.ui.chat.composerKey
+import dev.hermeskotlin.ui.chat.fileDrop
+import dev.hermeskotlin.ui.chat.isPasteKey
+import dev.hermeskotlin.ui.chat.rememberAttachmentPicker
 import dev.hermeskotlin.ui.chat.rememberRightRailState
 import dev.hermeskotlin.ui.chat.userBubbleShape
+import dev.hermeskotlin.ui.clearOfWindowControls
 import dev.hermeskotlin.ui.components.EmptyState
 import dev.hermeskotlin.ui.components.ListSkeleton
+import dev.hermeskotlin.ui.enterSends
 import dev.hermeskotlin.ui.imeVisible
 import dev.hermeskotlin.ui.isDesktop
 import dev.hermeskotlin.ui.resources.*
@@ -178,6 +208,7 @@ import dev.hermeskotlin.ui.sessions.SubpageHeader
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 internal data class TasksBoardActions(
@@ -199,6 +230,13 @@ internal data class TasksBoardActions(
     val onCreateSessionChannel: (DirectusTask, profile: String?) -> Unit = { _, _ -> },
     val onCreateRoomChannel: (DirectusTask, members: List<Bot>) -> Unit = { _, _ -> },
     val onSendToChannel: (DirectusTask, text: String) -> Unit = { _, _ -> },
+    val onRemoveAttachment: (String) -> Unit = {},
+    val onRefreshModels: (Boolean) -> Unit = {},
+    val onSelectModel: (ModelOption, Boolean) -> Unit = { _, _ -> },
+    val onDismissModelConfirm: () -> Unit = {},
+    val onSelectEffort: (ReasoningEffort) -> Unit = {},
+    val onSetFast: (Boolean) -> Unit = {},
+    val onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit = {},
     val onAnswerRequest: (InputRequest, JsonObject) -> Unit = { _, _ -> },
     val onPreparePlan: (DirectusTask) -> Unit = {},
     val onApprovePlan: (DirectusTask, ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit = { _, _, _, _ -> },
@@ -232,6 +270,11 @@ internal fun TasksPage(
     viewModel: TasksViewModel = koinViewModel(),
 ) {
     val state = viewModel.state.collectAsStateWithLifecycle().value
+    val settingsStore = koinInject<SettingsStore>()
+    val attachmentPicker = rememberAttachmentPicker(
+        onPicked = viewModel::addAttachments,
+        onError = viewModel::reportAttachmentError,
+    )
     LaunchedEffect(gateway) { viewModel.bind(gateway) }
     LaunchedEffect(visible) { if (visible && state.tasks.isEmpty() && !state.loading) viewModel.refresh() }
     LaunchedEffect(state.sessionExpired) {
@@ -258,7 +301,7 @@ internal fun TasksPage(
         }
     }
 
-    val actions = remember(viewModel) {
+    val actions = remember(viewModel, settingsStore) {
         TasksBoardActions(
             onRefresh = viewModel::refresh,
             onSaveConfig = viewModel::saveConfig,
@@ -278,6 +321,13 @@ internal fun TasksPage(
             onCreateSessionChannel = viewModel::openOrCreateSessionChannel,
             onCreateRoomChannel = viewModel::openOrCreateRoomChannel,
             onSendToChannel = viewModel::sendToActiveChannel,
+            onRemoveAttachment = viewModel::removeAttachment,
+            onRefreshModels = viewModel::loadModels,
+            onSelectModel = viewModel::selectModel,
+            onDismissModelConfirm = viewModel::dismissModelConfirm,
+            onSelectEffort = { viewModel.setReasoningEffort(it.wire) },
+            onSetFast = viewModel::setFast,
+            onUpdateSettings = settingsStore::update,
             onAnswerRequest = viewModel::answerChannelRequest,
             onPreparePlan = viewModel::preparePlan,
             onApprovePlan = viewModel::approveStagedPlan,
@@ -286,7 +336,13 @@ internal fun TasksPage(
         )
     }
 
-    TasksBoardContent(state = state, actions = actions, onBack = onBack, onToggleSidebar = onToggleSidebar)
+    TasksBoardContent(
+        state = state,
+        actions = actions,
+        onBack = onBack,
+        onToggleSidebar = onToggleSidebar,
+        attachmentPicker = attachmentPicker,
+    )
 }
 
 /** Stateless Command Board UI shared between live [TasksPage], Compose previews, and UI tests. */
@@ -296,6 +352,7 @@ internal fun TasksBoardContent(
     actions: TasksBoardActions,
     onBack: () -> Unit,
     onToggleSidebar: (() -> Unit)? = null,
+    attachmentPicker: AttachmentPicker? = null,
 ) {
     val railState = rememberRightRailState()
     var railTrigger by remember { mutableIntStateOf(0) }
@@ -304,6 +361,9 @@ internal fun TasksBoardContent(
     var newTaskOpen by remember { mutableStateOf(false) }
     var pickSessionFor by remember { mutableStateOf<DirectusTask?>(null) }
     var pickRoomFor by remember { mutableStateOf<DirectusTask?>(null) }
+    var modelsOpen by remember { mutableStateOf(false) }
+    var attachOpen by remember { mutableStateOf(false) }
+    val modelPillBounds = remember { mutableStateOf<Rect?>(null) }
 
     LaunchedEffect(state.selectedTaskId, railState.docked, railTrigger) {
         if (state.selectedTaskId != null) railState.open() else railState.close()
@@ -317,6 +377,7 @@ internal fun TasksBoardContent(
     val selected = state.selectedTask
     val configured = state.config?.configured == true
 
+    CompositionLocalProvider(LocalModelPillBounds provides modelPillBounds) {
     RightRailLayout(
         state = railState,
         railWidth = DEFAULT_RAIL_WIDTH,
@@ -332,12 +393,16 @@ internal fun TasksBoardContent(
                     activeChannel = state.activeChannel,
                     channelLoading = state.channelLoading,
                     channelMessages = state.channelMessages,
+                    channelAttachments = state.channelAttachments,
+                    channelChatState = state.channelChatState,
+                    modelPicker = state.modelPicker,
                     channelError = state.channelError,
                     sendingToChannel = state.sendingToChannel,
                     channelTurnRunning = state.channelTurnRunning,
                     channelTurnStatus = state.channelTurnStatus,
                     channelInputRequests = state.channelInputRequests,
                     gatewayConnected = state.gatewayConnected,
+                    attachmentPicker = attachmentPicker,
                     onClose = { actions.onSelectTask(null) },
                     onAssignProject = { pid -> actions.onAssignProject(selected.id, pid) },
                     onUpdateStatus = { status -> actions.onUpdateStatus(selected.id, status) },
@@ -351,6 +416,11 @@ internal fun TasksBoardContent(
                         actions.onApprovePlan(selected, opt, selectedParams, tweaks)
                     },
                     onSendToChannel = { text -> actions.onSendToChannel(selected, text) },
+                    onRemoveAttachment = actions.onRemoveAttachment,
+                    onAttach = {
+                        if (isDesktop) attachmentPicker?.pickFiles() else attachOpen = true
+                    },
+                    onOpenModels = { modelsOpen = true },
                     onAnswerRequest = actions.onAnswerRequest,
                 )
             }
@@ -518,6 +588,42 @@ internal fun TasksBoardContent(
                 pickRoomFor = null
             },
         )
+    }
+
+    if (attachmentPicker != null) {
+        val isRoom = state.activeChannel?.isRoom == true
+        AttachSheet(
+            visible = attachOpen,
+            onDismiss = { attachOpen = false },
+            picker = attachmentPicker,
+            subtitle = if (isRoom) {
+                stringResource(Res.string.chat_attach_limits, OutgoingAttachment.MAX_COUNT, OutgoingAttachment.MAX_INLINE_BYTES / 1_000_000)
+            } else {
+                null
+            },
+        )
+    }
+
+    ModelSheet(
+        visible = modelsOpen && state.activeChannel?.isRoom != true,
+        onDismiss = { modelsOpen = false },
+        state = state.channelChatState,
+        picker = state.modelPicker,
+        onRefresh = { actions.onRefreshModels(true) },
+        onSelectModel = { model ->
+            actions.onSelectModel(model, false)
+            modelsOpen = false
+        },
+        onSelectEffort = actions.onSelectEffort,
+        onFast = actions.onSetFast,
+        onSettings = actions.onUpdateSettings,
+        anchor = { modelPillBounds.value.takeIf { isDesktop } },
+    )
+    ModelConfirmDialog(
+        pending = state.modelPicker.confirm,
+        onConfirm = { model -> actions.onSelectModel(model, true) },
+        onDismiss = actions.onDismissModelConfirm,
+    )
     }
 }
 
@@ -1615,12 +1721,16 @@ private fun TaskDetailInspector(
     activeChannel: TaskChannel?,
     channelLoading: Boolean,
     channelMessages: List<ChannelChatLine>,
+    channelAttachments: List<OutgoingAttachment>,
+    channelChatState: ChatState,
+    modelPicker: ModelPickerState,
     channelError: String?,
     sendingToChannel: Boolean,
     channelTurnRunning: Boolean,
     channelTurnStatus: String?,
     channelInputRequests: List<InputRequest>,
     gatewayConnected: Boolean,
+    attachmentPicker: AttachmentPicker?,
     onClose: () -> Unit,
     onAssignProject: (String?) -> Unit,
     onUpdateStatus: (String) -> Unit,
@@ -1632,6 +1742,9 @@ private fun TaskDetailInspector(
     onPreparePlan: () -> Unit,
     onApprovePlan: (ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit,
     onSendToChannel: (String) -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onAttach: () -> Unit,
+    onOpenModels: () -> Unit,
     onAnswerRequest: (InputRequest, JsonObject) -> Unit,
 ) {
     val steerState = rememberTextFieldState("")
@@ -1641,6 +1754,17 @@ private fun TaskDetailInspector(
     val currentProjectLabel = projects.firstOrNull { it.id == task.projectId }?.name ?: unassignedLabel
     val plan = task.stagedPlan
     val metaScroll = rememberScrollState()
+    var planSheetOpen by remember(task.id) { mutableStateOf(false) }
+
+    // Auto-slide the plan sheet up from the bottom when opening a task with a pending
+    // unapproved plan, or when a newly prepared plan arrives.
+    LaunchedEffect(task.id, plan?.generatedAt, plan?.approvedAt, plan?.summary) {
+        val shouldAutoOpen = plan != null && plan.approvedAt == null && channelInputRequests.isEmpty()
+        planSheetOpen = shouldAutoOpen
+    }
+    LaunchedEffect(channelInputRequests.isNotEmpty()) {
+        if (channelInputRequests.isNotEmpty()) planSheetOpen = false
+    }
 
     Column(Modifier.fillMaxSize()) {
         // Pinned inspector header on sidebarColor ground to match left SessionsSidebar.
@@ -1667,11 +1791,11 @@ private fun TaskDetailInspector(
             )
         }
 
-        // Scrollable compact metadata, channels, and optional staged plan (bounded height so live chat owns the panel).
+        // Compact metadata & linked channels (staged plan lives in the slide-up drawer docked above the composer).
         Column(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = if (plan != null) 280.dp else 190.dp)
+                .heightIn(max = 170.dp)
                 .scrollbar(metaScroll)
                 .verticalScroll(metaScroll)
                 .padding(horizontal = 16.dp, vertical = 4.dp),
@@ -1705,11 +1829,8 @@ private fun TaskDetailInspector(
                 projects = projects,
                 unassignedLabel = unassignedLabel,
                 currentStatus = task.status,
-                hasStagedPlan = plan != null,
-                busy = busy,
                 onAssignProject = onAssignProject,
                 onUpdateStatus = onUpdateStatus,
-                onPreparePlan = onPreparePlan,
             )
 
             TaskChannelsSection(
@@ -1720,32 +1841,50 @@ private fun TaskDetailInspector(
                 onOpenPickSession = onOpenPickSession,
                 onOpenPickRoom = onOpenPickRoom,
             )
-
-            if (plan != null) {
-                TaskStagedPlanSection(
-                    task = task,
-                    busy = busy,
-                    onPreparePlan = onPreparePlan,
-                    onApprovePlan = onApprovePlan,
-                )
-            }
         }
 
         Spacer(Modifier.height(4.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
 
-        // Live chat stream fills remaining inspector height above the pill composer.
-        TaskChannelLog(
-            activeChannel = activeChannel,
-            loading = channelLoading,
-            messages = channelMessages,
-            error = channelError,
-            turnRunning = sendingToChannel || channelTurnRunning,
-            turnStatus = channelTurnStatus,
-            onRefresh = onRefreshChannel,
-            onOpenFullscreen = activeChannel?.let { ch -> { onOpenFullscreen(ch) } },
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-        )
+        // Live chat stream fills remaining inspector height; staged plan slides up over its bottom edge.
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val sheetMaxHeight = (maxHeight * 0.72f).coerceIn(180.dp, 340.dp)
+            TaskChannelLog(
+                activeChannel = activeChannel,
+                loading = channelLoading,
+                messages = channelMessages,
+                error = channelError,
+                turnRunning = sendingToChannel || channelTurnRunning,
+                turnStatus = channelTurnStatus,
+                onRefresh = onRefreshChannel,
+                onOpenFullscreen = activeChannel?.let { ch -> { onOpenFullscreen(ch) } },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            AnimatedVisibility(
+                visible = plan != null && planSheetOpen,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                if (plan != null) {
+                    TaskStagedPlanSheet(
+                        task = task,
+                        busy = busy,
+                        maxSheetHeight = sheetMaxHeight,
+                        onCollapse = { planSheetOpen = false },
+                        onPreparePlan = onPreparePlan,
+                        onApprovePlan = { opt, selectedParams, tweaks ->
+                            planSheetOpen = false
+                            onApprovePlan(opt, selectedParams, tweaks)
+                        },
+                    )
+                }
+            }
+        }
 
         if (channelInputRequests.isNotEmpty()) {
             val requestScroll = rememberScrollState()
@@ -1764,13 +1903,36 @@ private fun TaskDetailInspector(
             }
         }
 
-        // Floating rounded pill chat composer matching chat & left sidebar controls.
+        // Docked plan bar directly above the composer: triggers plan prep or toggles the slide-up drawer.
+        TaskPlanDockBar(
+            hasPlan = plan != null,
+            pendingApproval = plan != null && plan.approvedAt == null,
+            expanded = plan != null && planSheetOpen,
+            busy = busy,
+            onClick = {
+                if (plan == null) {
+                    onPreparePlan()
+                } else {
+                    planSheetOpen = !planSheetOpen
+                }
+            },
+        )
+
+        // Two-row floating composer matching normal chat (+ attachments, model picker, multiline input, send).
         TaskChatComposer(
             state = steerState,
             connected = gatewayConnected,
+            attachments = channelAttachments,
+            channelChatState = channelChatState,
+            modelPicker = modelPicker,
+            showModelPicker = activeChannel?.isRoom != true,
+            attachmentPicker = attachmentPicker,
+            onRemoveAttachment = onRemoveAttachment,
+            onAttach = onAttach,
+            onOpenModels = onOpenModels,
             onSend = {
                 val txt = steerState.text.toString().trim()
-                if (txt.isNotEmpty()) {
+                if (txt.isNotEmpty() || channelAttachments.isNotEmpty()) {
                     onSendToChannel(txt)
                     steerState.clearText()
                 }
@@ -1787,11 +1949,8 @@ private fun TaskMetadataPickers(
     projects: List<DirectusProject>,
     unassignedLabel: String,
     currentStatus: String,
-    hasStagedPlan: Boolean,
-    busy: Boolean,
     onAssignProject: (String?) -> Unit,
     onUpdateStatus: (String) -> Unit,
-    onPreparePlan: () -> Unit,
 ) {
     var projectMenuOpen by remember { mutableStateOf(false) }
     var statusMenuOpen by remember { mutableStateOf(false) }
@@ -1855,16 +2014,6 @@ private fun TaskMetadataPickers(
                 icon = Lucide.CircleDot,
                 label = taskStatusLabel(currentStatus),
                 onClick = { statusMenuOpen = true },
-            )
-        }
-
-        if (!hasStagedPlan) {
-            ActionPill(
-                icon = Lucide.Sparkles,
-                label = stringResource(Res.string.tasks_prepare_plan),
-                loading = busy,
-                enabled = !busy,
-                onClick = onPreparePlan,
             )
         }
     }
@@ -2095,18 +2244,29 @@ private fun TaskChannelLog(
                 messages.forEach { line ->
                     if (line.fromUser) {
                         val bubbleShape = userBubbleShape()
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                            Box(Modifier.fillMaxWidth(0.86f).wrapContentWidth(Alignment.End)) {
-                                Text(
-                                    line.text,
-                                    style = Theme[typography][bodySmall],
-                                    color = Theme[colors][onUserBubble],
-                                    modifier = Modifier
-                                        .glow(bubbleShape, bubbleGlow(Theme[colors][userBubble]))
-                                        .clip(bubbleShape)
-                                        .background(Theme[colors][userBubble], bubbleShape)
-                                        .padding(horizontal = 13.dp, vertical = 8.dp),
-                                )
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            if (line.attachments.isNotEmpty()) {
+                                Box(Modifier.fillMaxWidth(0.86f).wrapContentWidth(Alignment.End)) {
+                                    SentAttachments(line.attachments)
+                                }
+                            }
+                            if (line.text.isNotBlank()) {
+                                Box(Modifier.fillMaxWidth(0.86f).wrapContentWidth(Alignment.End)) {
+                                    Text(
+                                        line.text,
+                                        style = Theme[typography][bodySmall],
+                                        color = Theme[colors][onUserBubble],
+                                        modifier = Modifier
+                                            .glow(bubbleShape, bubbleGlow(Theme[colors][userBubble]))
+                                            .clip(bubbleShape)
+                                            .background(Theme[colors][userBubble], bubbleShape)
+                                            .padding(horizontal = 13.dp, vertical = 8.dp),
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -2161,52 +2321,62 @@ private fun TaskChannelLog(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TaskStagedPlanSection(
+private fun TaskStagedPlanSheet(
     task: DirectusTask,
     busy: Boolean,
+    maxSheetHeight: Dp,
+    onCollapse: () -> Unit,
     onPreparePlan: () -> Unit,
     onApprovePlan: (ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
     val plan = task.stagedPlan ?: return
     val approveFallback = stringResource(Res.string.tasks_approve_action)
-    var expanded by remember(task.id, plan.hashCode()) { mutableStateOf(true) }
+    val sheetScroll = rememberScrollState()
 
     Column(
         Modifier
             .fillMaxWidth()
+            .heightIn(max = maxSheetHeight)
+            .testTag("task_plan_sheet")
+            .dropShadow(shape, DockShadow)
             .clip(shape)
-            .background(Theme[colors][surface])
-            .border(1.dp, Theme[colors][stroke], shape)
+            .background(Theme[colors][surface], shape)
+            .border(1.dp, Theme[colors][strokeStrong], shape)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        FlowRow(
-            Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .handCursor(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
+                Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 UnstyledIcon(
-                    if (expanded) Lucide.ChevronDown else Lucide.ChevronRight,
+                    Lucide.Sparkles,
                     contentDescription = null,
-                    tint = Theme[colors][textTertiary],
+                    tint = Theme[colors][accentText],
                     modifier = Modifier.size(14.dp),
                 )
                 Text(
                     stringResource(Res.string.tasks_plan_heading).uppercase(),
                     style = Theme[typography][eyebrow],
                     color = Theme[colors][textTertiary],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                if (plan.approvedAt == null) {
+                    MiniBadge(
+                        text = stringResource(Res.string.tasks_state_needs_you),
+                        backgroundColor = Theme[colors][warningSoft],
+                        contentColor = Theme[colors][warning],
+                    )
+                }
             }
             Button(
                 text = stringResource(Res.string.tasks_refresh_plan),
@@ -2217,9 +2387,22 @@ private fun TaskStagedPlanSection(
                 size = ButtonSize.Small,
                 leadingIcon = Lucide.Sparkles,
             )
+            IconButton(
+                Lucide.ChevronDown,
+                contentDescription = stringResource(Res.string.chat_collapse),
+                onClick = onCollapse,
+                modifier = Modifier.testTag("task_plan_sheet_collapse"),
+            )
         }
 
-        if (expanded) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .scrollbar(sheetScroll)
+                .verticalScroll(sheetScroll),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             val params = remember(plan.params) {
                 plan.params.map { ReplyInteraction.Param(key = it.key, label = it.label, options = it.options, defaultValue = it.default) }
             }
@@ -2252,71 +2435,250 @@ private fun TaskStagedPlanSection(
 }
 
 @Composable
+private fun TaskPlanDockBar(
+    hasPlan: Boolean,
+    pendingApproval: Boolean,
+    expanded: Boolean,
+    busy: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    val enabled = hasPlan || !busy
+    val borderColor = if (pendingApproval) Theme[colors][accent].copy(alpha = 0.55f) else Theme[colors][strokeStrong]
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 2.dp)
+            .testTag("task_plan_dock_button")
+            .clip(shape)
+            .background(if (pendingApproval) Theme[colors][accentSoft] else Theme[colors][surface], shape)
+            .border(1.dp, borderColor, shape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .handCursor(enabled)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (busy && !hasPlan) {
+            Spinner(Modifier.size(14.dp))
+        } else {
+            UnstyledIcon(
+                Lucide.Sparkles,
+                contentDescription = null,
+                tint = Theme[colors][accentText],
+                modifier = Modifier.size(14.dp),
+            )
+        }
+        Text(
+            stringResource(if (hasPlan) Res.string.tasks_plan_heading else Res.string.tasks_prepare_plan),
+            style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
+            color = if (enabled) Theme[colors][textColor] else Theme[colors][textMuted],
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (pendingApproval) {
+            MiniBadge(
+                text = stringResource(Res.string.tasks_state_needs_you),
+                backgroundColor = Theme[colors][warningSoft],
+                contentColor = Theme[colors][warning],
+            )
+        }
+        if (hasPlan) {
+            UnstyledIcon(
+                if (expanded) Lucide.ChevronDown else Lucide.ChevronUp,
+                contentDescription = null,
+                tint = Theme[colors][textTertiary],
+                modifier = Modifier.size(15.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun TaskChatComposer(
     state: TextFieldState,
     connected: Boolean,
+    attachments: List<OutgoingAttachment>,
+    channelChatState: ChatState,
+    modelPicker: ModelPickerState,
+    showModelPicker: Boolean,
+    attachmentPicker: AttachmentPicker?,
+    onRemoveAttachment: (String) -> Unit,
+    onAttach: () -> Unit,
+    onOpenModels: () -> Unit,
     onSend: () -> Unit,
 ) {
     val keyboardUp = imeVisible
     var focused by remember { mutableStateOf(false) }
-    val canSend = state.text.toString().isNotBlank() && connected
+    var dropping by remember { mutableStateOf(false) }
+    val canSend = (state.text.toString().isNotBlank() || attachments.isNotEmpty()) && connected
     val shape = RoundedCornerShape(Theme[radii][radiusXLarge])
+    val borderColor = when {
+        dropping -> Theme[colors][accent]
+        focused -> Theme[colors][textTertiary]
+        else -> Theme[colors][strokeStrong]
+    }
     Column(
         Modifier
             .fillMaxWidth()
             .imePadding()
             .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = if (keyboardUp) 8.dp else 12.dp),
     ) {
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
+                .then(
+                    if (attachmentPicker != null) {
+                        Modifier.fileDrop(onHover = { dropping = it }) { attachmentPicker.attachFiles(it) }
+                    } else {
+                        Modifier
+                    },
+                )
                 .dropShadow(shape, DockShadow)
                 .clip(shape)
                 .background(Theme[colors][surface], shape)
-                .border(1.dp, if (focused) Theme[colors][textTertiary] else Theme[colors][strokeStrong], shape)
-                .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.Bottom,
+                .border(if (dropping) 2.dp else 1.dp, borderColor, shape)
+                .padding(
+                    start = 4.dp,
+                    end = 6.dp,
+                    top = if (attachments.isEmpty()) 10.dp else 8.dp,
+                    bottom = 6.dp,
+                ),
         ) {
-            UnstyledTextField(
+            if (attachments.isNotEmpty()) {
+                ComposerTray(attachments, onRemove = onRemoveAttachment)
+            }
+            ComposerTextInput(
                 state = state,
-                textStyle = Theme[typography][bodySmall],
-                textColor = Theme[colors][textColor],
-                cursorBrush = SolidColor(Theme[colors][accent]),
-                selectionColors = LocalTextSelectionColors.current,
-                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 4),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                maxHeightInLines = if (isDesktop) 10 else 6,
                 modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 30.dp)
-                    .padding(vertical = 5.dp)
+                    .fillMaxWidth()
+                    .heightIn(min = 28.dp)
+                    .padding(horizontal = 10.dp)
                     .testTag("task_chat_composer_input")
                     .onFocusChanged { focused = it.isFocused }
-                    .onPreviewKeyEvent { event ->
-                        if (composerKey(event) == ComposerKey.Send && canSend) {
-                            onSend()
-                            true
+                    .then(
+                        if (!enterSends) {
+                            Modifier
                         } else {
-                            false
-                        }
-                    },
+                            Modifier.onPreviewKeyEvent { event ->
+                                when {
+                                    isPasteKey(event) -> attachmentPicker?.pasteAttachments() == true
+                                    composerKey(event) == ComposerKey.Send && canSend -> {
+                                        onSend()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
+                        },
+                    ),
+                placeholder = {
+                    Text(
+                        stringResource(Res.string.tasks_quick_steer_hint),
+                        style = Theme[typography][body],
+                        color = Theme[colors][textTertiary],
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+            )
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextInput(
-                    placeholder = {
-                        Text(
-                            stringResource(Res.string.tasks_quick_steer_hint),
-                            style = Theme[typography][bodySmall],
-                            color = Theme[colors][textTertiary],
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
+                AttachButton(
+                    onClick = onAttach,
+                    enabled = connected && attachments.size < OutgoingAttachment.MAX_COUNT,
+                )
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .padding(start = 2.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (showModelPicker) {
+                        val hasModel = ModelSelection.of(channelChatState, modelPicker.catalog).model != null
+                        if (hasModel) {
+                            ModelPill(
+                                state = channelChatState,
+                                picker = modelPicker,
+                                onClick = onOpenModels,
+                            )
+                        } else {
+                            FallbackModelPill(
+                                loading = modelPicker.loading,
+                                enabled = connected,
+                                onClick = onOpenModels,
+                            )
+                        }
+                    }
+                }
+                Snug {
+                    SendButton(
+                        icon = SendIcon.Send,
+                        onClick = onSend,
+                        enabled = canSend,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FallbackModelPill(
+    loading: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val bounds = LocalModelPillBounds.current
+    val discHeight = if (isDesktop) 30.dp else 36.dp
+    val changeModel = stringResource(Res.string.chat_change_model)
+    Box(
+        Modifier
+            .then(if (bounds != null) Modifier.onGloballyPositioned { bounds.value = it.boundsInWindow() } else Modifier)
+            .heightIn(min = MinTouchTarget)
+            .testTag("task_model_picker_fallback")
+            .handCursor(enabled)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = changeModel },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Row(
+            Modifier
+                .heightIn(min = discHeight)
+                .clip(CircleShape)
+                .background(Theme[colors][surface3], CircleShape)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (loading) {
+                Spinner(Modifier.size(13.dp))
+            } else {
+                UnstyledIcon(
+                    Lucide.Sparkles,
+                    contentDescription = null,
+                    tint = if (enabled) Theme[colors][accentText] else Theme[colors][textMuted],
+                    modifier = Modifier.size(13.dp),
                 )
             }
-            SendButton(
-                icon = SendIcon.Send,
-                onClick = onSend,
-                enabled = canSend,
+            Text(
+                stringResource(Res.string.chat_model_title),
+                style = Theme[typography][caption],
+                color = if (enabled) Theme[colors][textSecondary] else Theme[colors][textMuted],
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            UnstyledIcon(
+                Lucide.ChevronDown,
+                contentDescription = null,
+                tint = Theme[colors][textTertiary],
+                modifier = Modifier.size(13.dp),
             )
         }
     }
