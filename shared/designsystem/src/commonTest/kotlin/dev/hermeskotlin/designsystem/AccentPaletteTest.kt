@@ -54,6 +54,7 @@ class AccentPaletteTest {
         assertEquals(AccentPalette.Blue, AccentPalette.named("Neon"))
         assertEquals(AccentPalette.Blue, AccentPalette.named(null))
         assertEquals(AccentPalette.Teal, AccentPalette.named("Teal"))
+        assertEquals(AccentPalette.Monochrome, AccentPalette.named("Monochrome"))
     }
 
     @Test

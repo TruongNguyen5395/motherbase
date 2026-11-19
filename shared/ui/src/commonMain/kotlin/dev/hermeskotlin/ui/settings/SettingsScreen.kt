@@ -417,7 +417,7 @@ internal fun SettingsView(
     onOpenPhoneTools: () -> Unit = {},
     botFaces: BotFaces = BotFaces(),
     onChooseCallTarget: () -> Unit = {},
-    appIcon: AppIcon = AppIcon.Blue,
+    appIcon: AppIcon = AppIcon.Gradient,
     onOpenAppIcon: () -> Unit = {},
     /** The language picked in Settings › Language; null for System default. */
     language: AppLanguage? = null,
@@ -1589,6 +1589,7 @@ private fun accentName(palette: AccentPalette): String {
         AccentPalette.Orange -> Res.string.accent_orange
         AccentPalette.Pink -> Res.string.accent_pink
         AccentPalette.Teal -> Res.string.accent_teal
+        AccentPalette.Monochrome -> Res.string.accent_monochrome
         else -> null
     }
     return if (key != null) stringResource(key) else palette.name

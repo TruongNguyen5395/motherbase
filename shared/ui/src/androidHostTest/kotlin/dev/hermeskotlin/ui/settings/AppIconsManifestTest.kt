@@ -31,7 +31,7 @@ class AppIconsManifestTest {
     @Test
     fun onlyTheDefaultStartsEnabled() {
         val enabled = aliases.filterValues { it.getAttributeNS(android, "enabled") != "false" }.keys
-        assertEquals(setOf(AppIcon.Blue.aliasClass), enabled)
+        assertEquals(setOf(AppIcon.Gradient.aliasClass), enabled)
     }
 
     @Test

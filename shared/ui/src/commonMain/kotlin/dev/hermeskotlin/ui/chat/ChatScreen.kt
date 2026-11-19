@@ -104,7 +104,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Ellipsis
-import dev.hermeskotlin.designsystem.HeraldBrandBlue
+import androidx.compose.ui.graphics.luminance
 import dev.hermeskotlin.designsystem.HeraldMark
 import dev.hermeskotlin.designsystem.components.glow
 import dev.hermeskotlin.designsystem.components.halo
@@ -1904,16 +1904,17 @@ private fun Modifier.marksOnHover(index: Int, onMark: ((Int) -> Unit)?): Modifie
         }
     }
 
-/** The app's mark: the summit at dawn in a rounded square, as on the launcher, with its glow under it unless it's small. */
+/** The app's mark: the MotherBase emblem in a rounded square, as on the launcher, with a soft neutral glow unless it's small. */
 @Composable
 internal fun AppMark(size: Dp, glow: Boolean = true) {
     val shape = RoundedCornerShape(size * 0.29f)
+    val glowColor = if (Theme[colors][background].luminance() < 0.5f) Color(0xFF555555) else Color(0xFF18181B)
     Image(
         HeraldMark,
         contentDescription = null,
         modifier = Modifier
             .size(size)
-            .then(if (glow) Modifier.glow(shape, bubbleGlow(HeraldBrandBlue)) else Modifier)
+            .then(if (glow) Modifier.glow(shape, bubbleGlow(glowColor)) else Modifier)
             .clip(shape),
     )
 }

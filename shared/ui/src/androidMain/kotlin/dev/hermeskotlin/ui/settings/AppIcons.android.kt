@@ -33,7 +33,7 @@ private fun Context.findActivity(): Activity? = when (this) {
 }
 
 /**
- * Each icon is a launcher alias of the app's activity in its AndroidManifest.xml, exactly one enabled: Blue's is
+ * Each icon is a launcher alias of the app's activity in its AndroidManifest.xml, exactly one enabled: Gradient's is
  * MainActivity (the activity's old name, so home-screen icons from before stay), the others AppIcon<name>.
  */
 private class AndroidAppIcons(
@@ -45,7 +45,7 @@ private class AndroidAppIcons(
 
     // The launcher entry Android opens Herald from is the enabled alias: one lookup instead of one per icon.
     override val current: AppIcon = packages.getLaunchIntentForPackage(context.packageName)?.component?.className
-        .let { entry -> AppIcon.entries.firstOrNull { it.aliasClass == entry } } ?: AppIcon.Blue
+        .let { entry -> AppIcon.entries.firstOrNull { it.aliasClass == entry } } ?: AppIcon.Gradient
 
     override suspend fun picture(icon: AppIcon, sizePx: Int): ImageBitmap? = withContext(Dispatchers.Default) {
         runCatching {
@@ -105,4 +105,4 @@ object AppIconRestart {
  * the app module's namespace, not its application id, which Herald Dev's suffix changes.
  */
 internal val AppIcon.aliasClass: String
-    get() = "dev.hermeskotlin.android." + if (this == AppIcon.Blue) "MainActivity" else "AppIcon$name"
+    get() = "dev.hermeskotlin.android." + if (this == AppIcon.Gradient) "MainActivity" else "AppIcon$name"

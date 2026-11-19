@@ -28,7 +28,7 @@ class WatchAccentsTest {
     @Test
     fun anUnknownPresetIsBlueAndEachPresetHasItsOwnRevision() {
         assertEquals(watchAccent("Blue"), watchAccent("Mauve"))
-        val revisions = listOf("Blue", "Violet", "Green", "Orange", "Pink", "Teal").map { watchAccent(it).revision }
+        val revisions = listOf("Blue", "Violet", "Green", "Orange", "Pink", "Teal", "Monochrome").map { watchAccent(it).revision }
         assertEquals(revisions.size, revisions.toSet().size)
         assertNotEquals(watchAccent("Blue").revision, watchAccent("Teal").revision)
     }

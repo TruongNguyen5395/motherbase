@@ -1,7 +1,9 @@
 package dev.hermeskotlin.android
 
 import android.app.Application
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import dev.hermeskotlin.android.notify.BotNotifier
 import dev.hermeskotlin.android.notify.ChatNotifications
@@ -52,6 +54,14 @@ class HermesApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // If an upgrade removed a previously selected launcher alias, re-enable the default entry so the app stays launchable.
+        if (packageManager.getLaunchIntentForPackage(packageName) == null) {
+            packageManager.setComponentEnabledSetting(
+                ComponentName(packageName, "dev.hermeskotlin.android.MainActivity"),
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+        }
         val koin = startKoin {
             androidContext(this@HermesApplication)
             modules(sharedModules + notifyModule + wearModule)

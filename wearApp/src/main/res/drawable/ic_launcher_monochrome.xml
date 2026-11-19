@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The summit in one color, for themed icons (androidApp's ic_launcher_monochrome.xml). -->
+<!-- The MotherBase hexagonal M emblem in one color, for themed watch icons (matches androidApp's ic_launcher_monochrome.xml). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group>
-        <clip-path android:pathData="M36.5,0L99.1,108L108,108L108,0Z" />
-        <path android:fillColor="#FFFFFF" android:pathData="M60,49a11,11 0,1 0,22 0a11,11 0,1 0,-22 0z" />
-    </group>
-    <path android:fillColor="#FFFFFF" android:pathData="M45.2,50L51,40Q54,35 57,40L62.8,50L60,48.6L57.5,52.5L55,52L52,49L48.5,53Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M11.6,108L44.04,52L48.5,55.2L52,51.2L55,54.2L57.5,54.7L60,50.8L63.96,52L96.4,108Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M41.88,33.00L53.99,26.00L66.12,33.00L78.25,40.00L78.25,68.01L66.12,75.00L53.99,82.00L41.88,75.00L29.75,68.01L29.75,40.00ZM44.19,37.02L34.39,42.68L34.39,65.32L44.19,70.98L53.99,76.64L63.81,70.98L73.61,65.32L73.61,42.68L63.81,37.02L53.99,31.36Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M53.99,36.07L46.23,40.54L38.47,45.04L38.47,62.98L45.33,66.93L45.33,48.99L50.50,46.00L50.50,69.92L53.99,71.95L57.50,69.92L57.50,46.00L62.67,48.99L62.67,66.93L69.53,62.98L69.53,45.04L61.77,40.54Z" />
 </vector>

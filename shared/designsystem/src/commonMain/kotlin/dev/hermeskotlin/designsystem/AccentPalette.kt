@@ -47,8 +47,9 @@ class AccentPalette private constructor(
         val Orange = mixed("Orange", light = Color(0xFFB04700), dark = Color(0xFFF0883E))
         val Pink = mixed("Pink", light = Color(0xFFB0327E), dark = Color(0xFFF778BA))
         val Teal = mixed("Teal", light = Color(0xFF0C6A84), dark = Color(0xFF22D3EE))
+        val Monochrome = mixed("Monochrome", light = Color(0xFF18181B), dark = Color(0xFFE4E4E7))
 
-        val all: List<AccentPalette> = listOf(Blue, Violet, Green, Orange, Pink, Teal)
+        val all: List<AccentPalette> = listOf(Blue, Violet, Green, Orange, Pink, Teal, Monochrome)
 
         /** The palette called [name], or [Blue] for a name this version doesn't know. */
         fun named(name: String?): AccentPalette = all.firstOrNull { it.name == name } ?: Blue

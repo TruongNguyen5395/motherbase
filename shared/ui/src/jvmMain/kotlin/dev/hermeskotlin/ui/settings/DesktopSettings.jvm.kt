@@ -11,7 +11,7 @@ import dev.hermeskotlin.ui.resources.phone_need_android
 @Composable
 actual fun rememberAppIcons(): AppIcons = remember {
     object : AppIcons {
-        override val current = AppIcon.Blue
+        override val current = AppIcon.Gradient
 
         override suspend fun picture(icon: AppIcon, sizePx: Int): ImageBitmap? = null
 

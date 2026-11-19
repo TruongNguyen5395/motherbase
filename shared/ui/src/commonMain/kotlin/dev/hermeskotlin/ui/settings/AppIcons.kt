@@ -5,26 +5,14 @@ import androidx.compose.ui.graphics.ImageBitmap
 import dev.hermeskotlin.ui.resources.*
 import org.jetbrains.compose.resources.StringResource
 
-/** The rows of the app icon picker. */
-enum class AppIconGroup(val titleRes: StringResource) {
-    Colors(Res.string.app_icon_group_colors),
-    Patterns(Res.string.app_icon_group_patterns),
-}
-
 /**
- * The launcher icons Herald comes with. [Blue] is the brand icon every install starts with; the colors are the
- * accents', and the patterns put the outlined mark over a print.
+ * The launcher icons MotherBase comes with. [Gradient] is the brand icon every install starts with;
+ * [MonoDark] and [MonoLight] offer flat monochrome alternatives.
  */
-enum class AppIcon(val labelRes: StringResource, val group: AppIconGroup) {
-    Blue(Res.string.app_icon_blue, AppIconGroup.Colors),
-    Violet(Res.string.app_icon_violet, AppIconGroup.Colors),
-    Green(Res.string.app_icon_green, AppIconGroup.Colors),
-    Orange(Res.string.app_icon_orange, AppIconGroup.Colors),
-    Pink(Res.string.app_icon_pink, AppIconGroup.Colors),
-    Teal(Res.string.app_icon_teal, AppIconGroup.Colors),
-    Hearts(Res.string.app_icon_hearts, AppIconGroup.Patterns),
-    Marks(Res.string.app_icon_marks, AppIconGroup.Patterns),
-    Bubbles(Res.string.app_icon_bubbles, AppIconGroup.Patterns),
+enum class AppIcon(val labelRes: StringResource) {
+    Gradient(Res.string.app_icon_gradient),
+    MonoDark(Res.string.app_icon_mono_dark),
+    MonoLight(Res.string.app_icon_mono_light),
 }
 
 /** Which launcher icon Herald shows, and switching it. */

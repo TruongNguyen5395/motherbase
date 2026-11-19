@@ -97,16 +97,14 @@ internal fun AppIconView(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(22.dp),
             ) {
-                AppIconGroup.entries.forEach { group ->
-                    Section(stringResource(group.titleRes)) {
-                        FlowRow(
-                            Modifier.fillMaxWidth().padding(10.dp).selectableGroup(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            AppIcon.entries.filter { it.group == group }.forEach { icon ->
-                                IconChoice(icon, pictures[icon], selected = icon == picked, onClick = { picked = icon })
-                            }
+                Section(stringResource(Res.string.settings_app_icon)) {
+                    FlowRow(
+                        Modifier.fillMaxWidth().padding(10.dp).selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AppIcon.entries.forEach { icon ->
+                            IconChoice(icon, pictures[icon], selected = icon == picked, onClick = { picked = icon })
                         }
                     }
                 }
