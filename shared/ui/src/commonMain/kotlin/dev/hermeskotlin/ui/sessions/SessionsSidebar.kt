@@ -567,7 +567,7 @@ fun SessionsSidebar(
         if (autoRoutedDispatchForGateway == activeGatewayUrl) return@LaunchedEffect
         if (pageOpen || inboxLink != null) return@LaunchedEffect
         val nowMillis = Clock.System.now().toEpochMilliseconds()
-        val moment = localMoment(nowMillis)
+        val moment = dev.hermeskotlin.ui.components.localMoment(nowMillis)
         val dateIso = dev.hermeskotlin.ui.tasks.formatIsoDate(moment.year, moment.month, moment.day)
         val minuteOfDay = moment.hour * 60 + moment.minute
         val dueSlot = coord.resolveDueCheckinSlot(

@@ -2015,12 +2015,12 @@ private fun CoordinatorFloatingTrigger(
             PetView(
                 sprite = petSprite,
                 state = petState,
-                size = 34.dp,
+                onClick = onClick,
             )
         } else {
             BotAvatar(
                 bot = bot,
-                avatarBytes = avatarBytes,
+                picture = avatarBytes,
                 size = 32.dp,
             )
         }
@@ -2030,7 +2030,7 @@ private fun CoordinatorFloatingTrigger(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    stringResource(Res.string.tasks_coordinator_button, bot.label),
+                    stringResource(Res.string.tasks_coordinator_ask, bot.label),
                     style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
                     color = Theme[colors][textColor],
                     maxLines = 1,
@@ -2040,7 +2040,7 @@ private fun CoordinatorFloatingTrigger(
                     Spinner(Modifier.size(12.dp))
                 } else if (checkinDue) {
                     MiniBadge(
-                        text = stringResource(Res.string.tasks_coordinator_checkin_due),
+                        text = stringResource(Res.string.tasks_coordinator_checkin_ready),
                         backgroundColor = Theme[colors][warningSoft],
                         contentColor = Theme[colors][warning],
                     )
@@ -2080,12 +2080,12 @@ private fun CoordinatorInspector(
     gatewayConnected: Boolean,
     attachmentPicker: AttachmentPicker?,
     dictation: DictationState,
-    onToggleDictation: (TextFieldState) -> Unit,
+    onToggleDictation: ((TextFieldState) -> Unit)? = null,
     onClose: () -> Unit,
     onRefreshChannel: () -> Unit,
     onResetSession: () -> Unit,
     onOpenFullscreen: () -> Unit,
-    onOpenPetPicker: () -> Unit,
+    onOpenPetPicker: (() -> Unit)? = null,
     onOpenSettings: () -> Unit,
     onQuickAction: (CoordinatorQuickAction) -> Unit,
     onSendToCoordinator: (String) -> Unit,
@@ -2109,7 +2109,7 @@ private fun CoordinatorInspector(
         ) {
             BotAvatar(
                 bot = coordinatorBot,
-                avatarBytes = botAvatars[coordinatorBot.name],
+                picture = botAvatars[coordinatorBot.name],
                 size = 30.dp,
             )
             Column(
@@ -2129,7 +2129,7 @@ private fun CoordinatorInspector(
                     )
                     if (checkinDue) {
                         MiniBadge(
-                            text = stringResource(Res.string.tasks_coordinator_checkin_due),
+                            text = stringResource(Res.string.tasks_coordinator_checkin_ready),
                             backgroundColor = Theme[colors][warningSoft],
                             contentColor = Theme[colors][warning],
                         )
@@ -2143,11 +2143,13 @@ private fun CoordinatorInspector(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(
-                Lucide.Sparkles,
-                contentDescription = stringResource(Res.string.tasks_coordinator_choose_pet),
-                onClick = onOpenPetPicker,
-            )
+            if (onOpenPetPicker != null) {
+                IconButton(
+                    Lucide.Sparkles,
+                    contentDescription = stringResource(Res.string.tasks_coordinator_choose_pet),
+                    onClick = onOpenPetPicker,
+                )
+            }
             if (resettingSession) {
                 Spinner(Modifier.size(16.dp).padding(horizontal = 4.dp))
             } else {
@@ -2167,7 +2169,7 @@ private fun CoordinatorInspector(
             }
             IconButton(
                 Lucide.Settings2,
-                contentDescription = stringResource(Res.string.tasks_coordinator_settings_title),
+                contentDescription = stringResource(Res.string.tasks_coordinator_settings_heading),
                 onClick = onOpenSettings,
                 modifier = Modifier.testTag("coordinator_settings_button"),
             )
@@ -2187,8 +2189,8 @@ private fun CoordinatorInspector(
                     .clip(petShape)
                     .background(Theme[colors][surface])
                     .border(1.dp, Theme[colors][stroke], petShape)
-                    .clickable(role = Role.Button, onClick = onOpenPetPicker)
-                    .handCursor()
+                    .clickable(enabled = onOpenPetPicker != null, role = Role.Button) { onOpenPetPicker?.invoke() }
+                    .handCursor(onOpenPetPicker != null)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2196,11 +2198,11 @@ private fun CoordinatorInspector(
                 PetView(
                     sprite = petSprite,
                     state = petState,
-                    size = 42.dp,
+                    onClick = { onOpenPetPicker?.invoke() },
                 )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        stringResource(Res.string.tasks_coordinator_subtitle),
+                        stringResource(Res.string.tasks_coordinator_empty),
                         style = Theme[typography][bodySmall],
                         color = Theme[colors][textSecondary],
                         maxLines = 2,
@@ -2263,12 +2265,12 @@ private fun CoordinatorInspector(
             Chip(
                 text = stringResource(Res.string.tasks_chip_blockers),
                 selected = false,
-                onClick = { if (!turnBusy) onQuickAction(CoordinatorQuickAction.BLOCKED_AND_OVERDUE) },
+                onClick = { if (!turnBusy) onQuickAction(CoordinatorQuickAction.BLOCKERS) },
             )
             Chip(
                 text = stringResource(Res.string.tasks_chip_priorities),
                 selected = false,
-                onClick = { if (!turnBusy) onQuickAction(CoordinatorQuickAction.NEXT_PRIORITIES) },
+                onClick = { if (!turnBusy) onQuickAction(CoordinatorQuickAction.PRIORITIES) },
             )
         }
 
@@ -2282,7 +2284,7 @@ private fun CoordinatorInspector(
             attachmentPicker = attachmentPicker,
             dictation = dictation,
             onToggleDictation = onToggleDictation,
-            placeholderText = stringResource(Res.string.tasks_coordinator_hint, coordinatorBot.label),
+            placeholderText = stringResource(Res.string.tasks_coordinator_hint),
             onRemoveAttachment = onRemoveAttachment,
             onAttach = onAttach,
             onOpenModels = onOpenModels,
@@ -2319,7 +2321,7 @@ private fun TaskDetailInspector(
     gatewayConnected: Boolean,
     attachmentPicker: AttachmentPicker?,
     dictation: DictationState,
-    onToggleDictation: (TextFieldState) -> Unit,
+    onToggleDictation: ((TextFieldState) -> Unit)? = null,
     onClose: () -> Unit,
     onAssignProject: (String?) -> Unit,
     onUpdateStatus: (String) -> Unit,
@@ -2873,7 +2875,7 @@ private fun TaskChannelLog(
                     } else {
                         val speakerName = line.speaker?.trim()?.takeIf { it.isNotEmpty() }
                         val speakerBot = speakerName?.let { name ->
-                            botByName[name] ?: Bot(name = name, label = name.replaceFirstChar { it.uppercase() })
+                            botByName[name] ?: Bot(name = name, isDefault = name.equals(Bot.DEFAULT, ignoreCase = true))
                         }
                         Column(
                             Modifier.fillMaxWidth(),
@@ -2886,7 +2888,7 @@ private fun TaskChannelLog(
                                 ) {
                                     BotAvatar(
                                         bot = speakerBot,
-                                        avatarBytes = botAvatars[speakerBot.name],
+                                        picture = botAvatars[speakerBot.name],
                                         size = 20.dp,
                                     )
                                     Text(
@@ -2906,7 +2908,7 @@ private fun TaskChannelLog(
                             val interaction = line.interaction
                             if (interaction != null) {
                                 ReplyInteractionCard(
-                                    replyKey = line.id,
+                                    replyKey = line.key,
                                     interaction = interaction,
                                     sendEnabled = !turnRunning,
                                     onSend = { text -> onSelectInteraction?.invoke(text) },
@@ -3431,15 +3433,15 @@ private fun CoordinatorSettingsSection(
 ) {
     val visibleBots = remember(bots) {
         val list = bots.filterNot { it.meta.hidden }
-        if (list.any { it.name == "default" }) {
+        if (list.any { it.name == Bot.DEFAULT }) {
             list
         } else {
-            listOf(Bot(name = "default", label = "Miller")) + list
+            listOf(Bot(name = Bot.DEFAULT, isDefault = true)) + list
         }
     }
     val activeBot = remember(visibleBots, selectedProfile) {
         visibleBots.firstOrNull { it.name == selectedProfile }
-            ?: Bot(name = selectedProfile, label = selectedProfile.replaceFirstChar { it.uppercase() })
+            ?: Bot(name = selectedProfile, isDefault = selectedProfile.equals(Bot.DEFAULT, ignoreCase = true))
     }
 
     Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
@@ -3451,11 +3453,11 @@ private fun CoordinatorSettingsSection(
     ) {
         BotAvatar(
             bot = activeBot,
-            avatarBytes = botAvatars[activeBot.name],
+            picture = botAvatars[activeBot.name],
             size = 28.dp,
         )
         Text(
-            stringResource(Res.string.tasks_coordinator_settings_title),
+            stringResource(Res.string.tasks_coordinator_settings_heading),
             style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
             color = Theme[colors][textColor],
             modifier = Modifier.weight(1f),
@@ -3477,7 +3479,7 @@ private fun CoordinatorSettingsSection(
     }
 
     Text(
-        stringResource(Res.string.tasks_coordinator_profile),
+        stringResource(Res.string.tasks_coordinator_agent_label),
         style = Theme[typography][labelStyle],
         color = Theme[colors][textSecondary],
     )
@@ -3547,11 +3549,11 @@ private fun CoordinatorSettingsSection(
         TextField(
             state = checkinTimesState,
             label = stringResource(Res.string.tasks_coordinator_checkin_times),
-            placeholder = stringResource(Res.string.tasks_coordinator_checkin_times_hint),
+            placeholder = "09:00, 16:00",
         )
         TextField(
             state = windowState,
-            label = stringResource(Res.string.tasks_coordinator_window_minutes),
+            label = stringResource(Res.string.tasks_coordinator_checkin_window),
         )
     }
 }

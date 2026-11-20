@@ -686,8 +686,8 @@ class TasksPageUiTest {
         assertEquals(
             listOf(
                 CoordinatorQuickAction.CHECK_IN,
-                CoordinatorQuickAction.BLOCKED_AND_OVERDUE,
-                CoordinatorQuickAction.NEXT_PRIORITIES,
+                CoordinatorQuickAction.BLOCKERS,
+                CoordinatorQuickAction.PRIORITIES,
             ),
             clickedActions,
         )
@@ -700,8 +700,8 @@ class TasksPageUiTest {
         // Opening settings from the coordinator rail shows the Coordinator Agent settings section.
         onNodeWithTag("coordinator_settings_button").performClick()
         waitForIdle()
-        onNodeWithText("Coordinator Agent").assertIsDisplayed()
-        onNodeWithText("Standing default prompt").assertIsDisplayed()
+        onNodeWithText("Coordinator agent").assertIsDisplayed()
+        onNodeWithText("Standing instructions (default prompt)").assertIsDisplayed()
         onNodeWithText("Test and save").performClick()
         waitForIdle()
         assertEquals("default", savedCoordinatorProfile)
