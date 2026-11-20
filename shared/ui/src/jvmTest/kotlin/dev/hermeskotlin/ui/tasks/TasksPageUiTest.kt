@@ -718,7 +718,7 @@ class TasksPageUiTest {
         onNodeWithTag("tasks_checkin_add_button").performScrollTo().performClick()
         waitForIdle()
         onNodeWithText("Check-in time").assertIsDisplayed()
-        onNodeWithText("13:30").performClick()
+        onNodeWithText("20:00").performClick()
         onNodeWithText("± 45 min").performClick()
         onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("checkin_rule_instruction_field")))
             .performTextInput("Verify sprint capacity")
@@ -726,7 +726,7 @@ class TasksPageUiTest {
         onNodeWithText("Apply").performClick()
         waitForIdle()
 
-        onNodeWithText("13:30").assertIsDisplayed()
+        onNodeWithText("20:00").assertIsDisplayed()
         onNodeWithText("Verify sprint capacity").assertIsDisplayed()
 
         onNodeWithText("Save settings").performClick()
@@ -734,7 +734,7 @@ class TasksPageUiTest {
         assertEquals("default", savedCoordinatorProfile)
         assertTrue(
             savedSchedules.any {
-                it.time == "13:30" && it.windowMinutes == 45 && it.instruction == "Verify sprint capacity" && it.enabled
+                it.time == "20:00" && it.windowMinutes == 45 && it.instruction == "Verify sprint capacity" && it.enabled
             },
         )
     }
