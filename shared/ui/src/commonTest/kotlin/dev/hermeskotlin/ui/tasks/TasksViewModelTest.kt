@@ -1397,9 +1397,9 @@ class TasksViewModelTest {
         )
 
         try {
-            h.vm.setPageVisible(true)
+            h.vm.setVisible(true)
             h.vm.bind(gateway)
-            withTimeout(5_000) { h.vm.state.first { !it.loading && it.configured } }
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.config?.configured == true } }
 
             // Outside configured check-in window: sidebar stays closed and no due slot is set.
             assertFalse(h.vm.state.value.coordinatorOpen)
@@ -1409,7 +1409,7 @@ class TasksViewModelTest {
             // coordinator opens proactively and includes the schedule instruction in the prompt.
             scheduleTime = currentSlot
             scheduleInstruction = "Verify sprint risks and pending plans"
-            h.vm.refresh(force = true)
+            h.vm.refresh()
             withTimeout(5_000) {
                 h.vm.state.first {
                     it.coordinatorOpen &&
@@ -1422,8 +1422,12 @@ class TasksViewModelTest {
             // Closing the sidebar dismisses the active slot so subsequent refreshes do not yank it open again.
             h.vm.closeCoordinator()
             assertFalse(h.vm.state.value.coordinatorOpen)
-            h.vm.refresh(force = true)
-            withTimeout(5_000) { h.vm.state.first { !it.loading } }
+            h.vm.refresh()
+            withTimeout(5_000) {
+                h.vm.state.first {
+                    !it.loading && h.httpCalls.count { call -> call.path == "/api/plugins/directus-tasks/board" } >= 3
+                }
+            }
             assertFalse(h.vm.state.value.coordinatorOpen)
         } finally {
             h.connection.stop()
