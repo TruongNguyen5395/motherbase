@@ -4,6 +4,28 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
+ * One scheduled check-in window for the Dispatch Coordinator: local trigger [time] (`"HH:MM"`),
+ * symmetric `[time - windowMinutes, time + windowMinutes]` activation range, and an optional
+ * per-schedule standing [instruction].
+ */
+@Serializable
+data class DispatchCheckinSchedule(
+    val id: String = "",
+    val time: String = "09:00",
+    @SerialName("window_minutes") val windowMinutes: Int = 30,
+    val instruction: String = "",
+    val enabled: Boolean = true,
+) {
+    fun normalizedId(): String = id.ifBlank { time }
+}
+
+/** Matched due check-in slot key and its rule metadata. */
+data class DueCheckinMatch(
+    val slotKey: String,
+    val schedule: DispatchCheckinSchedule,
+)
+
+/**
  * Board-level Dispatch Coordinator Agent configuration persisted on the gateway inside `directus-tasks`
  * so all devices share the same coordinator profile, dedicated board session, standing prompt, and check-in state.
  */
@@ -14,24 +36,37 @@ data class DispatchCoordinatorConfig(
     @SerialName("default_prompt") val defaultPrompt: String = "",
     @SerialName("checkin_enabled") val checkinEnabled: Boolean = true,
     @SerialName("checkin_times") val checkinTimes: List<String> = DEFAULT_CHECKIN_TIMES,
+    @SerialName("checkin_schedules") val checkinSchedules: List<DispatchCheckinSchedule> = emptyList(),
     @SerialName("window_minutes") val windowMinutes: Int = 30,
-    @SerialName("grace_minutes") val graceMinutes: Int = 180,
+    @SerialName("grace_minutes") val graceMinutes: Int = 30,
     @SerialName("cooldown_minutes") val cooldownMinutes: Int = 45,
     @SerialName("auto_open_on_launch") val autoOpenOnLaunch: Boolean = true,
     @SerialName("last_checkin_slot") val lastCheckinSlot: String = "",
     @SerialName("last_interaction_at") val lastInteractionAt: Double = 0.0,
 ) {
+    /** Effective schedules, falling back to legacy [checkinTimes] + [windowMinutes] when [checkinSchedules] is empty. */
+    fun effectiveCheckinSchedules(): List<DispatchCheckinSchedule> =
+        if (checkinSchedules.isNotEmpty()) {
+            checkinSchedules
+        } else {
+            checkinTimes.map { t ->
+                DispatchCheckinSchedule(id = t, time = t, windowMinutes = windowMinutes, instruction = "", enabled = true)
+            }
+        }
+
     /**
-     * Returns the due slot key (`"YYYY-MM-DD@HH:MM"`) when [localMinuteOfDay] (`0..1439`) falls inside an
-     * unacknowledged check-in window (`slot - windowMinutes .. slot + graceMinutes`) and the user has not
-     * interacted with the coordinator within the last [cooldownMinutes].
+     * Returns the due check-in match when [localMinuteOfDay] (`0..1439`) falls inside an enabled schedule's
+     * symmetric `[slot - windowMinutes .. slot + windowMinutes]` range and the user has not interacted with the
+     * coordinator within the last [cooldownMinutes].
      */
-    fun resolveDueCheckinSlot(
+    fun resolveDueCheckin(
         localDateIso: String,
         localMinuteOfDay: Int,
         nowEpochSeconds: Long,
-    ): String? {
-        if (!checkinEnabled || checkinTimes.isEmpty() || localDateIso.isBlank()) return null
+    ): DueCheckinMatch? {
+        if (!checkinEnabled || localDateIso.isBlank()) return null
+        val activeSchedules = effectiveCheckinSchedules().filter { it.enabled }
+        if (activeSchedules.isEmpty()) return null
         if (lastInteractionAt > 0.0) {
             val elapsedSec = nowEpochSeconds - lastInteractionAt.toLong()
             val cooldownSec = cooldownMinutes.coerceIn(5, 360) * 60L
@@ -43,39 +78,67 @@ data class DispatchCoordinatorConfig(
         } else {
             null
         }
-        val win = windowMinutes.coerceIn(5, 180)
-        val grace = graceMinutes.coerceIn(15, 720)
         var bestSlotMin: Int? = null
-        for (raw in checkinTimes) {
-            val slotMin = parseSlotMinute(raw) ?: continue
+        var bestSchedule: DispatchCheckinSchedule? = null
+        for (rule in activeSchedules) {
+            val slotMin = parseSlotMinute(rule.time) ?: continue
+            val win = rule.windowMinutes.coerceIn(5, 180)
             val startMin = (slotMin - win).coerceAtLeast(0)
-            val endMin = (slotMin + grace).coerceAtMost(1439)
+            val endMin = (slotMin + win).coerceAtMost(1439)
             if (localMinuteOfDay in startMin..endMin) {
                 if (lastSlotMin != null && lastSlotMin >= slotMin) continue
                 if (bestSlotMin == null || slotMin > bestSlotMin) {
                     bestSlotMin = slotMin
+                    bestSchedule = rule
                 }
             }
         }
-        return bestSlotMin?.let { "$localDateIso@${formatSlotMinute(it)}" }
+        val matchedMin = bestSlotMin ?: return null
+        val matchedRule = bestSchedule ?: return null
+        return DueCheckinMatch(
+            slotKey = "$localDateIso@${formatSlotMinute(matchedMin)}",
+            schedule = matchedRule,
+        )
+    }
+
+    /** Convenience wrapper returning just the slot key (`"YYYY-MM-DD@HH:MM"`). */
+    fun resolveDueCheckinSlot(
+        localDateIso: String,
+        localMinuteOfDay: Int,
+        nowEpochSeconds: Long,
+    ): String? = resolveDueCheckin(localDateIso, localMinuteOfDay, nowEpochSeconds)?.slotKey
+
+    /**
+     * Slot key and matching schedule when the user initiates a manual check-in at [localMinuteOfDay].
+     */
+    fun activeOrUpcomingCheckin(localDateIso: String, localMinuteOfDay: Int): DueCheckinMatch? {
+        val activeSchedules = effectiveCheckinSchedules().filter { it.enabled }
+        val active = activeSchedules
+            .mapNotNull { rule -> parseSlotMinute(rule.time)?.let { it to rule } }
+            .sortedBy { it.first }
+            .lastOrNull { (slotMin, rule) ->
+                val win = rule.windowMinutes.coerceIn(5, 180)
+                localMinuteOfDay in (slotMin - win).coerceAtLeast(0)..(slotMin + win).coerceAtMost(1439)
+            }
+        if (active != null) {
+            return DueCheckinMatch("$localDateIso@${formatSlotMinute(active.first)}", active.second)
+        }
+        val upcoming = activeSchedules
+            .mapNotNull { rule -> parseSlotMinute(rule.time)?.let { it to rule } }
+            .sortedBy { it.first }
+            .firstOrNull { (slotMin, _) -> slotMin - localMinuteOfDay in 0..90 }
+        return upcoming?.let { (slotMin, rule) ->
+            DueCheckinMatch("$localDateIso@${formatSlotMinute(slotMin)}", rule)
+        }
     }
 
     /**
      * Slot key to record when the user initiates a manual check-in at [localMinuteOfDay]: claims the active
      * or upcoming check-in slot (within 90 minutes) so the scheduled slot does not re-trigger redundantly.
      */
-    fun activeOrUpcomingCheckinSlotId(localDateIso: String, localMinuteOfDay: Int): String {
-        val win = windowMinutes.coerceIn(5, 180)
-        val grace = graceMinutes.coerceIn(15, 720)
-        val parsed = checkinTimes.mapNotNull(::parseSlotMinute).sorted()
-        val active = parsed.lastOrNull { slotMin ->
-            localMinuteOfDay in (slotMin - win).coerceAtLeast(0)..(slotMin + grace).coerceAtMost(1439)
-        }
-        if (active != null) return "$localDateIso@${formatSlotMinute(active)}"
-        val upcoming = parsed.firstOrNull { slotMin -> slotMin - localMinuteOfDay in 0..90 }
-        if (upcoming != null) return "$localDateIso@${formatSlotMinute(upcoming)}"
-        return "$localDateIso@${formatSlotMinute(localMinuteOfDay.coerceIn(0, 1439))}"
-    }
+    fun activeOrUpcomingCheckinSlotId(localDateIso: String, localMinuteOfDay: Int): String =
+        activeOrUpcomingCheckin(localDateIso, localMinuteOfDay)?.slotKey
+            ?: "$localDateIso@${formatSlotMinute(localMinuteOfDay.coerceIn(0, 1439))}"
 
     companion object {
         val DEFAULT_CHECKIN_TIMES = listOf("09:00", "16:00")
@@ -106,6 +169,7 @@ data class DispatchCoordinatorUpdate(
     @SerialName("default_prompt") val defaultPrompt: String? = null,
     @SerialName("checkin_enabled") val checkinEnabled: Boolean? = null,
     @SerialName("checkin_times") val checkinTimes: List<String>? = null,
+    @SerialName("checkin_schedules") val checkinSchedules: List<DispatchCheckinSchedule>? = null,
     @SerialName("window_minutes") val windowMinutes: Int? = null,
     @SerialName("grace_minutes") val graceMinutes: Int? = null,
     @SerialName("cooldown_minutes") val cooldownMinutes: Int? = null,

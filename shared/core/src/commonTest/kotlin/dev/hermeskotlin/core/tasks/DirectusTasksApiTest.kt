@@ -193,8 +193,12 @@ class DirectusTasksApiTest {
                                 "default_prompt": "Check energy, blockers, and due dates.",
                                 "checkin_enabled": true,
                                 "checkin_times": ["09:00", "16:00"],
+                                "checkin_schedules": [
+                                    {"id": "09:00", "time": "09:00", "window_minutes": 30, "instruction": "Morning priorities", "enabled": true},
+                                    {"id": "16:00", "time": "16:00", "window_minutes": 45, "instruction": "Review blockers", "enabled": true}
+                                ],
                                 "window_minutes": 30,
-                                "grace_minutes": 180,
+                                "grace_minutes": 30,
                                 "cooldown_minutes": 45,
                                 "auto_open_on_launch": true,
                                 "last_checkin_slot": "2026-11-20@09:00",
@@ -223,19 +227,19 @@ class DirectusTasksApiTest {
         assertTrue("coord-1" in sentBody)
         val coord = res.coordinator
         assertEquals("coord-1", coord.sessionId)
+        assertEquals(2, coord.checkinSchedules.size)
 
         // Morning slot (09:00) was already checked in today -> returns null at 09:15 (minute 555).
         assertEquals(null, coord.resolveDueCheckinSlot("2026-11-20", 9 * 60 + 15, nowEpochSeconds = 10_000L))
 
-        // Afternoon slot (16:00, window 15:30..19:00) triggers at 15:40 (minute 940) when cooldown has elapsed.
-        assertEquals(
-            "2026-11-20@16:00",
-            coord.resolveDueCheckinSlot("2026-11-20", 15 * 60 + 40, nowEpochSeconds = 10_000L),
-        )
+        // Afternoon slot (16:00, symmetric ±45m window -> 15:15..16:45) triggers at 15:40 (minute 940) with instruction.
+        val due = coord.resolveDueCheckin("2026-11-20", 15 * 60 + 40, nowEpochSeconds = 10_000L)
+        assertEquals("2026-11-20@16:00", due?.slotKey)
+        assertEquals("Review blockers", due?.schedule?.instruction)
 
-        // Late arrival within grace window (17:20 -> minute 1040) still triggers afternoon check-in.
+        // Outside the ±45m window (17:20 -> minute 1040) does NOT auto-trigger.
         assertEquals(
-            "2026-11-20@16:00",
+            null,
             coord.resolveDueCheckinSlot("2026-11-20", 17 * 60 + 20, nowEpochSeconds = 10_000L),
         )
 

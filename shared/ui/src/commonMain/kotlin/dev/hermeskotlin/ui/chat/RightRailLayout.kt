@@ -126,6 +126,7 @@ internal fun RightRailLayout(
     onRailWidthChange: ((Dp) -> Unit)? = null,
     swipeEnabled: Boolean = !isDesktop,
     dockOnWide: Boolean = isDesktop,
+    onDismiss: (() -> Unit)? = null,
     rail: @Composable () -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
@@ -151,6 +152,7 @@ internal fun RightRailLayout(
         }
 
         PlatformBackHandler(enabled = !docked && state.isOpen) {
+            onDismiss?.invoke()
             scope.launch { state.close() }
         }
 
@@ -158,7 +160,10 @@ internal fun RightRailLayout(
             Modifier.rightDrawerSwipe(
                 state = state,
                 drawerWidthPx = widthPx,
-                onFling = { open -> scope.launch { state.settle(open) } },
+                onFling = { open ->
+                    if (!open) onDismiss?.invoke()
+                    scope.launch { state.settle(open) }
+                },
                 onDragStart = { scope.launch { state.stopAnimation() } },
             )
         } else {
@@ -174,7 +179,12 @@ internal fun RightRailLayout(
                         .fillMaxSize()
                         .zIndex(1f)
                         .background(Color.Black.copy(alpha = 0.4f * p))
-                        .pointerInput(Unit) { detectTapGestures { scope.launch { state.close() } } },
+                        .pointerInput(onDismiss) {
+                            detectTapGestures {
+                                onDismiss?.invoke()
+                                scope.launch { state.close() }
+                            }
+                        },
                 )
             }
 

@@ -6,6 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -26,6 +29,7 @@ import dev.hermeskotlin.core.models.ModelProvider
 import dev.hermeskotlin.core.tasks.DirectusConfigStatus
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
+import dev.hermeskotlin.core.tasks.DispatchCheckinSchedule
 import dev.hermeskotlin.core.tasks.PlanAction
 import dev.hermeskotlin.core.tasks.StagedPlan
 import dev.hermeskotlin.core.tasks.TaskChannel
@@ -639,6 +643,7 @@ class TasksPageUiTest {
         val clickedActions = mutableListOf<CoordinatorQuickAction>()
         var resetCount = 0
         var savedCoordinatorProfile: String? = null
+        var savedSchedules: List<DispatchCheckinSchedule> = emptyList()
         var state by mutableStateOf(
             PageSamples.tasks(selectedTaskId = null).copy(
                 checkinDueSlot = "2026-11-20@16:00",
@@ -658,7 +663,10 @@ class TasksPageUiTest {
                                 onToggleCoordinator = { state = state.copy(coordinatorOpen = !state.coordinatorOpen, selectedTaskId = null) },
                                 onQuickCoordinatorAction = { act -> clickedActions += act },
                                 onResetCoordinatorSession = { resetCount += 1 },
-                                onSaveConfigAndCoordinator = { _, _, coord -> savedCoordinatorProfile = coord?.profile },
+                                onSaveConfigAndCoordinator = { _, _, coord ->
+                                    savedCoordinatorProfile = coord?.profile
+                                    savedSchedules = coord?.checkinSchedules.orEmpty()
+                                },
                             ),
                             onBack = {},
                         )
@@ -668,12 +676,13 @@ class TasksPageUiTest {
         }
         waitForIdle()
 
-        // Floating trigger button displays "Ask Hermes" and the "Check-in ready" badge.
+        // Icon-only floating trigger button has accessible description without visible label or subtitle text.
         onNodeWithTag("dispatch_coordinator_button").assertIsDisplayed()
-        onNodeWithText("Ask Hermes").assertIsDisplayed()
-        onNodeWithText("Check-in ready").assertIsDisplayed()
+        onNodeWithContentDescription("Ask Hermes").assertIsDisplayed()
+        assertTrue(onAllNodesWithText("Ask Hermes").fetchSemanticsNodes().isEmpty())
+        assertTrue(onAllNodesWithText("Check-in ready").fetchSemanticsNodes().isEmpty())
 
-        // Clicking the floating trigger opens the Coordinator right rail.
+        // Clicking the floating trigger opens the Coordinator right rail without the sparkles or banner blocks.
         onNodeWithTag("dispatch_coordinator_button").performClick()
         waitForIdle()
         onNodeWithText("Dispatch Coordinator · @default").assertIsDisplayed()
@@ -697,13 +706,36 @@ class TasksPageUiTest {
         waitForIdle()
         assertEquals(1, resetCount)
 
-        // Opening settings from the coordinator rail shows the Coordinator Agent settings section.
+        // Opening settings from the coordinator rail opens Dispatch's Setting with section descriptions and check-in rules.
         onNodeWithTag("coordinator_settings_button").performClick()
         waitForIdle()
+        onNodeWithText("Dispatch's Setting").assertIsDisplayed()
         onNodeWithText("Coordinator agent").assertIsDisplayed()
         onNodeWithText("Standing instructions (default prompt)").assertIsDisplayed()
-        onNodeWithText("Test and save").performClick()
+        onNodeWithText("Scheduled check-ins").assertIsDisplayed()
+
+        // Add a custom check-in schedule rule with time, window, and standing instruction.
+        onNodeWithTag("tasks_checkin_add_button").performScrollTo().performClick()
+        waitForIdle()
+        onNodeWithText("Check-in time").assertIsDisplayed()
+        onNodeWithText("13:30").performClick()
+        onNodeWithText("± 45 min").performClick()
+        onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("checkin_rule_instruction_field")))
+            .performTextInput("Verify sprint capacity")
+        waitForIdle()
+        onNodeWithText("Apply").performClick()
+        waitForIdle()
+
+        onNodeWithText("13:30").assertIsDisplayed()
+        onNodeWithText("Verify sprint capacity").assertIsDisplayed()
+
+        onNodeWithText("Save settings").performClick()
         waitForIdle()
         assertEquals("default", savedCoordinatorProfile)
+        assertTrue(
+            savedSchedules.any {
+                it.time == "13:30" && it.windowMinutes == 45 && it.instruction == "Verify sprint capacity" && it.enabled
+            },
+        )
     }
 }

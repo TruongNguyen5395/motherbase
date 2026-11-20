@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -80,6 +82,7 @@ import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.CircleDot
+import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Folder
 import com.composables.icons.lucide.FolderPlus
@@ -88,12 +91,15 @@ import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.ListTodo
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
+import com.composables.icons.lucide.Minus
 import com.composables.icons.lucide.PanelLeft
+import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
 import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Sparkles
+import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.TriangleAlert
 import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
@@ -118,6 +124,7 @@ import dev.hermeskotlin.core.settings.AppSettings
 import dev.hermeskotlin.core.settings.SettingsStore
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
+import dev.hermeskotlin.core.tasks.DispatchCheckinSchedule
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorUpdate
 import dev.hermeskotlin.core.tasks.TaskChannel
@@ -220,6 +227,7 @@ import dev.hermeskotlin.ui.enterSends
 import dev.hermeskotlin.ui.hasVoice
 import dev.hermeskotlin.ui.imeVisible
 import dev.hermeskotlin.ui.isDesktop
+import dev.hermeskotlin.ui.pet.PetAvatar
 import dev.hermeskotlin.ui.pet.PetController
 import dev.hermeskotlin.ui.pet.PetSheet
 import dev.hermeskotlin.ui.pet.PetView
@@ -464,7 +472,11 @@ internal fun TasksPage(
         onToggleSidebar = onToggleSidebar,
         attachmentPicker = attachmentPicker,
         petSprite = petSprite,
-        onOpenPetPicker = { petSheetOpen = true },
+        onOpenPetPicker = { targetProfile ->
+            val target = targetProfile.trim().ifEmpty { Bot.DEFAULT }
+            petController.bind(target)
+            petSheetOpen = true
+        },
         dictation = dictation,
         onToggleDictation = onToggleDictation,
     )
@@ -472,7 +484,10 @@ internal fun TasksPage(
     PetSheet(
         visible = petSheetOpen,
         controller = petController,
-        onDismiss = { petSheetOpen = false },
+        onDismiss = {
+            petSheetOpen = false
+            petController.bind(state.coordinatorConfig.profile.ifBlank { Bot.DEFAULT })
+        },
         onAdopted = { petSheetOpen = false },
     )
 }
@@ -486,7 +501,7 @@ internal fun TasksBoardContent(
     onToggleSidebar: (() -> Unit)? = null,
     attachmentPicker: AttachmentPicker? = null,
     petSprite: PetSprite? = null,
-    onOpenPetPicker: (() -> Unit)? = null,
+    onOpenPetPicker: ((String) -> Unit)? = null,
     dictation: DictationState = DictationState(),
     onToggleDictation: ((TextFieldState) -> Unit)? = null,
 ) {
@@ -545,6 +560,10 @@ internal fun TasksBoardContent(
         railWidth = DEFAULT_RAIL_WIDTH,
         swipeEnabled = !isDesktop && railOpenTarget,
         dockOnWide = true,
+        onDismiss = {
+            if (state.coordinatorOpen) actions.onCloseCoordinator()
+            else if (state.selectedTaskId != null) actions.onSelectTask(null)
+        },
         rail = {
             if (state.coordinatorOpen) {
                 CoordinatorInspector(
@@ -574,7 +593,6 @@ internal fun TasksBoardContent(
                     onRefreshChannel = actions.onRefreshChannel,
                     onResetSession = actions.onResetCoordinatorSession,
                     onOpenFullscreen = actions.onOpenCoordinatorFullscreen,
-                    onOpenPetPicker = onOpenPetPicker,
                     onOpenSettings = { setupDialogOpen = true },
                     onQuickAction = actions.onQuickCoordinatorAction,
                     onSendToCoordinator = actions.onSendToCoordinator,
@@ -591,6 +609,9 @@ internal fun TasksBoardContent(
                     projects = state.projects,
                     bots = state.bots,
                     botAvatars = state.botAvatars,
+                    coordinatorBotName = state.coordinatorBot.name,
+                    coordinatorPetSprite = petSprite,
+                    coordinatorPetState = coordinatorPetState,
                     busy = selected.id in state.busyTaskIds,
                     activeChannelIdx = state.activeChannelIdx,
                     activeChannel = state.activeChannel,
@@ -666,7 +687,7 @@ internal fun TasksBoardContent(
                     )
                     IconButton(
                         Lucide.Settings2,
-                        contentDescription = stringResource(Res.string.tasks_setup_directus),
+                        contentDescription = stringResource(Res.string.tasks_dispatch_settings_title),
                         onClick = { setupDialogOpen = true },
                     )
                 },
@@ -746,7 +767,8 @@ internal fun TasksBoardContent(
                         onClick = toggleCoordinatorRail,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = 16.dp),
+                            .navigationBarsPadding()
+                            .padding(end = 16.dp, bottom = if (isDesktop) 16.dp else 20.dp),
                     )
                 }
             }
@@ -758,6 +780,8 @@ internal fun TasksBoardContent(
             config = state.config,
             bots = state.bots,
             botAvatars = state.botAvatars,
+            petSprite = petSprite,
+            petState = coordinatorPetState,
             saving = state.savingConfig,
             error = state.configError,
             onOpenPetPicker = onOpenPetPicker,
@@ -1952,66 +1976,64 @@ private fun CoordinatorFloatingTrigger(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(Theme[radii][radiusFull])
+    val shape = CircleShape
     val borderColor = when {
         checkinDue -> Theme[colors][warning]
         busy -> Theme[colors][accent]
         else -> Theme[colors][strokeStrong]
     }
-    Row(
+    val askLabel = stringResource(Res.string.tasks_coordinator_ask, bot.label)
+    Box(
         modifier
             .testTag("dispatch_coordinator_button")
-            .dropShadow(shape, DockShadow)
-            .clip(shape)
-            .background(Theme[colors][surface], shape)
-            .border(if (checkinDue) 1.5.dp else 1.dp, borderColor, shape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .handCursor()
-            .padding(start = 8.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .semantics { contentDescription = askLabel },
     ) {
-        if (petSprite != null) {
-            PetView(
-                sprite = petSprite,
-                state = petState,
-                onClick = onClick,
-            )
-        } else {
-            BotAvatar(
-                bot = bot,
-                picture = avatarBytes,
-                size = 32.dp,
-            )
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    stringResource(Res.string.tasks_coordinator_ask, bot.label),
-                    style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
-                    color = Theme[colors][textColor],
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        Box(
+            Modifier
+                .size(52.dp)
+                .dropShadow(shape, DockShadow)
+                .clip(shape)
+                .background(Theme[colors][surface], shape)
+                .border(if (checkinDue) 2.dp else 1.dp, borderColor, shape)
+                .clickable(role = Role.Button, onClick = onClick)
+                .handCursor(),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (petSprite != null) {
+                PetAvatar(
+                    sprite = petSprite,
+                    state = petState,
+                    size = 38.dp,
                 )
-                if (busy) {
-                    Spinner(Modifier.size(12.dp))
-                } else if (checkinDue) {
-                    MiniBadge(
-                        text = stringResource(Res.string.tasks_coordinator_checkin_ready),
-                        backgroundColor = Theme[colors][warningSoft],
-                        contentColor = Theme[colors][warning],
-                    )
-                }
+            } else {
+                BotAvatar(
+                    bot = bot,
+                    picture = avatarBytes,
+                    size = 34.dp,
+                )
             }
-            Text(
-                stringResource(Res.string.tasks_coordinator_title),
-                style = Theme[typography][caption],
-                color = Theme[colors][textTertiary],
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        }
+        if (busy) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(Theme[colors][surface], CircleShape)
+                    .border(1.dp, Theme[colors][strokeStrong], CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Spinner(Modifier.size(10.dp))
+            }
+        } else if (checkinDue) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-2).dp, y = 2.dp)
+                    .size(11.dp)
+                    .clip(CircleShape)
+                    .background(Theme[colors][warning], CircleShape)
+                    .border(1.5.dp, Theme[colors][surface], CircleShape),
             )
         }
     }
@@ -2045,7 +2067,6 @@ private fun CoordinatorInspector(
     onRefreshChannel: () -> Unit,
     onResetSession: () -> Unit,
     onOpenFullscreen: () -> Unit,
-    onOpenPetPicker: (() -> Unit)? = null,
     onOpenSettings: () -> Unit,
     onQuickAction: (CoordinatorQuickAction) -> Unit,
     onSendToCoordinator: (String) -> Unit,
@@ -2067,11 +2088,19 @@ private fun CoordinatorInspector(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BotAvatar(
-                bot = coordinatorBot,
-                picture = botAvatars[coordinatorBot.name],
-                size = 30.dp,
-            )
+            if (petSprite != null) {
+                PetAvatar(
+                    sprite = petSprite,
+                    state = petState,
+                    size = 30.dp,
+                )
+            } else {
+                BotAvatar(
+                    bot = coordinatorBot,
+                    picture = botAvatars[coordinatorBot.name],
+                    size = 30.dp,
+                )
+            }
             Column(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp),
@@ -2103,13 +2132,6 @@ private fun CoordinatorInspector(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (onOpenPetPicker != null) {
-                IconButton(
-                    Lucide.Sparkles,
-                    contentDescription = stringResource(Res.string.tasks_coordinator_choose_pet),
-                    onClick = onOpenPetPicker,
-                )
-            }
             if (resettingSession) {
                 Spinner(Modifier.size(16.dp).padding(horizontal = 4.dp))
             } else {
@@ -2129,7 +2151,7 @@ private fun CoordinatorInspector(
             }
             IconButton(
                 Lucide.Settings2,
-                contentDescription = stringResource(Res.string.tasks_coordinator_settings_heading),
+                contentDescription = stringResource(Res.string.tasks_dispatch_settings_title),
                 onClick = onOpenSettings,
                 modifier = Modifier.testTag("coordinator_settings_button"),
             )
@@ -2140,38 +2162,6 @@ private fun CoordinatorInspector(
             )
         }
 
-        if (petSprite != null) {
-            val petShape = RoundedCornerShape(Theme[radii][radiusMedium])
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp)
-                    .clip(petShape)
-                    .background(Theme[colors][surface])
-                    .border(1.dp, Theme[colors][stroke], petShape)
-                    .clickable(enabled = onOpenPetPicker != null, role = Role.Button) { onOpenPetPicker?.invoke() }
-                    .handCursor(onOpenPetPicker != null)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PetView(
-                    sprite = petSprite,
-                    state = petState,
-                    onClick = { onOpenPetPicker?.invoke() },
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        stringResource(Res.string.tasks_coordinator_empty),
-                        style = Theme[typography][bodySmall],
-                        color = Theme[colors][textSecondary],
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-
         Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
 
         TaskChannelLog(
@@ -2180,6 +2170,9 @@ private fun CoordinatorInspector(
             messages = channelMessages,
             bots = bots,
             botAvatars = botAvatars,
+            coordinatorBotName = coordinatorBot.name,
+            petSprite = petSprite,
+            petState = petState,
             emptyText = stringResource(Res.string.tasks_coordinator_empty),
             error = channelError,
             turnRunning = turnBusy,
@@ -2265,6 +2258,9 @@ private fun TaskDetailInspector(
     projects: List<DirectusProject>,
     bots: List<Bot>,
     botAvatars: Map<String, ByteArray>,
+    coordinatorBotName: String? = null,
+    coordinatorPetSprite: PetSprite? = null,
+    coordinatorPetState: PetState = PetState.Idle,
     busy: Boolean,
     activeChannelIdx: Int,
     activeChannel: TaskChannel?,
@@ -2406,6 +2402,9 @@ private fun TaskDetailInspector(
                 messages = channelMessages,
                 bots = bots,
                 botAvatars = botAvatars,
+                coordinatorBotName = coordinatorBotName,
+                petSprite = coordinatorPetSprite,
+                petState = coordinatorPetState,
                 error = channelError,
                 turnRunning = sendingToChannel || channelTurnRunning,
                 turnStatus = channelTurnStatus,
@@ -2694,6 +2693,9 @@ private fun TaskChannelLog(
     messages: List<ChannelChatLine>,
     bots: List<Bot> = emptyList(),
     botAvatars: Map<String, ByteArray> = emptyMap(),
+    coordinatorBotName: String? = null,
+    petSprite: PetSprite? = null,
+    petState: PetState = PetState.Idle,
     emptyText: String? = null,
     error: String?,
     turnRunning: Boolean,
@@ -2846,11 +2848,21 @@ private fun TaskChannelLog(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    BotAvatar(
-                                        bot = speakerBot,
-                                        picture = botAvatars[speakerBot.name],
-                                        size = 20.dp,
-                                    )
+                                    if (petSprite != null &&
+                                        (coordinatorBotName == null || speakerBot.name.equals(coordinatorBotName, ignoreCase = true))
+                                    ) {
+                                        PetAvatar(
+                                            sprite = petSprite,
+                                            state = petState,
+                                            size = 20.dp,
+                                        )
+                                    } else {
+                                        BotAvatar(
+                                            bot = speakerBot,
+                                            picture = botAvatars[speakerBot.name],
+                                            size = 20.dp,
+                                        )
+                                    }
                                     Text(
                                         "@${speakerBot.name}",
                                         style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
@@ -3114,8 +3126,18 @@ private fun TaskChatComposer(
     Column(
         Modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .imePadding()
-            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = if (keyboardUp) 8.dp else 12.dp),
+            .padding(
+                start = 14.dp,
+                end = 14.dp,
+                top = 6.dp,
+                bottom = when {
+                    keyboardUp -> 10.dp
+                    isDesktop -> 16.dp
+                    else -> 22.dp
+                },
+            ),
     ) {
         Column(
             Modifier
@@ -3132,10 +3154,10 @@ private fun TaskChatComposer(
                 .background(Theme[colors][surface], shape)
                 .border(if (dropping) 2.dp else 1.dp, borderColor, shape)
                 .padding(
-                    start = 4.dp,
+                    start = 6.dp,
                     end = 6.dp,
-                    top = if (attachments.isEmpty()) 10.dp else 8.dp,
-                    bottom = 6.dp,
+                    top = if (attachments.isEmpty()) 12.dp else 8.dp,
+                    bottom = 8.dp,
                 ),
         ) {
             if (attachments.isNotEmpty()) {
@@ -3283,14 +3305,117 @@ private fun FallbackModelPill(
     }
 }
 
+private fun formatCheckinRange(time: String, windowMinutes: Int): String {
+    val slotMin = DispatchCoordinatorConfig.parseSlotMinute(time) ?: return time
+    val win = windowMinutes.coerceIn(5, 180)
+    val startMin = (slotMin - win).coerceAtLeast(0)
+    val endMin = (slotMin + win).coerceAtMost(1439)
+    return "${DispatchCoordinatorConfig.formatSlotMinute(startMin)} – ${DispatchCoordinatorConfig.formatSlotMinute(endMin)}"
+}
+
+@Composable
+private fun SettingsSectionCard(
+    title: String,
+    description: String? = null,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Theme[colors][surface2], shape)
+            .border(1.dp, Theme[colors][stroke], shape)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (leading != null) leading()
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    title,
+                    style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
+                    color = Theme[colors][textColor],
+                )
+                if (!description.isNullOrBlank()) {
+                    Text(
+                        description,
+                        style = Theme[typography][caption],
+                        color = Theme[colors][textTertiary],
+                    )
+                }
+            }
+            if (trailing != null) trailing()
+        }
+        content()
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    label: String,
+    description: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Theme[colors][surface], shape)
+            .border(1.dp, Theme[colors][stroke], shape)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .handCursor()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                label,
+                style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
+                color = Theme[colors][textColor],
+            )
+            if (!description.isNullOrBlank()) {
+                Text(
+                    description,
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textTertiary],
+                )
+            }
+        }
+        Switch(checked = checked)
+    }
+}
+
+private data class EditingCheckinState(
+    val index: Int?,
+    val initial: DispatchCheckinSchedule,
+)
+
 @Composable
 private fun DirectusSetupDialog(
     config: dev.hermeskotlin.core.tasks.DirectusConfigStatus?,
     bots: List<Bot>,
     botAvatars: Map<String, ByteArray>,
+    petSprite: PetSprite?,
+    petState: PetState,
     saving: Boolean,
     error: String?,
-    onOpenPetPicker: (() -> Unit)? = null,
+    onOpenPetPicker: ((String) -> Unit)? = null,
     onResetCoordinatorSession: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onSave: (url: String, token: String, coordinator: DispatchCoordinatorUpdate?) -> Unit,
@@ -3298,30 +3423,45 @@ private fun DirectusSetupDialog(
     val urlState = rememberTextFieldState(config?.url.orEmpty())
     val tokenState = rememberTextFieldState("")
     val coord = config?.coordinator ?: DispatchCoordinatorConfig()
-    var selectedProfile by remember(coord.profile) { mutableStateOf(coord.profile.ifBlank { "default" }) }
+    var selectedProfile by remember(coord.profile) { mutableStateOf(coord.profile.ifBlank { Bot.DEFAULT }) }
     val promptState = rememberTextFieldState(coord.defaultPrompt)
     var checkinEnabled by remember(coord.checkinEnabled) { mutableStateOf(coord.checkinEnabled) }
     var autoOpenOnLaunch by remember(coord.autoOpenOnLaunch) { mutableStateOf(coord.autoOpenOnLaunch) }
-    val checkinTimesState = rememberTextFieldState(coord.checkinTimes.joinToString(", "))
-    val windowState = rememberTextFieldState(coord.windowMinutes.toString())
+    val schedules = remember(coord.checkinSchedules, coord.checkinTimes, coord.windowMinutes) {
+        mutableStateListOf<DispatchCheckinSchedule>().apply {
+            addAll(coord.effectiveCheckinSchedules())
+        }
+    }
+    var editingRule by remember { mutableStateOf<EditingCheckinState?>(null) }
 
     val urlText = urlState.text.toString().trim()
     val canSave = !saving && urlText.isNotBlank() && (tokenState.text.toString().trim().isNotBlank() || config?.tokenSet == true)
     Dialog(
         visible = true,
         onDismissRequest = onDismiss,
-        title = stringResource(Res.string.tasks_setup_directus),
-        message = stringResource(Res.string.tasks_setup_hint),
+        maxWidth = 720.dp,
+        title = stringResource(Res.string.tasks_dispatch_settings_title),
+        message = stringResource(Res.string.tasks_dispatch_settings_subtitle),
         actions = {
             Button(stringResource(Res.string.common_cancel), onClick = onDismiss, variant = ButtonVariant.Ghost)
             Button(
-                stringResource(if (saving) Res.string.tasks_testing else Res.string.tasks_save_connect),
+                stringResource(if (saving) Res.string.tasks_testing else Res.string.tasks_save_settings),
                 onClick = {
-                    val parsedTimes = checkinTimesState.text.toString()
-                        .split(',', ';')
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                    val parsedWindow = windowState.text.toString().trim().toIntOrNull() ?: coord.windowMinutes
+                    val normalizedSchedules = schedules
+                        .mapIndexed { idx, rule ->
+                            val mins = DispatchCoordinatorConfig.parseSlotMinute(rule.time)
+                            val cleanTime = mins?.let { DispatchCoordinatorConfig.formatSlotMinute(it) } ?: rule.time.trim()
+                            rule.copy(
+                                id = rule.id.ifBlank { "$cleanTime-$idx" },
+                                time = cleanTime,
+                                windowMinutes = rule.windowMinutes.coerceIn(5, 180),
+                                instruction = rule.instruction.trim(),
+                            )
+                        }
+                        .filter { DispatchCoordinatorConfig.parseSlotMinute(it.time) != null }
+                        .sortedBy { DispatchCoordinatorConfig.parseSlotMinute(it.time) ?: Int.MAX_VALUE }
+                    val enabledTimes = normalizedSchedules.filter { it.enabled }.map { it.time }.distinct()
+                    val fallbackWindow = normalizedSchedules.firstOrNull()?.windowMinutes ?: coord.windowMinutes
                     onSave(
                         urlText,
                         tokenState.text.toString(),
@@ -3329,8 +3469,10 @@ private fun DirectusSetupDialog(
                             profile = selectedProfile,
                             defaultPrompt = promptState.text.toString().trim(),
                             checkinEnabled = checkinEnabled,
-                            checkinTimes = parsedTimes,
-                            windowMinutes = parsedWindow,
+                            checkinTimes = enabledTimes,
+                            checkinSchedules = normalizedSchedules,
+                            windowMinutes = fallbackWindow,
+                            graceMinutes = fallbackWindow,
                             autoOpenOnLaunch = autoOpenOnLaunch,
                         ),
                     )
@@ -3343,26 +3485,60 @@ private fun DirectusSetupDialog(
         Column(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = 360.dp)
+                .heightIn(max = 560.dp)
                 .verticalScrollWithBar(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TextField(
-                state = urlState,
-                label = stringResource(Res.string.tasks_directus_url),
-                placeholder = stringResource(Res.string.tasks_directus_url_hint),
-            )
-            TextField(
-                state = tokenState,
-                label = stringResource(Res.string.tasks_directus_token),
-                placeholder = config?.tokenPreview?.takeIf { it.isNotBlank() }?.let {
-                    stringResource(Res.string.tasks_directus_token_keep, it)
-                },
-                password = true,
-            )
+            SettingsSectionCard(
+                title = stringResource(Res.string.tasks_directus_section_title),
+                description = stringResource(Res.string.tasks_directus_section_desc),
+            ) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val tokenHint = config?.tokenPreview?.takeIf { it.isNotBlank() }?.let {
+                        stringResource(Res.string.tasks_directus_token_keep, it)
+                    }
+                    if (maxWidth >= 520.dp) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            TextField(
+                                state = urlState,
+                                modifier = Modifier.weight(1f),
+                                label = stringResource(Res.string.tasks_directus_url),
+                                placeholder = stringResource(Res.string.tasks_directus_url_hint),
+                            )
+                            TextField(
+                                state = tokenState,
+                                modifier = Modifier.weight(1f),
+                                label = stringResource(Res.string.tasks_directus_token),
+                                placeholder = tokenHint,
+                                password = true,
+                            )
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            TextField(
+                                state = urlState,
+                                label = stringResource(Res.string.tasks_directus_url),
+                                placeholder = stringResource(Res.string.tasks_directus_url_hint),
+                            )
+                            TextField(
+                                state = tokenState,
+                                label = stringResource(Res.string.tasks_directus_token),
+                                placeholder = tokenHint,
+                                password = true,
+                            )
+                        }
+                    }
+                }
+            }
+
             CoordinatorSettingsSection(
                 bots = bots,
                 botAvatars = botAvatars,
+                petSprite = petSprite,
+                petState = petState,
                 selectedProfile = selectedProfile,
                 onSelectProfile = { selectedProfile = it },
                 promptState = promptState,
@@ -3370,15 +3546,64 @@ private fun DirectusSetupDialog(
                 onToggleCheckin = { checkinEnabled = it },
                 autoOpenOnLaunch = autoOpenOnLaunch,
                 onToggleAutoOpen = { autoOpenOnLaunch = it },
-                checkinTimesState = checkinTimesState,
-                windowState = windowState,
+                schedules = schedules,
+                onToggleSchedule = { idx, enabled ->
+                    if (idx in schedules.indices) schedules[idx] = schedules[idx].copy(enabled = enabled)
+                },
+                onAddSchedule = {
+                    val usedTimes = schedules.map { it.time }.toSet()
+                    val defaultTime = listOf("09:00", "13:30", "16:00", "20:00").firstOrNull { it !in usedTimes } ?: "09:00"
+                    editingRule = EditingCheckinState(
+                        index = null,
+                        initial = DispatchCheckinSchedule(
+                            id = "",
+                            time = defaultTime,
+                            windowMinutes = coord.windowMinutes.coerceIn(5, 180),
+                            instruction = "",
+                            enabled = true,
+                        ),
+                    )
+                },
+                onEditSchedule = { idx ->
+                    schedules.getOrNull(idx)?.let { rule ->
+                        editingRule = EditingCheckinState(index = idx, initial = rule)
+                    }
+                },
+                onDeleteSchedule = { idx ->
+                    if (idx in schedules.indices) schedules.removeAt(idx)
+                },
                 onOpenPetPicker = onOpenPetPicker,
                 onResetCoordinatorSession = onResetCoordinatorSession,
             )
+
             if (error != null) {
                 Text(error, style = Theme[typography][bodySmall], color = Theme[colors][danger])
             }
         }
+    }
+
+    editingRule?.let { current ->
+        CheckinRuleEditorDialog(
+            initial = current.initial,
+            isNew = current.index == null,
+            onDismiss = { editingRule = null },
+            onDelete = current.index?.let { idx ->
+                {
+                    if (idx in schedules.indices) schedules.removeAt(idx)
+                    editingRule = null
+                }
+            },
+            onSave = { updated ->
+                val targetIndex = current.index
+                if (targetIndex != null && targetIndex in schedules.indices) {
+                    schedules[targetIndex] = updated
+                } else {
+                    schedules.add(updated)
+                }
+                schedules.sortBy { DispatchCoordinatorConfig.parseSlotMinute(it.time) ?: Int.MAX_VALUE }
+                editingRule = null
+            },
+        )
     }
 }
 
@@ -3387,6 +3612,8 @@ private fun DirectusSetupDialog(
 private fun CoordinatorSettingsSection(
     bots: List<Bot>,
     botAvatars: Map<String, ByteArray>,
+    petSprite: PetSprite?,
+    petState: PetState,
     selectedProfile: String,
     onSelectProfile: (String) -> Unit,
     promptState: TextFieldState,
@@ -3394,9 +3621,12 @@ private fun CoordinatorSettingsSection(
     onToggleCheckin: (Boolean) -> Unit,
     autoOpenOnLaunch: Boolean,
     onToggleAutoOpen: (Boolean) -> Unit,
-    checkinTimesState: TextFieldState,
-    windowState: TextFieldState,
-    onOpenPetPicker: (() -> Unit)?,
+    schedules: List<DispatchCheckinSchedule>,
+    onToggleSchedule: (Int, Boolean) -> Unit,
+    onAddSchedule: () -> Unit,
+    onEditSchedule: (Int) -> Unit,
+    onDeleteSchedule: (Int) -> Unit,
+    onOpenPetPicker: ((String) -> Unit)?,
     onResetCoordinatorSession: (() -> Unit)?,
 ) {
     val visibleBots = remember(bots) {
@@ -3412,117 +3642,372 @@ private fun CoordinatorSettingsSection(
             ?: Bot(name = selectedProfile, isDefault = selectedProfile.equals(Bot.DEFAULT, ignoreCase = true))
     }
 
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
-
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BotAvatar(
-            bot = activeBot,
-            picture = botAvatars[activeBot.name],
-            size = 28.dp,
-        )
-        Text(
-            stringResource(Res.string.tasks_coordinator_settings_heading),
-            style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
-            color = Theme[colors][textColor],
-            modifier = Modifier.weight(1f),
-        )
-        if (onOpenPetPicker != null) {
-            Chip(
-                text = stringResource(Res.string.tasks_coordinator_choose_pet),
-                selected = false,
-                onClick = onOpenPetPicker,
-            )
-        }
-        if (onResetCoordinatorSession != null) {
-            Chip(
-                text = stringResource(Res.string.tasks_coordinator_reset_session),
-                selected = false,
-                onClick = onResetCoordinatorSession,
-            )
-        }
-    }
-
-    Text(
-        stringResource(Res.string.tasks_coordinator_agent_label),
-        style = Theme[typography][labelStyle],
-        color = Theme[colors][textSecondary],
-    )
-    FlowRow(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        visibleBots.forEach { bot ->
-            Chip(
-                text = "${bot.label} (@${bot.name})",
-                selected = selectedProfile == bot.name,
-                onClick = { onSelectProfile(bot.name) },
-            )
-        }
-    }
-
-    TextField(
-        state = promptState,
-        label = stringResource(Res.string.tasks_coordinator_default_prompt),
-        placeholder = stringResource(Res.string.tasks_coordinator_default_prompt_hint),
-        singleLine = false,
-        maxLines = 4,
-    )
-
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
-            .background(Theme[colors][surface2])
-            .toggleable(value = checkinEnabled, role = Role.Switch, onValueChange = onToggleCheckin)
-            .handCursor()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    SettingsSectionCard(
+        title = stringResource(Res.string.tasks_coordinator_settings_heading),
+        description = stringResource(Res.string.tasks_coordinator_settings_desc),
+        leading = {
+            if (petSprite != null) {
+                PetAvatar(
+                    sprite = petSprite,
+                    state = petState,
+                    size = 34.dp,
+                )
+            } else {
+                BotAvatar(
+                    bot = activeBot,
+                    picture = botAvatars[activeBot.name],
+                    size = 34.dp,
+                )
+            }
+        },
+        trailing = {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (onOpenPetPicker != null) {
+                    Button(
+                        stringResource(Res.string.tasks_coordinator_choose_pet),
+                        onClick = { onOpenPetPicker(selectedProfile) },
+                        variant = ButtonVariant.Outline,
+                        size = ButtonSize.Small,
+                    )
+                }
+                if (onResetCoordinatorSession != null) {
+                    Button(
+                        stringResource(Res.string.tasks_coordinator_reset_session),
+                        onClick = onResetCoordinatorSession,
+                        variant = ButtonVariant.Ghost,
+                        size = ButtonSize.Small,
+                    )
+                }
+            }
+        },
     ) {
         Text(
-            stringResource(Res.string.tasks_coordinator_checkin_toggle),
-            style = Theme[typography][bodySmall],
-            color = Theme[colors][textColor],
-            modifier = Modifier.weight(1f),
+            stringResource(Res.string.tasks_coordinator_agent_label),
+            style = Theme[typography][labelStyle],
+            color = Theme[colors][textSecondary],
         )
-        Switch(checked = checkinEnabled)
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            visibleBots.forEach { bot ->
+                Chip(
+                    text = "${bot.label} (@${bot.name})",
+                    selected = selectedProfile == bot.name,
+                    onClick = { onSelectProfile(bot.name) },
+                )
+            }
+        }
+
+        TextField(
+            state = promptState,
+            label = stringResource(Res.string.tasks_coordinator_default_prompt),
+            placeholder = stringResource(Res.string.tasks_coordinator_default_prompt_hint),
+            supportingText = stringResource(Res.string.tasks_coordinator_default_prompt_desc),
+            singleLine = false,
+            maxLines = 4,
+        )
     }
 
-    if (checkinEnabled) {
-        Row(
+    SettingsSectionCard(
+        title = stringResource(Res.string.tasks_coordinator_checkin_heading),
+        description = stringResource(Res.string.tasks_coordinator_checkin_desc),
+    ) {
+        SettingsSwitchRow(
+            label = stringResource(Res.string.tasks_coordinator_checkin_toggle),
+            checked = checkinEnabled,
+            onCheckedChange = onToggleCheckin,
+        )
+
+        if (checkinEnabled) {
+            SettingsSwitchRow(
+                label = stringResource(Res.string.tasks_coordinator_auto_open_toggle),
+                description = stringResource(Res.string.tasks_coordinator_auto_open_desc),
+                checked = autoOpenOnLaunch,
+                onCheckedChange = onToggleAutoOpen,
+            )
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        stringResource(Res.string.tasks_checkin_rules_heading),
+                        style = Theme[typography][labelStyle],
+                        color = Theme[colors][textSecondary],
+                    )
+                    Text(
+                        stringResource(Res.string.tasks_checkin_rules_desc),
+                        style = Theme[typography][caption],
+                        color = Theme[colors][textTertiary],
+                    )
+                }
+                Button(
+                    stringResource(Res.string.tasks_checkin_add_button),
+                    onClick = onAddSchedule,
+                    leadingIcon = Lucide.Plus,
+                    variant = ButtonVariant.Secondary,
+                    size = ButtonSize.Small,
+                    modifier = Modifier.testTag("tasks_checkin_add_button"),
+                )
+            }
+
+            if (schedules.isEmpty()) {
+                val emptyShape = RoundedCornerShape(Theme[radii][radiusMedium])
+                Text(
+                    stringResource(Res.string.tasks_checkin_rules_empty),
+                    style = Theme[typography][bodySmall],
+                    color = Theme[colors][textTertiary],
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(emptyShape)
+                        .background(Theme[colors][surface], emptyShape)
+                        .border(1.dp, Theme[colors][stroke], emptyShape)
+                        .padding(12.dp),
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    schedules.forEachIndexed { idx, rule ->
+                        val itemShape = RoundedCornerShape(Theme[radii][radiusMedium])
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(itemShape)
+                                .background(Theme[colors][surface], itemShape)
+                                .border(1.dp, Theme[colors][stroke], itemShape)
+                                .clickable(role = Role.Button) { onEditSchedule(idx) }
+                                .handCursor()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(
+                                Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    UnstyledIcon(
+                                        Lucide.Clock,
+                                        contentDescription = null,
+                                        tint = Theme[colors][accentText],
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                    Text(
+                                        rule.time,
+                                        style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
+                                        color = if (rule.enabled) Theme[colors][textColor] else Theme[colors][textTertiary],
+                                    )
+                                    MiniBadge(
+                                        text = stringResource(Res.string.tasks_checkin_rule_meta, rule.windowMinutes),
+                                        backgroundColor = Theme[colors][surface3],
+                                        contentColor = Theme[colors][textSecondary],
+                                    )
+                                    Text(
+                                        formatCheckinRange(rule.time, rule.windowMinutes),
+                                        style = Theme[typography][caption],
+                                        color = Theme[colors][textTertiary],
+                                        maxLines = 1,
+                                    )
+                                }
+                                Text(
+                                    rule.instruction.ifBlank { stringResource(Res.string.tasks_checkin_rule_default_inst) },
+                                    style = Theme[typography][bodySmall],
+                                    color = if (rule.instruction.isBlank()) Theme[colors][textTertiary] else Theme[colors][textSecondary],
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(Theme[radii][radiusFull]))
+                                    .toggleable(
+                                        value = rule.enabled,
+                                        role = Role.Switch,
+                                        onValueChange = { onToggleSchedule(idx, it) },
+                                    )
+                                    .handCursor(),
+                            ) {
+                                Switch(checked = rule.enabled)
+                            }
+                            IconButton(
+                                Lucide.Pencil,
+                                contentDescription = stringResource(Res.string.tasks_checkin_edit_title),
+                                onClick = { onEditSchedule(idx) },
+                            )
+                            IconButton(
+                                Lucide.Trash2,
+                                contentDescription = stringResource(Res.string.tasks_checkin_delete_rule),
+                                onClick = { onDeleteSchedule(idx) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CheckinRuleEditorDialog(
+    initial: DispatchCheckinSchedule,
+    isNew: Boolean,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onSave: (DispatchCheckinSchedule) -> Unit,
+) {
+    val timeState = rememberTextFieldState(initial.time)
+    val windowState = rememberTextFieldState(initial.windowMinutes.toString())
+    val instructionState = rememberTextFieldState(initial.instruction)
+    val parsedMinute = DispatchCoordinatorConfig.parseSlotMinute(timeState.text.toString())
+    val normalizedTime = parsedMinute?.let { DispatchCoordinatorConfig.formatSlotMinute(it) } ?: initial.time
+    val parsedWindow = (windowState.text.toString().trim().toIntOrNull() ?: initial.windowMinutes).coerceIn(5, 180)
+    val canApply = parsedMinute != null
+
+    fun shiftSlotMinute(delta: Int) {
+        val base = parsedMinute ?: DispatchCoordinatorConfig.parseSlotMinute(initial.time) ?: (9 * 60)
+        val next = ((base + delta) % 1440 + 1440) % 1440
+        timeState.setTextAndPlaceCursorAtEnd(DispatchCoordinatorConfig.formatSlotMinute(next))
+    }
+
+    Dialog(
+        visible = true,
+        onDismissRequest = onDismiss,
+        maxWidth = 480.dp,
+        title = stringResource(Res.string.tasks_checkin_edit_title),
+        actions = {
+            if (!isNew && onDelete != null) {
+                Button(
+                    stringResource(Res.string.tasks_checkin_delete_rule),
+                    onClick = onDelete,
+                    variant = ButtonVariant.Ghost,
+                )
+            }
+            Button(stringResource(Res.string.common_cancel), onClick = onDismiss, variant = ButtonVariant.Ghost)
+            Button(
+                stringResource(Res.string.tasks_checkin_save_rule),
+                onClick = {
+                    val slotMin = parsedMinute ?: return@Button
+                    val cleanTime = DispatchCoordinatorConfig.formatSlotMinute(slotMin)
+                    onSave(
+                        initial.copy(
+                            id = initial.id.ifBlank { cleanTime },
+                            time = cleanTime,
+                            windowMinutes = parsedWindow,
+                            instruction = instructionState.text.toString().trim(),
+                        ),
+                    )
+                },
+                enabled = canApply,
+            )
+        },
+    ) {
+        Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
-                .background(Theme[colors][surface2])
-                .toggleable(value = autoOpenOnLaunch, role = Role.Switch, onValueChange = onToggleAutoOpen)
-                .handCursor()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .heightIn(max = 500.dp)
+                .verticalScrollWithBar(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                stringResource(Res.string.tasks_coordinator_auto_open_toggle),
-                style = Theme[typography][bodySmall],
-                color = Theme[colors][textColor],
-                modifier = Modifier.weight(1f),
-            )
-            Switch(checked = autoOpenOnLaunch)
-        }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                TextField(
+                    state = timeState,
+                    modifier = Modifier.weight(1f),
+                    label = stringResource(Res.string.tasks_checkin_time_label),
+                    placeholder = "09:00",
+                    supportingText = stringResource(Res.string.tasks_checkin_time_desc),
+                )
+                Column(
+                    Modifier.padding(top = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(
+                            Lucide.Minus,
+                            contentDescription = "-15m",
+                            onClick = { shiftSlotMinute(-15) },
+                        )
+                        IconButton(
+                            Lucide.Plus,
+                            contentDescription = "+15m",
+                            onClick = { shiftSlotMinute(15) },
+                        )
+                    }
+                }
+            }
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf("08:30", "09:00", "13:30", "16:00", "20:00").forEach { preset ->
+                    Chip(
+                        text = preset,
+                        selected = normalizedTime == preset && canApply,
+                        onClick = { timeState.setTextAndPlaceCursorAtEnd(preset) },
+                    )
+                }
+            }
 
-        TextField(
-            state = checkinTimesState,
-            label = stringResource(Res.string.tasks_coordinator_checkin_times),
-            placeholder = "09:00, 16:00",
-        )
-        TextField(
-            state = windowState,
-            label = stringResource(Res.string.tasks_coordinator_checkin_window),
-        )
+            TextField(
+                state = windowState,
+                label = stringResource(Res.string.tasks_checkin_window_label),
+                placeholder = "30",
+                supportingText = stringResource(Res.string.tasks_checkin_window_desc, normalizedTime),
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FlowRow(
+                    Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf(15, 30, 45, 60).forEach { mins ->
+                        Chip(
+                            text = stringResource(Res.string.tasks_checkin_rule_meta, mins),
+                            selected = parsedWindow == mins,
+                            onClick = { windowState.setTextAndPlaceCursorAtEnd(mins.toString()) },
+                        )
+                    }
+                }
+                if (canApply) {
+                    MiniBadge(
+                        text = formatCheckinRange(normalizedTime, parsedWindow),
+                        backgroundColor = Theme[colors][accentSoft],
+                        contentColor = Theme[colors][accentText],
+                    )
+                }
+            }
+
+            TextField(
+                state = instructionState,
+                modifier = Modifier.testTag("checkin_rule_instruction_field"),
+                label = stringResource(Res.string.tasks_checkin_instruction_label),
+                placeholder = stringResource(Res.string.tasks_checkin_instruction_hint),
+                supportingText = stringResource(Res.string.tasks_checkin_instruction_desc),
+                singleLine = false,
+                maxLines = 4,
+            )
+        }
     }
 }
 

@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -120,6 +121,45 @@ fun rememberPetState(chat: ChatState): PetState {
 /** The pet, stepping through its spritesheet row for [state]. */
 @Composable
 fun PetView(sprite: PetSprite, state: PetState, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    // Desktop's size (frame × scale), kept within what a phone's composer can carry.
+    val height = (sprite.frameH * sprite.scale).coerceIn(48.0, 96.0)
+    val width = height * sprite.frameW / sprite.frameH
+    PetSpriteCanvas(
+        sprite = sprite,
+        state = state,
+        modifier = modifier
+            .size(width.dp, height.dp)
+            .handCursor()
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+    )
+}
+
+/** Compact animated pet rendered inside a [size] square (preserving aspect ratio) to replace a static bot avatar. */
+@Composable
+fun PetAvatar(
+    sprite: PetSprite,
+    state: PetState = PetState.Idle,
+    size: Dp = 28.dp,
+    modifier: Modifier = Modifier,
+) {
+    val ratio = sprite.frameW.toFloat() / sprite.frameH.coerceAtLeast(1)
+    val drawWidth = if (ratio >= 1f) size else size * ratio
+    val drawHeight = if (ratio >= 1f) size / ratio.coerceAtLeast(0.1f) else size
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        PetSpriteCanvas(
+            sprite = sprite,
+            state = state,
+            modifier = Modifier.size(drawWidth, drawHeight),
+        )
+    }
+}
+
+@Composable
+private fun PetSpriteCanvas(
+    sprite: PetSprite,
+    state: PetState,
+    modifier: Modifier,
+) {
     // Decoded whole: the frame grid is in sheet pixels.
     val sheet = rememberImageBitmap(sprite.sheet, maxEdge = 8192) ?: return
     val (wantedRow, count) = sprite.rowFor(state)
@@ -139,15 +179,7 @@ fun PetView(sprite: PetSprite, state: PetState, onClick: () -> Unit, modifier: M
             frame = (frame + 1) % frames
         }
     }
-    // Desktop's size (frame × scale), kept within what a phone's composer can carry.
-    val height = (sprite.frameH * sprite.scale).coerceIn(48.0, 96.0)
-    val width = height * sprite.frameW / sprite.frameH
-    Canvas(
-        modifier
-            .size(width.dp, height.dp)
-            .handCursor()
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
-    ) {
+    Canvas(modifier) {
         drawImage(
             sheet,
             srcOffset = IntOffset(frame * sprite.frameW, row * sprite.frameH),

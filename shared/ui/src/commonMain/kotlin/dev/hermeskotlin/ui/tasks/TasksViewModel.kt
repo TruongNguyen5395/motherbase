@@ -202,6 +202,7 @@ class TasksViewModel(
     private var modelsLoadJob: Job? = null
     private var pageVisible: Boolean = false
     private var lastAutoTriggeredSlot: String? = null
+    private var dismissedCheckinSlot: String? = null
 
     init {
         viewModelScope.launch {
@@ -240,6 +241,7 @@ class TasksViewModel(
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
         lastAutoTriggeredSlot = null
+        dismissedCheckinSlot = null
         boundGateway = gateway
         _state.update {
             TasksUiState(
@@ -571,6 +573,7 @@ class TasksViewModel(
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
+        dismissedCheckinSlot = _state.value.checkinDueSlot ?: dismissedCheckinSlot
         _state.update {
             it.copy(
                 coordinatorOpen = false,
@@ -673,11 +676,22 @@ class TasksViewModel(
         val dateIso = formatIsoDate(moment.year, moment.month, moment.day)
         val minuteOfDay = moment.hour * 60 + moment.minute
         val coord = _state.value.coordinatorConfig
+        val activeMatch = coord.activeOrUpcomingCheckin(dateIso, minuteOfDay)
         val slotToAck = when (action) {
             CoordinatorQuickAction.CHECK_IN -> explicitSlot
                 ?: _state.value.checkinDueSlot
+                ?: activeMatch?.slotKey
                 ?: coord.activeOrUpcomingCheckinSlotId(dateIso, minuteOfDay)
             else -> _state.value.checkinDueSlot
+        }
+        val scheduleInstruction = if (action == CoordinatorQuickAction.CHECK_IN) {
+            val targetTime = slotToAck?.substringAfter('@', "")?.takeIf { it.isNotBlank() }
+            val matchedSchedule = coord.effectiveCheckinSchedules()
+                .firstOrNull { it.time == targetTime }
+                ?: activeMatch?.schedule
+            matchedSchedule?.instruction?.trim()?.takeIf { it.isNotEmpty() }
+        } else {
+            null
         }
         val prompt = when (action) {
             CoordinatorQuickAction.CHECK_IN -> buildString {
@@ -685,6 +699,10 @@ class TasksViewModel(
                 append("Review the live board tasks and projects against my standing guidelines, ")
                 append("highlight any plans waiting for my approval or blocked/overdue items, ")
                 append("and suggest the most effective next actions.")
+                if (scheduleInstruction != null) {
+                    append("\n\nFocus for this check-in window: ")
+                    append(scheduleInstruction)
+                }
             }
             CoordinatorQuickAction.BLOCKERS -> buildString {
                 append("Review all blocked and overdue tasks across projects on the Dispatch board, ")
@@ -786,7 +804,7 @@ class TasksViewModel(
         val cfg = _state.value.config ?: return
         if (!cfg.configured || _state.value.loading) return
         val dueSlot = _state.value.checkinDueSlot ?: return
-        if (lastAutoTriggeredSlot == dueSlot) return
+        if (lastAutoTriggeredSlot == dueSlot || dismissedCheckinSlot == dueSlot) return
         if (_state.value.channelTurnRunning || _state.value.sendingToChannel) return
         lastAutoTriggeredSlot = dueSlot
         openCoordinator(autoCheckinPrompt = true)

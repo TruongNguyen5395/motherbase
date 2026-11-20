@@ -20,9 +20,11 @@ import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.storage.InMemoryKeyValueStore
 import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
+import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
+import dev.hermeskotlin.ui.components.localMoment
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.respond
@@ -1310,6 +1312,119 @@ class TasksViewModelTest {
             }
             assertEquals("coord-2", afterReset.activeChannel?.id)
             assertTrue(h.httpCalls.any { it.method == HttpMethod.Patch && it.path == "/api/sessions/coord-1" })
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun checkInOnlyAutoOpensDuringConfiguredWindowAndDismissDoesNotReopenOnRefresh() = runTest(dispatcher) {
+        val fakeNowMs = 1_700_000_000_000L
+        val moment = localMoment(fakeNowMs)
+        val nowMinute = moment.hour * 60 + moment.minute
+        val currentSlot = DispatchCoordinatorConfig.formatSlotMinute(nowMinute)
+        val distantSlot = DispatchCoordinatorConfig.formatSlotMinute((nowMinute + 240) % 1440)
+        var scheduleTime = distantSlot
+        var scheduleInstruction = ""
+
+        val h = buildHarness(
+            nowMs = { fakeNowMs },
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://d.example","token_preview":"tok","source":"saved"}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to """
+                        {
+                          "configured": true,
+                          "projects": [],
+                          "tasks": [],
+                          "coordinator": {
+                            "profile": "default",
+                            "session_id": "",
+                            "default_prompt": "",
+                            "checkin_enabled": true,
+                            "checkin_times": ["$scheduleTime"],
+                            "checkin_schedules": [
+                              {"id": "rule-1", "time": "$scheduleTime", "window_minutes": 25, "instruction": "$scheduleInstruction", "enabled": true}
+                            ],
+                            "window_minutes": 25,
+                            "grace_minutes": 25,
+                            "cooldown_minutes": 45,
+                            "auto_open_on_launch": true,
+                            "last_checkin_slot": "",
+                            "last_interaction_at": 0.0
+                          }
+                        }
+                        """.trimIndent()
+                    "/api/plugins/directus-tasks/coordinator" ->
+                        HttpStatusCode.OK to """
+                        {
+                          "coordinator": {
+                            "profile": "default",
+                            "session_id": "coord-win",
+                            "default_prompt": "",
+                            "checkin_enabled": true,
+                            "checkin_times": ["$scheduleTime"],
+                            "checkin_schedules": [
+                              {"id": "rule-1", "time": "$scheduleTime", "window_minutes": 25, "instruction": "$scheduleInstruction", "enabled": true}
+                            ],
+                            "window_minutes": 25,
+                            "grace_minutes": 25,
+                            "cooldown_minutes": 45,
+                            "auto_open_on_launch": true,
+                            "last_checkin_slot": "",
+                            "last_interaction_at": 0.0
+                          }
+                        }
+                        """.trimIndent()
+                    "/api/sessions/coord-win/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"coord-win","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to """{"error":"${rec.path}"}"""
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "bots.list" -> """{"bots":[{"name":"default","is_default":true}]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "model.options" -> """{"providers":[]}"""
+                    "session.create", "session.ensure" -> """{"session_id":"rt-win","stored_session_id":"coord-win"}"""
+                    "prompt.submit" -> """{"ok":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+
+        try {
+            h.vm.setPageVisible(true)
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.configured } }
+
+            // Outside configured check-in window: sidebar stays closed and no due slot is set.
+            assertFalse(h.vm.state.value.coordinatorOpen)
+            assertNull(h.vm.state.value.checkinDueSlot)
+
+            // Inside active check-in window with custom standing instruction:
+            // coordinator opens proactively and includes the schedule instruction in the prompt.
+            scheduleTime = currentSlot
+            scheduleInstruction = "Verify sprint risks and pending plans"
+            h.vm.refresh(force = true)
+            withTimeout(5_000) {
+                h.vm.state.first {
+                    it.coordinatorOpen &&
+                        h.socket.calls.any { c -> c.first == "prompt.submit" }
+                }
+            }
+            val submitText = h.socket.calls.last { it.first == "prompt.submit" }.second["text"]?.jsonPrimitive?.content.orEmpty()
+            assertTrue(submitText.contains("Focus for this check-in window: Verify sprint risks and pending plans"))
+
+            // Closing the sidebar dismisses the active slot so subsequent refreshes do not yank it open again.
+            h.vm.closeCoordinator()
+            assertFalse(h.vm.state.value.coordinatorOpen)
+            h.vm.refresh(force = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading } }
+            assertFalse(h.vm.state.value.coordinatorOpen)
         } finally {
             h.connection.stop()
         }

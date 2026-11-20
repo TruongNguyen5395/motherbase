@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalInputModeManager
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.focusable
@@ -115,6 +116,7 @@ fun Dialog(
     onDismissRequest: () -> Unit,
     title: String,
     message: String? = null,
+    maxWidth: Dp = 420.dp,
     actions: @Composable RowScope.() -> Unit,
     content: @Composable ColumnScope.() -> Unit = {},
 ) {
@@ -142,7 +144,7 @@ fun Dialog(
                 paneTitle = title,
                 enter = fadeIn() + scaleIn(initialScale = 0.96f),
                 exit = fadeOut() + scaleOut(targetScale = 0.96f),
-                modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().then(
+                modifier = Modifier.widthIn(max = maxWidth).fillMaxWidth().then(
                     if (!desktop) Modifier else Modifier
                         .onFocusChanged { focusInside = it.hasFocus }
                         .focusRequester(focus)
