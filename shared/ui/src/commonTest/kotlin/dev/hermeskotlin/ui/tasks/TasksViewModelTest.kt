@@ -1271,7 +1271,7 @@ class TasksViewModelTest {
                 when (method) {
                     "profiles.list" -> """{"profiles":[]}"""
                     "projects.tree", "projects.list" -> """{"projects":[]}"""
-                    "session.ensure" -> {
+                    "session.create", "session.ensure" -> {
                         sessionCounter += 1
                         val id = "coord-$sessionCounter"
                         activeSessionId = id

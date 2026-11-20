@@ -668,9 +668,9 @@ class TasksPageUiTest {
         }
         waitForIdle()
 
-        // Floating trigger button displays "Ask Miller" and the "Check-in ready" badge.
+        // Floating trigger button displays "Ask Hermes" and the "Check-in ready" badge.
         onNodeWithTag("dispatch_coordinator_button").assertIsDisplayed()
-        onNodeWithText("Ask Miller").assertIsDisplayed()
+        onNodeWithText("Ask Hermes").assertIsDisplayed()
         onNodeWithText("Check-in ready").assertIsDisplayed()
 
         // Clicking the floating trigger opens the Coordinator right rail.

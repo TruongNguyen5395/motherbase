@@ -980,13 +980,6 @@ private fun DirectusSetupPanel(
 ) {
     val urlState = rememberTextFieldState(config?.url.orEmpty())
     val tokenState = rememberTextFieldState("")
-    val coord = config?.coordinator ?: DispatchCoordinatorConfig()
-    var selectedProfile by remember(coord.profile) { mutableStateOf(coord.profile.ifBlank { "default" }) }
-    val promptState = rememberTextFieldState(coord.defaultPrompt)
-    var checkinEnabled by remember(coord.checkinEnabled) { mutableStateOf(coord.checkinEnabled) }
-    var autoOpenOnLaunch by remember(coord.autoOpenOnLaunch) { mutableStateOf(coord.autoOpenOnLaunch) }
-    val checkinTimesState = rememberTextFieldState(coord.checkinTimes.joinToString(", "))
-    val windowState = rememberTextFieldState(coord.windowMinutes.toString())
 
     Box(
         Modifier.fillMaxSize().verticalScrollWithBar().padding(16.dp),
@@ -995,7 +988,7 @@ private fun DirectusSetupPanel(
         val shape = RoundedCornerShape(Theme[radii][radiusLarge])
         Column(
             Modifier
-                .widthIn(max = 520.dp)
+                .widthIn(max = 480.dp)
                 .fillMaxWidth()
                 .clip(shape)
                 .background(Theme[colors][surface])
@@ -1026,21 +1019,6 @@ private fun DirectusSetupPanel(
                 },
                 password = true,
             )
-            CoordinatorSettingsSection(
-                bots = bots,
-                botAvatars = botAvatars,
-                selectedProfile = selectedProfile,
-                onSelectProfile = { selectedProfile = it },
-                promptState = promptState,
-                checkinEnabled = checkinEnabled,
-                onToggleCheckin = { checkinEnabled = it },
-                autoOpenOnLaunch = autoOpenOnLaunch,
-                onToggleAutoOpen = { autoOpenOnLaunch = it },
-                checkinTimesState = checkinTimesState,
-                windowState = windowState,
-                onOpenPetPicker = null,
-                onResetCoordinatorSession = null,
-            )
             if (error != null) {
                 Text(error, style = Theme[typography][bodySmall], color = Theme[colors][danger])
             }
@@ -1048,25 +1026,7 @@ private fun DirectusSetupPanel(
             val canSave = !saving && urlText.isNotBlank() && (tokenState.text.toString().trim().isNotBlank() || config?.tokenSet == true)
             Button(
                 text = stringResource(if (saving) Res.string.tasks_testing else Res.string.tasks_save_connect),
-                onClick = {
-                    val parsedTimes = checkinTimesState.text.toString()
-                        .split(',', ';')
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                    val parsedWindow = windowState.text.toString().trim().toIntOrNull() ?: coord.windowMinutes
-                    onSave(
-                        urlText,
-                        tokenState.text.toString(),
-                        DispatchCoordinatorUpdate(
-                            profile = selectedProfile,
-                            defaultPrompt = promptState.text.toString().trim(),
-                            checkinEnabled = checkinEnabled,
-                            checkinTimes = parsedTimes,
-                            windowMinutes = parsedWindow,
-                            autoOpenOnLaunch = autoOpenOnLaunch,
-                        ),
-                    )
-                },
+                onClick = { onSave(urlText, tokenState.text.toString(), null) },
                 enabled = canSave,
                 loading = saving,
                 modifier = Modifier.fillMaxWidth(),
