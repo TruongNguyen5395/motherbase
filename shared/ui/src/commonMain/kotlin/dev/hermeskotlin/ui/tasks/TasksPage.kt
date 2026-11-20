@@ -2085,52 +2085,35 @@ private fun CoordinatorInspector(
                 .fillMaxWidth()
                 .clearOfWindowControls()
                 .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (petSprite != null) {
-                PetAvatar(
-                    sprite = petSprite,
-                    state = petState,
-                    size = 30.dp,
-                )
-            } else {
-                BotAvatar(
-                    bot = coordinatorBot,
-                    picture = botAvatars[coordinatorBot.name],
-                    size = 30.dp,
-                )
-            }
-            Column(
-                Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(1.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        coordinatorBot.label,
-                        style = Theme[typography][heading],
-                        color = Theme[colors][textColor],
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+            Box(Modifier.semantics { contentDescription = "${coordinatorBot.label} · @${coordinatorBot.name}" }) {
+                if (petSprite != null) {
+                    PetAvatar(
+                        sprite = petSprite,
+                        state = petState,
+                        size = 30.dp,
                     )
-                    if (checkinDue) {
-                        MiniBadge(
-                            text = stringResource(Res.string.tasks_coordinator_checkin_ready),
-                            backgroundColor = Theme[colors][warningSoft],
-                            contentColor = Theme[colors][warning],
-                        )
-                    }
+                } else {
+                    BotAvatar(
+                        bot = coordinatorBot,
+                        picture = botAvatars[coordinatorBot.name],
+                        size = 30.dp,
+                    )
                 }
-                Text(
-                    "${stringResource(Res.string.tasks_coordinator_title)} · @${coordinatorBot.name}",
-                    style = Theme[typography][caption],
-                    color = Theme[colors][textTertiary],
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            }
+            Box(
+                Modifier.weight(1f),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (checkinDue) {
+                    MiniBadge(
+                        text = stringResource(Res.string.tasks_coordinator_checkin_ready),
+                        backgroundColor = Theme[colors][warningSoft],
+                        contentColor = Theme[colors][warning],
+                    )
+                }
             }
             if (resettingSession) {
                 Spinner(Modifier.size(16.dp).padding(horizontal = 4.dp))

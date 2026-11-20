@@ -682,10 +682,12 @@ class TasksPageUiTest {
         assertTrue(onAllNodesWithText("Ask Hermes").fetchSemanticsNodes().isEmpty())
         assertTrue(onAllNodesWithText("Check-in ready").fetchSemanticsNodes().isEmpty())
 
-        // Clicking the floating trigger opens the Coordinator right rail without the sparkles or banner blocks.
+        // Clicking the floating trigger opens the Coordinator right rail without name/description header clutter.
         onNodeWithTag("dispatch_coordinator_button").performClick()
         waitForIdle()
-        onNodeWithText("Dispatch Coordinator · @default").assertIsDisplayed()
+        onNodeWithTag("coordinator_reset_session_button").assertIsDisplayed()
+        onNodeWithText("Check-in ready").assertIsDisplayed()
+        assertTrue(onAllNodesWithText("Dispatch Coordinator · @default").fetchSemanticsNodes().isEmpty())
 
         // Text-only quick action chips are displayed and trigger their respective CoordinatorQuickAction.
         onNodeWithText("Check in now").assertIsDisplayed().performClick()
