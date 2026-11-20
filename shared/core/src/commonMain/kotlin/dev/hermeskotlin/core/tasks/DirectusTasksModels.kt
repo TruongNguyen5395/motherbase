@@ -3,6 +3,117 @@ package dev.hermeskotlin.core.tasks
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/**
+ * Board-level Dispatch Coordinator Agent configuration persisted on the gateway inside `directus-tasks`
+ * so all devices share the same coordinator profile, dedicated board session, standing prompt, and check-in state.
+ */
+@Serializable
+data class DispatchCoordinatorConfig(
+    val profile: String = "default",
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("default_prompt") val defaultPrompt: String = "",
+    @SerialName("checkin_enabled") val checkinEnabled: Boolean = true,
+    @SerialName("checkin_times") val checkinTimes: List<String> = DEFAULT_CHECKIN_TIMES,
+    @SerialName("window_minutes") val windowMinutes: Int = 30,
+    @SerialName("grace_minutes") val graceMinutes: Int = 180,
+    @SerialName("cooldown_minutes") val cooldownMinutes: Int = 45,
+    @SerialName("auto_open_on_launch") val autoOpenOnLaunch: Boolean = true,
+    @SerialName("last_checkin_slot") val lastCheckinSlot: String = "",
+    @SerialName("last_interaction_at") val lastInteractionAt: Double = 0.0,
+) {
+    /**
+     * Returns the due slot key (`"YYYY-MM-DD@HH:MM"`) when [localMinuteOfDay] (`0..1439`) falls inside an
+     * unacknowledged check-in window (`slot - windowMinutes .. slot + graceMinutes`) and the user has not
+     * interacted with the coordinator within the last [cooldownMinutes].
+     */
+    fun resolveDueCheckinSlot(
+        localDateIso: String,
+        localMinuteOfDay: Int,
+        nowEpochSeconds: Long,
+    ): String? {
+        if (!checkinEnabled || checkinTimes.isEmpty() || localDateIso.isBlank()) return null
+        if (lastInteractionAt > 0.0) {
+            val elapsedSec = nowEpochSeconds - lastInteractionAt.toLong()
+            val cooldownSec = cooldownMinutes.coerceIn(5, 360) * 60L
+            if (elapsedSec in 0L until cooldownSec) return null
+        }
+        val lastDate = lastCheckinSlot.substringBefore('@', "")
+        val lastSlotMin = if (lastDate == localDateIso && '@' in lastCheckinSlot) {
+            parseSlotMinute(lastCheckinSlot.substringAfter('@', ""))
+        } else {
+            null
+        }
+        val win = windowMinutes.coerceIn(5, 180)
+        val grace = graceMinutes.coerceIn(15, 720)
+        var bestSlotMin: Int? = null
+        for (raw in checkinTimes) {
+            val slotMin = parseSlotMinute(raw) ?: continue
+            val startMin = (slotMin - win).coerceAtLeast(0)
+            val endMin = (slotMin + grace).coerceAtMost(1439)
+            if (localMinuteOfDay in startMin..endMin) {
+                if (lastSlotMin != null && lastSlotMin >= slotMin) continue
+                if (bestSlotMin == null || slotMin > bestSlotMin) {
+                    bestSlotMin = slotMin
+                }
+            }
+        }
+        return bestSlotMin?.let { "$localDateIso@${formatSlotMinute(it)}" }
+    }
+
+    /**
+     * Slot key to record when the user initiates a manual check-in at [localMinuteOfDay]: claims the active
+     * or upcoming check-in slot (within 90 minutes) so the scheduled slot does not re-trigger redundantly.
+     */
+    fun activeOrUpcomingCheckinSlotId(localDateIso: String, localMinuteOfDay: Int): String {
+        val win = windowMinutes.coerceIn(5, 180)
+        val grace = graceMinutes.coerceIn(15, 720)
+        val parsed = checkinTimes.mapNotNull(::parseSlotMinute).sorted()
+        val active = parsed.lastOrNull { slotMin ->
+            localMinuteOfDay in (slotMin - win).coerceAtLeast(0)..(slotMin + grace).coerceAtMost(1439)
+        }
+        if (active != null) return "$localDateIso@${formatSlotMinute(active)}"
+        val upcoming = parsed.firstOrNull { slotMin -> slotMin - localMinuteOfDay in 0..90 }
+        if (upcoming != null) return "$localDateIso@${formatSlotMinute(upcoming)}"
+        return "$localDateIso@${formatSlotMinute(localMinuteOfDay.coerceIn(0, 1439))}"
+    }
+
+    companion object {
+        val DEFAULT_CHECKIN_TIMES = listOf("09:00", "16:00")
+
+        fun parseSlotMinute(raw: String): Int? {
+            val clean = raw.trim()
+            val colon = clean.indexOf(':')
+            if (colon <= 0 || colon == clean.lastIndex) return null
+            val hh = clean.substring(0, colon).trim().toIntOrNull() ?: return null
+            val mm = clean.substring(colon + 1).trim().toIntOrNull() ?: return null
+            if (hh !in 0..23 || mm !in 0..59) return null
+            return hh * 60 + mm
+        }
+
+        fun formatSlotMinute(minuteOfDay: Int): String {
+            val clamped = minuteOfDay.coerceIn(0, 1439)
+            val hh = (clamped / 60).toString().padStart(2, '0')
+            val mm = (clamped % 60).toString().padStart(2, '0')
+            return "$hh:$mm"
+        }
+    }
+}
+
+@Serializable
+data class DispatchCoordinatorUpdate(
+    val profile: String? = null,
+    @SerialName("session_id") val sessionId: String? = null,
+    @SerialName("default_prompt") val defaultPrompt: String? = null,
+    @SerialName("checkin_enabled") val checkinEnabled: Boolean? = null,
+    @SerialName("checkin_times") val checkinTimes: List<String>? = null,
+    @SerialName("window_minutes") val windowMinutes: Int? = null,
+    @SerialName("grace_minutes") val graceMinutes: Int? = null,
+    @SerialName("cooldown_minutes") val cooldownMinutes: Int? = null,
+    @SerialName("auto_open_on_launch") val autoOpenOnLaunch: Boolean? = null,
+    @SerialName("last_checkin_slot") val lastCheckinSlot: String? = null,
+    @SerialName("last_interaction_at") val lastInteractionAt: Double? = null,
+)
+
 /** Public configuration state returned by the gateway's `directus-tasks` plugin (never exposes the raw token). */
 @Serializable
 data class DirectusConfigStatus(
@@ -11,6 +122,7 @@ data class DirectusConfigStatus(
     @SerialName("token_set") val tokenSet: Boolean = false,
     @SerialName("token_preview") val tokenPreview: String = "",
     val source: String = "none",
+    val coordinator: DispatchCoordinatorConfig = DispatchCoordinatorConfig(),
 )
 
 @Serializable
@@ -18,6 +130,7 @@ data class DirectusConfigUpdate(
     val url: String,
     val token: String? = null,
     val verify: Boolean = true,
+    val coordinator: DispatchCoordinatorUpdate? = null,
 )
 
 @Serializable
@@ -183,6 +296,7 @@ data class DirectusBoardResponse(
     val configured: Boolean = false,
     val projects: List<DirectusProject> = emptyList(),
     val tasks: List<DirectusTask> = emptyList(),
+    val coordinator: DispatchCoordinatorConfig? = null,
 )
 
 @Serializable

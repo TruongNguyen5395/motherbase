@@ -74,4 +74,23 @@
     <string name="tasks_status_done">Concluída</string>
     <string name="tasks_attention_count">%1$d alerta</string>
     <string name="tasks_project_empty">Nenhuma tarefa aberta neste projeto.</string>
+    <string name="tasks_coordinator_title">Coordenador do Dispatch</string>
+    <string name="tasks_coordinator_ask">Perguntar a %1$s</string>
+    <string name="tasks_coordinator_checkin_ready">Check-in pronto</string>
+    <string name="tasks_coordinator_reset_session">Reiniciar sessão</string>
+    <string name="tasks_coordinator_choose_pet">Escolher mascote</string>
+    <string name="tasks_coordinator_hint">Coordenar painel, fazer check-in ou criar tarefas…</string>
+    <string name="tasks_coordinator_empty">Peça ao coordenador para revisar o painel, iniciar um check-in ou planejar as prioridades de hoje.</string>
+    <string name="tasks_chip_checkin">Fazer check-in agora</string>
+    <string name="tasks_chip_blockers">Revisar bloqueadas e atrasadas</string>
+    <string name="tasks_chip_priorities">Sugerir próximas prioridades</string>
+    <string name="tasks_coordinator_settings_heading">Agente coordenador</string>
+    <string name="tasks_coordinator_agent_label">Perfil do agente</string>
+    <string name="tasks_coordinator_default_prompt">Instruções permanentes (prompt padrão)</string>
+    <string name="tasks_coordinator_default_prompt_hint">Aspectos que o coordenador sempre considera (ex.: energia, prazos, gargalos)…</string>
+    <string name="tasks_coordinator_checkin_toggle">Check-in proativo no Dispatch</string>
+    <string name="tasks_coordinator_auto_open_toggle">Abrir Dispatch automaticamente no horário do check-in</string>
+    <string name="tasks_coordinator_checkin_times">Horários de check-in (HH:MM, separados por vírgula)</string>
+    <string name="tasks_coordinator_checkin_window">Janela (± minutos)</string>
+    <string name="tasks_coordinator_session_reset_done">Nova sessão de coordenador iniciada.</string>
 </resources>

@@ -139,6 +139,7 @@ class TasksViewModelTest {
         },
         dispatchStore: DispatchSessionsStore = DispatchSessionsStore(InMemoryKeyValueStore()),
         includeModelsApi: Boolean = true,
+        nowMs: () -> Long = { kotlin.time.Clock.System.now().toEpochMilliseconds() },
     ): Harness {
         val requests = mutableListOf<RecordedHttp>()
         val cfg = MockEngineConfig().apply {
@@ -171,6 +172,7 @@ class TasksViewModelTest {
             connection = connection,
             dispatchStore = dispatchStore,
             modelsApi = if (includeModelsApi) ModelsApi(connection) else null,
+            nowMs = nowMs,
         )
         return Harness(vm, requests, socket, connection, dispatchStore)
     }
@@ -1206,6 +1208,106 @@ class TasksViewModelTest {
             assertTrue(h.socket.calls.any { it.first == "groups.attachment.upload" && it.second["name"]?.jsonPrimitive?.content == "notes.txt" })
             val sendCall = h.socket.calls.last { it.first == "groups.send" }
             assertTrue(sendCall.second.toString().contains("att-room-1"))
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun coordinatorCreatesSessionTriggersQuickCheckinAndResetsByArchivingPreviousSession() = runTest(dispatcher) {
+        var sessionCounter = 0
+        var activeSessionId = ""
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "configured": true,
+                              "url": "https://directus.example.com",
+                              "token_set": true,
+                              "coordinator": {
+                                "profile": "default",
+                                "session_id": "$activeSessionId",
+                                "default_prompt": "Always prioritize blocked items.",
+                                "checkin_enabled": true,
+                                "checkin_times": ["09:00", "16:00"],
+                                "window_minutes": 30
+                              }
+                            }
+                        """.trimIndent()
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    "/api/plugins/directus-tasks/coordinator" -> {
+                        val body = rec.body.orEmpty()
+                        if (body.contains("\"session_id\"")) {
+                            val parsed = Json.parseToJsonElement(body).jsonObject
+                            activeSessionId = parsed["session_id"]?.jsonPrimitive?.content ?: activeSessionId
+                        }
+                        HttpStatusCode.OK to """
+                            {
+                              "configured": true,
+                              "url": "https://directus.example.com",
+                              "token_set": true,
+                              "coordinator": {
+                                "profile": "default",
+                                "session_id": "$activeSessionId",
+                                "default_prompt": "Always prioritize blocked items.",
+                                "checkin_enabled": true,
+                                "checkin_times": ["09:00", "16:00"],
+                                "window_minutes": 30
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    "/api/sessions/coord-1/archive" ->
+                        HttpStatusCode.OK to """{"session_id":"coord-1","archived":true}"""
+                    "/api/sessions/coord-1/messages", "/api/sessions/coord-2/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"$activeSessionId","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.ensure" -> {
+                        sessionCounter += 1
+                        val id = "coord-$sessionCounter"
+                        activeSessionId = id
+                        """{"session_id":"$id","stored_session_id":"$id","resumed":false}"""
+                    }
+                    "session.title.set" -> """{"ok":true}"""
+                    "prompt.submit" -> """{"ok":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            // Trigger an on-demand check-in via quick chip: opens coordinator rail, creates session coord-1, and submits prompt.
+            h.vm.triggerQuickCoordinatorAction(CoordinatorQuickAction.CHECK_IN)
+            val afterCheckin = withTimeout(5_000) {
+                h.vm.state.first {
+                    it.coordinatorOpen &&
+                        it.coordinatorConfig.sessionId == "coord-1" &&
+                        h.socket.calls.any { c -> c.first == "prompt.submit" }
+                }
+            }
+            assertEquals("coord-1", afterCheckin.activeChannel?.id)
+            val submit = h.socket.calls.last { it.first == "prompt.submit" }
+            assertEquals("coord-1", submit.second["session_id"]?.jsonPrimitive?.content)
+            assertTrue(submit.second["text"]?.jsonPrimitive?.content.orEmpty().contains("check-in", ignoreCase = true))
+
+            // Resetting the coordinator session archives coord-1 and creates coord-2.
+            h.vm.resetCoordinatorSession()
+            val afterReset = withTimeout(5_000) {
+                h.vm.state.first { !it.resettingCoordinator && it.coordinatorConfig.sessionId == "coord-2" }
+            }
+            assertEquals("coord-2", afterReset.activeChannel?.id)
+            assertTrue(h.httpCalls.any { it.path == "/api/sessions/coord-1/archive" })
         } finally {
             h.connection.stop()
         }

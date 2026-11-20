@@ -633,4 +633,77 @@ class TasksPageUiTest {
         waitForIdle()
         assertEquals("t-empty", preparedFor)
     }
+
+    @Test
+    fun coordinatorFloatingTriggerOpensRailTriggersTextOnlyQuickChipsResetsSessionAndEditsSettings() = runDesktopComposeUiTest(width = 1120, height = 780) {
+        val clickedActions = mutableListOf<CoordinatorQuickAction>()
+        var resetCount = 0
+        var savedCoordinatorProfile: String? = null
+        var state by mutableStateOf(
+            PageSamples.tasks(selectedTaskId = null).copy(
+                checkinDueSlot = "2026-11-20@16:00",
+                gatewayConnected = true,
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onOpenCoordinator = { state = state.copy(coordinatorOpen = true, selectedTaskId = null) },
+                                onCloseCoordinator = { state = state.copy(coordinatorOpen = false) },
+                                onToggleCoordinator = { state = state.copy(coordinatorOpen = !state.coordinatorOpen, selectedTaskId = null) },
+                                onQuickCoordinatorAction = { act -> clickedActions += act },
+                                onResetCoordinatorSession = { resetCount += 1 },
+                                onSaveConfigAndCoordinator = { _, _, coord -> savedCoordinatorProfile = coord?.profile },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        // Floating trigger button displays "Ask Miller" and the "Check-in ready" badge.
+        onNodeWithTag("dispatch_coordinator_button").assertIsDisplayed()
+        onNodeWithText("Ask Miller").assertIsDisplayed()
+        onNodeWithText("Check-in ready").assertIsDisplayed()
+
+        // Clicking the floating trigger opens the Coordinator right rail.
+        onNodeWithTag("dispatch_coordinator_button").performClick()
+        waitForIdle()
+        onNodeWithText("Dispatch Coordinator · @default").assertIsDisplayed()
+
+        // Text-only quick action chips are displayed and trigger their respective CoordinatorQuickAction.
+        onNodeWithText("Check in now").assertIsDisplayed().performClick()
+        onNodeWithText("Review blocked & overdue").assertIsDisplayed().performClick()
+        onNodeWithText("Suggest next priorities").assertIsDisplayed().performClick()
+        waitForIdle()
+        assertEquals(
+            listOf(
+                CoordinatorQuickAction.CHECK_IN,
+                CoordinatorQuickAction.BLOCKED_AND_OVERDUE,
+                CoordinatorQuickAction.NEXT_PRIORITIES,
+            ),
+            clickedActions,
+        )
+
+        // Reset session button triggers onResetCoordinatorSession.
+        onNodeWithTag("coordinator_reset_session_button").performClick()
+        waitForIdle()
+        assertEquals(1, resetCount)
+
+        // Opening settings from the coordinator rail shows the Coordinator Agent settings section.
+        onNodeWithTag("coordinator_settings_button").performClick()
+        waitForIdle()
+        onNodeWithText("Coordinator Agent").assertIsDisplayed()
+        onNodeWithText("Standing default prompt").assertIsDisplayed()
+        onNodeWithText("Test and save").performClick()
+        waitForIdle()
+        assertEquals("default", savedCoordinatorProfile)
+    }
 }

@@ -31,6 +31,7 @@ import dev.hermeskotlin.core.sessions.SessionListFilter
 import dev.hermeskotlin.core.sessions.SessionSummary
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
+import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
 import dev.hermeskotlin.core.tasks.DispatchSessionEntry
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.threads.ChatThread
@@ -194,6 +195,14 @@ class SessionsViewModel(
             dispatchStore?.entriesFor(url) ?: flowOf(emptyMap())
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** Synced Dispatch Coordinator settings for the bound gateway (including check-in schedule and auto-open flag). */
+    val dispatchCoordinator: StateFlow<DispatchCoordinatorConfig?> = bound
+        .flatMapLatest { scope ->
+            val url = scope?.first ?: return@flatMapLatest flowOf(null)
+            dispatchStore?.coordinatorFor(url) ?: flowOf(null)
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** The gateway and profile the list (and its projects) are of; null before the first. */
     val listedFor: StateFlow<Pair<GatewayUrl, String?>?> = bound.asStateFlow()

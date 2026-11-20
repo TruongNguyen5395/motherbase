@@ -49,6 +49,16 @@ class DirectusTasksApi(private val client: HttpClient) {
         }
     }.map { lenientJson.decodeFromString<DirectusConfigStatus>(it.bodyAsText()) }
 
+    suspend fun saveCoordinatorConfig(
+        url: GatewayUrl,
+        update: DispatchCoordinatorUpdate,
+    ): ApiResult<DirectusConfigStatus> = apiCall {
+        client.put(url.resolve("api/plugins/$PLUGIN/coordinator")) {
+            contentType(ContentType.Application.Json)
+            setBody(update)
+        }
+    }.map { lenientJson.decodeFromString<DirectusConfigStatus>(it.bodyAsText()) }
+
     suspend fun testConnection(
         url: GatewayUrl,
         directusUrl: String? = null,

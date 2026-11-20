@@ -74,4 +74,23 @@
     <string name="tasks_status_done">Terminée</string>
     <string name="tasks_attention_count">%1$d alerte</string>
     <string name="tasks_project_empty">Aucune tâche ouverte dans ce projet.</string>
+    <string name="tasks_coordinator_title">Coordinateur Dispatch</string>
+    <string name="tasks_coordinator_ask">Demander à %1$s</string>
+    <string name="tasks_coordinator_checkin_ready">Point prêt</string>
+    <string name="tasks_coordinator_reset_session">Réinitialiser la session</string>
+    <string name="tasks_coordinator_choose_pet">Choisir un compagnon</string>
+    <string name="tasks_coordinator_hint">Coordonner le tableau, faire le point ou créer des tâches…</string>
+    <string name="tasks_coordinator_empty">Demandez à votre coordinateur d’examiner le tableau, de faire un point ou de définir les priorités.</string>
+    <string name="tasks_chip_checkin">Faire le point maintenant</string>
+    <string name="tasks_chip_blockers">Vérifier bloquées et en retard</string>
+    <string name="tasks_chip_priorities">Suggérer les prochaines priorités</string>
+    <string name="tasks_coordinator_settings_heading">Agent coordinateur</string>
+    <string name="tasks_coordinator_agent_label">Profil de l’agent</string>
+    <string name="tasks_coordinator_default_prompt">Consignes permanentes (prompt par défaut)</string>
+    <string name="tasks_coordinator_default_prompt_hint">Aspects toujours pris en compte par le coordinateur (ex. énergie, échéances, blocages)…</string>
+    <string name="tasks_coordinator_checkin_toggle">Point proactif sur Dispatch</string>
+    <string name="tasks_coordinator_auto_open_toggle">Ouvrir Dispatch automatiquement à l’heure du point</string>
+    <string name="tasks_coordinator_checkin_times">Heures de point (HH:MM, séparées par des virgules)</string>
+    <string name="tasks_coordinator_checkin_window">Fenêtre (± minutes)</string>
+    <string name="tasks_coordinator_session_reset_done">Nouvelle session de coordinateur démarrée.</string>
 </resources>

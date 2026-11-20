@@ -47,7 +47,7 @@ val uiModule = module {
     viewModelOf(::ConfigViewModel)
     viewModelOf(::PluginsViewModel)
     viewModelOf(::InsightsViewModel)
-    viewModelOf(::TasksViewModel)
+    viewModel { TasksViewModel(get(), get(), get(), get(), get(), get(), getOrNull(), getOrNull()) }
     // Spelled out: past 22 parameters viewModelOf has no overload, and the last two are optional.
     viewModel {
         ChatViewModel(

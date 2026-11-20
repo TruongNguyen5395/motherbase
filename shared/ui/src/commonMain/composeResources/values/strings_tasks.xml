@@ -74,4 +74,23 @@
     <string name="tasks_status_done">Done</string>
     <string name="tasks_attention_count">%1$d alert</string>
     <string name="tasks_project_empty">No open tasks in this project.</string>
+    <string name="tasks_coordinator_title">Dispatch Coordinator</string>
+    <string name="tasks_coordinator_ask">Ask %1$s</string>
+    <string name="tasks_coordinator_checkin_ready">Check-in ready</string>
+    <string name="tasks_coordinator_reset_session">Reset session</string>
+    <string name="tasks_coordinator_choose_pet">Choose pet</string>
+    <string name="tasks_coordinator_hint">Coordinate board, check in, or create tasks…</string>
+    <string name="tasks_coordinator_empty">Ask your coordinator to review the board, run a check-in, or plan today’s priorities.</string>
+    <string name="tasks_chip_checkin">Check in now</string>
+    <string name="tasks_chip_blockers">Review blocked &amp; overdue</string>
+    <string name="tasks_chip_priorities">Suggest next priorities</string>
+    <string name="tasks_coordinator_settings_heading">Coordinator agent</string>
+    <string name="tasks_coordinator_agent_label">Agent profile</string>
+    <string name="tasks_coordinator_default_prompt">Standing instructions (default prompt)</string>
+    <string name="tasks_coordinator_default_prompt_hint">Aspects the coordinator always considers (e.g., energy level, deadlines, bottlenecks)…</string>
+    <string name="tasks_coordinator_checkin_toggle">Proactive check-in on Dispatch</string>
+    <string name="tasks_coordinator_auto_open_toggle">Auto-open Dispatch at check-in time</string>
+    <string name="tasks_coordinator_checkin_times">Check-in times (HH:MM, comma-separated)</string>
+    <string name="tasks_coordinator_checkin_window">Window (± minutes)</string>
+    <string name="tasks_coordinator_session_reset_done">Started a fresh coordinator session.</string>
 </resources>

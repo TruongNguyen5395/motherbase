@@ -155,4 +155,30 @@ class DispatchSessionsStoreTest {
         assertFalse(manualChat.isAutoManagedSession)
         assertFalse(room.isAutoManagedSession)
     }
+
+    @Test
+    fun syncCoordinatorPersistsCoordinatorAndRegistersBoardSessionInDispatchGroup() = runTest {
+        val kv = InMemoryKeyValueStore()
+        val store = DispatchSessionsStore(kv) { 1_000L }
+        val coord = DispatchCoordinatorConfig(
+            profile = "default",
+            sessionId = "coord-sess-99",
+            defaultPrompt = "Review priorities",
+        )
+        store.syncCoordinator(gateway, coord)
+
+        val entries = store.byGateway.value[gateway].orEmpty()
+        assertEquals(DispatchSessionsStore.COORDINATOR_TASK_ID, entries["coord-sess-99"]?.taskId)
+        assertEquals(DispatchSessionsStore.COORDINATOR_SESSION_TITLE, entries["coord-sess-99"]?.taskTitle)
+
+        // Rotating coordinator session replaces the old entry cleanly.
+        store.syncCoordinator(gateway, coord.copy(sessionId = "coord-sess-100"))
+        val afterRotate = store.byGateway.value[gateway].orEmpty()
+        assertFalse("coord-sess-99" in afterRotate)
+        assertTrue("coord-sess-100" in afterRotate)
+
+        val reader = DispatchSessionsStore(kv) { 1_000L }
+        reader.warm(gateway)
+        assertEquals("coord-sess-100", reader.coordinatorByGateway.value[gateway]?.sessionId)
+    }
 }

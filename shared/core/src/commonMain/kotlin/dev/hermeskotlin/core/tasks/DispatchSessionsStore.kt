@@ -55,22 +55,73 @@ class DispatchSessionsStore(
     private val _byGateway = MutableStateFlow<Map<GatewayUrl, Map<String, DispatchSessionEntry>>>(emptyMap())
     val byGateway: StateFlow<Map<GatewayUrl, Map<String, DispatchSessionEntry>>> = _byGateway.asStateFlow()
 
+    private val _coordinatorByGateway = MutableStateFlow<Map<GatewayUrl, DispatchCoordinatorConfig>>(emptyMap())
+    val coordinatorByGateway: StateFlow<Map<GatewayUrl, DispatchCoordinatorConfig>> = _coordinatorByGateway.asStateFlow()
+
     private val _lifecycleChanges = MutableSharedFlow<SessionLifecycleChange>(extraBufferCapacity = 32)
     val lifecycleChanges: SharedFlow<SessionLifecycleChange> = _lifecycleChanges.asSharedFlow()
 
     fun entriesFor(gateway: GatewayUrl): Flow<Map<String, DispatchSessionEntry>> =
         byGateway.map { it[gateway].orEmpty() }.distinctUntilChanged()
 
+    fun coordinatorFor(gateway: GatewayUrl): Flow<DispatchCoordinatorConfig?> =
+        coordinatorByGateway.map { it[gateway] }.distinctUntilChanged()
+
     /** Hydrates the in-memory index from disk for [gateway] if not loaded yet. */
     suspend fun warm(gateway: GatewayUrl) {
-        if (store == null || gateway in _byGateway.value) return
-        val cached = store.get(cacheKey(gateway))?.let { raw ->
-            runCatching { HermesJson.decodeFromString(LIST_SERIALIZER, raw) }.getOrNull()
-        } ?: return
-        val indexed = cached.associateBy { it.sessionId }
-        _byGateway.update { cur ->
-            if (gateway in cur) cur else cur + (gateway to indexed)
+        if (store == null) return
+        if (gateway !in _byGateway.value) {
+            val cached = store.get(cacheKey(gateway))?.let { raw ->
+                runCatching { HermesJson.decodeFromString(LIST_SERIALIZER, raw) }.getOrNull()
+            }
+            if (cached != null) {
+                val indexed = cached.associateBy { it.sessionId }
+                _byGateway.update { cur ->
+                    if (gateway in cur) cur else cur + (gateway to indexed)
+                }
+            }
         }
+        if (gateway !in _coordinatorByGateway.value) {
+            val cachedCoord = store.get(coordinatorCacheKey(gateway))?.let { raw ->
+                runCatching { HermesJson.decodeFromString(DispatchCoordinatorConfig.serializer(), raw) }.getOrNull()
+            }
+            if (cachedCoord != null) {
+                _coordinatorByGateway.update { cur ->
+                    if (gateway in cur) cur else cur + (gateway to cachedCoord)
+                }
+            }
+        }
+    }
+
+    /** Updates the cached [DispatchCoordinatorConfig] for [gateway] and binds its session in the Dispatch index. */
+    suspend fun syncCoordinator(gateway: GatewayUrl, coordinator: DispatchCoordinatorConfig) {
+        val prevCoord = _coordinatorByGateway.value[gateway]
+        _coordinatorByGateway.update { cur -> cur + (gateway to coordinator) }
+        if (prevCoord != coordinator && store != null) {
+            store.put(coordinatorCacheKey(gateway), HermesJson.encodeToString(DispatchCoordinatorConfig.serializer(), coordinator))
+        }
+        val nextSid = coordinator.sessionId.trim()
+        val prevSid = prevCoord?.sessionId?.trim().orEmpty()
+        if (nextSid.isEmpty() && prevSid.isEmpty()) return
+        val nextMap = stateMutex.withLock {
+            val current = _byGateway.value[gateway].orEmpty()
+            val updated = LinkedHashMap<String, DispatchSessionEntry>()
+            for ((sid, entry) in current) {
+                if (entry.taskId != COORDINATOR_TASK_ID) updated[sid] = entry
+            }
+            if (nextSid.isNotEmpty()) {
+                updated[nextSid] = DispatchSessionEntry(
+                    sessionId = nextSid,
+                    taskId = COORDINATOR_TASK_ID,
+                    taskTitle = COORDINATOR_SESSION_TITLE,
+                    taskStatus = DirectusTask.STATUS_IN_PROGRESS,
+                    profile = coordinator.profile,
+                    managed = true,
+                )
+            }
+            updated.toMap()
+        }
+        publish(gateway, nextMap)
     }
 
     /**
@@ -87,8 +138,16 @@ class DispatchSessionsStore(
             val merged = LinkedHashMap<String, DispatchSessionEntry>()
             if (!includeDone) {
                 for ((sid, entry) in previous) {
-                    if (entry.taskId !in boardTaskIds && merged.size < MAX_RETAINED_DONE_ENTRIES) {
+                    if (entry.taskId == COORDINATOR_TASK_ID) {
+                        merged[sid] = entry
+                    } else if (entry.taskId !in boardTaskIds && merged.size < MAX_RETAINED_DONE_ENTRIES) {
                         merged[sid] = entry.copy(taskStatus = DirectusTask.STATUS_DONE)
+                    }
+                }
+            } else {
+                for ((sid, entry) in previous) {
+                    if (entry.taskId == COORDINATOR_TASK_ID) {
+                        merged[sid] = entry
                     }
                 }
             }
@@ -138,6 +197,7 @@ class DispatchSessionsStore(
             when (val res = api.fetchBoard(gateway, includeDone = false)) {
                 is ApiResult.Success -> {
                     pluginMissing[gateway] = false
+                    res.value.coordinator?.let { coord -> syncCoordinator(gateway, coord) }
                     if (res.value.configured) {
                         syncBoard(gateway, res.value.tasks, includeDone = false)
                     } else {
@@ -205,10 +265,13 @@ class DispatchSessionsStore(
     }
 
     private fun cacheKey(gateway: GatewayUrl): String = "dispatch.sessions.v1.${gateway.value}"
+    private fun coordinatorCacheKey(gateway: GatewayUrl): String = "dispatch.coordinator.v1.${gateway.value}"
 
-    private companion object {
-        val LIST_SERIALIZER = ListSerializer(DispatchSessionEntry.serializer())
-        const val SYNC_TTL_MS = 60_000L
-        const val MAX_RETAINED_DONE_ENTRIES = 200
+    companion object {
+        const val COORDINATOR_TASK_ID = "__dispatch_coordinator__"
+        const val COORDINATOR_SESSION_TITLE = "Dispatch · Coordinator"
+        private val LIST_SERIALIZER = ListSerializer(DispatchSessionEntry.serializer())
+        private const val SYNC_TTL_MS = 60_000L
+        private const val MAX_RETAINED_DONE_ENTRIES = 200
     }
 }

@@ -42,6 +42,8 @@ import dev.hermeskotlin.core.tasks.DirectusConfigUpdate
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
+import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
+import dev.hermeskotlin.core.tasks.DispatchCoordinatorUpdate
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
@@ -50,6 +52,7 @@ import dev.hermeskotlin.core.tasks.UpdateTaskRequest
 import dev.hermeskotlin.core.tasks.UpsertContextRequest
 import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.chat.PendingSwitch
+import dev.hermeskotlin.ui.components.localMoment
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -78,6 +81,12 @@ sealed interface TasksNavEvent {
     data class OpenRoom(val room: Room) : TasksNavEvent
 }
 
+enum class CoordinatorQuickAction {
+    CHECK_IN,
+    BLOCKERS,
+    PRIORITIES,
+}
+
 data class ChannelChatLine(
     val key: String,
     val speaker: String?,
@@ -86,6 +95,7 @@ data class ChannelChatLine(
     val profile: String? = null,
     val streaming: Boolean = false,
     val attachments: List<ShownAttachment> = emptyList(),
+    val interaction: ReplyInteraction? = null,
 )
 
 data class TasksUiState(
@@ -100,6 +110,7 @@ data class TasksUiState(
     val tasks: List<DirectusTask> = emptyList(),
     val hermesProjects: List<Project> = emptyList(),
     val bots: List<Bot> = emptyList(),
+    val botAvatars: Map<String, ByteArray> = emptyMap(),
     val includeDone: Boolean = false,
     val showPriorityStrip: Boolean = true,
     val focusedProjectId: String? = null,
@@ -108,6 +119,9 @@ data class TasksUiState(
     val collapsedWorkstreamKeys: Set<String> = emptySet(),
     val todayEpochDay: Long = currentLocalEpochDay(),
     val selectedTaskId: String? = null,
+    val coordinatorOpen: Boolean = false,
+    val resettingCoordinator: Boolean = false,
+    val checkinDueSlot: String? = null,
     val activeChannelIdx: Int = 0,
     val channelLoading: Boolean = false,
     val channelMessages: List<ChannelChatLine> = emptyList(),
@@ -126,8 +140,33 @@ data class TasksUiState(
     val selectedTask: DirectusTask?
         get() = selectedTaskId?.let { id -> tasks.firstOrNull { it.id == id } }
 
+    val coordinatorConfig: DispatchCoordinatorConfig
+        get() = config?.coordinator ?: DispatchCoordinatorConfig()
+
+    val coordinatorBot: Bot
+        get() {
+            val target = coordinatorConfig.profile.trim().removePrefix("@").ifEmpty { Bot.DEFAULT }
+            return bots.firstOrNull { it.name.equals(target, ignoreCase = true) }
+                ?: bots.firstOrNull { it.isDefault }
+                ?: Bot(name = target, isDefault = target.equals(Bot.DEFAULT, ignoreCase = true))
+        }
+
+    val coordinatorChannel: TaskChannel?
+        get() = coordinatorConfig.sessionId.trim().takeIf { it.isNotEmpty() }?.let { sid ->
+            TaskChannel(
+                type = TaskChannel.TYPE_SESSION,
+                id = sid,
+                label = DispatchSessionsStore.COORDINATOR_SESSION_TITLE,
+                profile = coordinatorConfig.profile.ifBlank { Bot.DEFAULT },
+                managed = true,
+            )
+        }
+
     val activeChannel: TaskChannel?
-        get() = selectedTask?.channels?.getOrNull(activeChannelIdx) ?: selectedTask?.channels?.firstOrNull()
+        get() = when {
+            coordinatorOpen -> coordinatorChannel
+            else -> selectedTask?.channels?.getOrNull(activeChannelIdx) ?: selectedTask?.channels?.firstOrNull()
+        }
 
     val priorityTasks: List<DirectusTask>
         get() = tasks.filter { it.agentState == TaskContext.STATE_NEEDS_YOU }
@@ -146,6 +185,7 @@ class TasksViewModel(
     private val connection: GatewayConnection,
     private val dispatchStore: DispatchSessionsStore? = null,
     private val modelsApi: ModelsApi? = null,
+    private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TasksUiState())
@@ -160,6 +200,8 @@ class TasksViewModel(
     private var lastStreamEventAtMs: Long = 0L
     private var turnPollJob: Job? = null
     private var modelsLoadJob: Job? = null
+    private var pageVisible: Boolean = false
+    private var lastAutoTriggeredSlot: String? = null
 
     init {
         viewModelScope.launch {
@@ -170,8 +212,11 @@ class TasksViewModel(
                     activeRuntimeChannelId = null
                 }
                 _state.update { it.copy(gatewayConnected = connected) }
-                if (connected && _state.value.selectedTask != null && _state.value.activeChannel?.isRoom != true && _state.value.modelPicker.catalog == null) {
+                if (connected && (_state.value.selectedTask != null || _state.value.coordinatorOpen) && _state.value.activeChannel?.isRoom != true && _state.value.modelPicker.catalog == null) {
                     loadModels(withPrices = false)
+                }
+                if (connected) {
+                    maybeRunAutoCheckin()
                 }
             }
         }
@@ -194,6 +239,7 @@ class TasksViewModel(
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
+        lastAutoTriggeredSlot = null
         boundGateway = gateway
         _state.update {
             TasksUiState(
@@ -206,6 +252,15 @@ class TasksViewModel(
             )
         }
         refresh()
+    }
+
+    fun setVisible(visible: Boolean) {
+        val becameVisible = visible && !pageVisible
+        pageVisible = visible
+        if (becameVisible) {
+            refreshCheckinEligibility()
+            maybeRunAutoCheckin()
+        }
     }
 
     fun refresh() {
@@ -242,6 +297,7 @@ class TasksViewModel(
                     if (boundGateway != gateway) return@launch
                     val cfg = cfgResult.value
                     _state.update { it.copy(config = cfg) }
+                    dispatchStore?.syncCoordinator(gateway.gatewayUrl, cfg.coordinator)
                     if (!cfg.configured) {
                         _state.update { it.copy(loading = false, projects = emptyList(), tasks = emptyList()) }
                         dispatchStore?.clearGateway(gateway.gatewayUrl)
@@ -267,6 +323,9 @@ class TasksViewModel(
                 val board = boardResult.value
                 val today = currentLocalEpochDay()
                 _state.update { cur ->
+                    val mergedConfig = board.coordinator?.let { coord ->
+                        cur.config?.copy(coordinator = coord) ?: DirectusConfigStatus(configured = board.configured, coordinator = coord)
+                    } ?: cur.config
                     val keptSelected = cur.selectedTaskId?.takeIf { sid -> board.tasks.any { it.id == sid } }
                     val selectedObj = keptSelected?.let { sid -> board.tasks.firstOrNull { it.id == sid } }
                     val safeChannelIdx = if (selectedObj != null && cur.activeChannelIdx < selectedObj.channels.size) cur.activeChannelIdx else 0
@@ -276,17 +335,27 @@ class TasksViewModel(
                     cur.copy(
                         loading = false,
                         error = null,
+                        config = mergedConfig,
                         projects = board.projects,
                         tasks = board.tasks,
                         todayEpochDay = today,
                         focusedProjectId = keptFocused,
-                        selectedTaskId = keptSelected,
+                        selectedTaskId = if (cur.coordinatorOpen) null else keptSelected,
                         activeChannelIdx = safeChannelIdx,
                     )
                 }
+                _state.value.config?.coordinator?.let { coord ->
+                    dispatchStore?.syncCoordinator(gateway.gatewayUrl, coord)
+                }
                 dispatchStore?.syncBoard(gateway.gatewayUrl, board.tasks, includeDone = includeDone)
-                _state.value.selectedTask?.let { task ->
-                    loadChannelLog(gateway, task, _state.value.activeChannelIdx)
+                refreshCheckinEligibility()
+                maybeRunAutoCheckin()
+                if (_state.value.coordinatorOpen && !_state.value.channelTurnRunning) {
+                    loadCoordinatorLog(gateway)
+                } else {
+                    _state.value.selectedTask?.let { task ->
+                        loadChannelLog(gateway, task, _state.value.activeChannelIdx)
+                    }
                 }
             }
         }
@@ -301,25 +370,106 @@ class TasksViewModel(
                     hermesProjects = hermesProjects ?: it.hermesProjects,
                 )
             }
+            if (bots != null) {
+                loadBotAvatars(gateway, bots)
+            }
         }
     }
 
-    fun saveConfig(url: String, token: String) {
+    private suspend fun loadBotAvatars(gateway: SavedGateway, roster: List<Bot>) {
+        val current = _state.value.botAvatars
+        val toLoad = roster.filter { it.hasAvatar && it.name !in current }
+        if (toLoad.isEmpty()) return
+        val fetched = LinkedHashMap<String, ByteArray>()
+        for (bot in toLoad) {
+            if (boundGateway != gateway) return
+            val bytes = runCatching { botsApi.avatar(bot.name) }.getOrNull()
+            if (bytes != null && bytes.isNotEmpty()) {
+                fetched[bot.name] = bytes
+            }
+        }
+        if (fetched.isNotEmpty() && boundGateway == gateway) {
+            _state.update { it.copy(botAvatars = it.botAvatars + fetched) }
+        }
+    }
+
+    fun saveConfig(
+        url: String,
+        token: String,
+        coordinator: DispatchCoordinatorUpdate? = null,
+    ) {
         val gateway = boundGateway ?: return
         viewModelScope.launch {
             _state.update { it.copy(savingConfig = true, configError = null) }
-            when (val res = directusApi.saveConfig(gateway.gatewayUrl, DirectusConfigUpdate(url = url.trim(), token = token.trim().ifEmpty { null }))) {
+            val resolvedCoord = prepareCoordinatorProfileSwitch(gateway, coordinator)
+            val cleanUrl = url.trim()
+            val result = if (cleanUrl.isEmpty() && resolvedCoord != null && _state.value.config?.configured != true) {
+                directusApi.saveCoordinatorConfig(gateway.gatewayUrl, resolvedCoord)
+            } else {
+                directusApi.saveConfig(
+                    gateway.gatewayUrl,
+                    DirectusConfigUpdate(
+                        url = cleanUrl,
+                        token = token.trim().ifEmpty { null },
+                        coordinator = resolvedCoord,
+                    ),
+                )
+            }
+            when (result) {
                 is ApiResult.Success -> {
                     if (boundGateway != gateway) return@launch
-                    _state.update { it.copy(savingConfig = false, config = res.value, configError = null) }
+                    _state.update { it.copy(savingConfig = false, config = result.value, configError = null) }
+                    dispatchStore?.syncCoordinator(gateway.gatewayUrl, result.value.coordinator)
+                    refreshCheckinEligibility()
                     refresh()
                 }
-                is ApiResult.Failed -> if (boundGateway == gateway) _state.update { it.copy(savingConfig = false, configError = res.message) }
-                is ApiResult.Unavailable -> if (boundGateway == gateway) _state.update { it.copy(savingConfig = false, configError = res.message) }
+                is ApiResult.Failed -> if (boundGateway == gateway) _state.update { it.copy(savingConfig = false, configError = result.message) }
+                is ApiResult.Unavailable -> if (boundGateway == gateway) _state.update { it.copy(savingConfig = false, configError = result.message) }
                 is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited ->
                     if (boundGateway == gateway) _state.update { it.copy(savingConfig = false, sessionExpired = true) }
             }
         }
+    }
+
+    fun saveCoordinatorConfig(update: DispatchCoordinatorUpdate) {
+        val gateway = boundGateway ?: return
+        viewModelScope.launch {
+            val resolved = prepareCoordinatorProfileSwitch(gateway, update) ?: update
+            when (val res = directusApi.saveCoordinatorConfig(gateway.gatewayUrl, resolved)) {
+                is ApiResult.Success -> {
+                    if (boundGateway != gateway) return@launch
+                    _state.update { it.copy(config = res.value) }
+                    dispatchStore?.syncCoordinator(gateway.gatewayUrl, res.value.coordinator)
+                    refreshCheckinEligibility()
+                }
+                is ApiResult.Failed -> if (boundGateway == gateway) _state.update { it.copy(actionFeedback = res.message) }
+                is ApiResult.Unavailable -> if (boundGateway == gateway) _state.update { it.copy(actionFeedback = res.message) }
+                is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited ->
+                    if (boundGateway == gateway) _state.update { it.copy(sessionExpired = true) }
+            }
+        }
+    }
+
+    private suspend fun prepareCoordinatorProfileSwitch(
+        gateway: SavedGateway,
+        update: DispatchCoordinatorUpdate?,
+    ): DispatchCoordinatorUpdate? {
+        if (update == null) return null
+        val cur = _state.value.coordinatorConfig
+        val nextProfile = update.profile?.trim()?.removePrefix("@")?.ifEmpty { Bot.DEFAULT }
+        if (nextProfile == null || nextProfile.equals(cur.profile, ignoreCase = true)) return update
+        val oldSid = cur.sessionId.trim()
+        if (oldSid.isNotEmpty() && update.sessionId == null) {
+            runCatching { sessionsApi.setArchived(gateway.gatewayUrl, oldSid, archived = true, profile = cur.profile) }
+            dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, archivedIds = setOf(oldSid))
+            if (_state.value.coordinatorOpen) {
+                activeRuntimeSessionId = null
+                activeRuntimeChannelId = null
+                _state.update { it.copy(channelMessages = emptyList(), channelChatState = ChatState()) }
+            }
+            return update.copy(sessionId = "")
+        }
+        return update
     }
 
     fun togglePriorityStrip(enabled: Boolean) {
@@ -361,6 +511,7 @@ class TasksViewModel(
         _state.update {
             it.copy(
                 selectedTaskId = taskId,
+                coordinatorOpen = false,
                 activeChannelIdx = 0,
                 channelMessages = emptyList(),
                 channelAttachments = emptyList(),
@@ -376,6 +527,371 @@ class TasksViewModel(
         val task = _state.value.selectedTask ?: return
         viewModelScope.launch { loadChannelLog(gateway, task, 0) }
         if (task.channels.isEmpty()) loadModels(withPrices = false)
+    }
+
+    fun openCoordinator(autoCheckinPrompt: Boolean = false) {
+        val alreadyOpen = _state.value.coordinatorOpen
+        if (!alreadyOpen) {
+            turnPollJob?.cancel()
+            modelsLoadJob?.cancel()
+            activeRuntimeSessionId = null
+            activeRuntimeChannelId = null
+            _state.update {
+                it.copy(
+                    selectedTaskId = null,
+                    coordinatorOpen = true,
+                    activeChannelIdx = 0,
+                    channelMessages = emptyList(),
+                    channelAttachments = emptyList(),
+                    channelChatState = ChatState(),
+                    modelPicker = ModelPickerState(),
+                    channelError = null,
+                    channelTurnRunning = false,
+                    channelTurnStatus = null,
+                    channelInputRequests = emptyList(),
+                )
+            }
+        }
+        val gateway = boundGateway ?: return
+        val channel = _state.value.coordinatorChannel
+        if (channel != null && !alreadyOpen) {
+            viewModelScope.launch { loadCoordinatorLog(gateway) }
+        } else if (channel == null) {
+            loadModels(withPrices = false)
+        }
+        val dueSlot = _state.value.checkinDueSlot
+        if (autoCheckinPrompt && dueSlot != null) {
+            triggerQuickCoordinatorAction(CoordinatorQuickAction.CHECK_IN, explicitSlot = dueSlot)
+        }
+    }
+
+    fun closeCoordinator() {
+        if (!_state.value.coordinatorOpen) return
+        turnPollJob?.cancel()
+        modelsLoadJob?.cancel()
+        activeRuntimeSessionId = null
+        activeRuntimeChannelId = null
+        _state.update {
+            it.copy(
+                coordinatorOpen = false,
+                channelMessages = emptyList(),
+                channelAttachments = emptyList(),
+                channelChatState = ChatState(),
+                modelPicker = ModelPickerState(),
+                channelError = null,
+                channelTurnRunning = false,
+                channelTurnStatus = null,
+                channelInputRequests = emptyList(),
+            )
+        }
+    }
+
+    fun toggleCoordinator() {
+        if (_state.value.coordinatorOpen) {
+            closeCoordinator()
+        } else {
+            openCoordinator(autoCheckinPrompt = _state.value.checkinDueSlot != null)
+        }
+    }
+
+    fun sendToCoordinator(text: String, checkinSlotToAck: String? = null) {
+        val gateway = boundGateway ?: return
+        val clean = text.trim()
+        val attachments = _state.value.channelAttachments
+        if (clean.isEmpty() && attachments.isEmpty()) return
+        val visibleText = clean.ifEmpty {
+            if (attachments.any { it.kind == AttachmentKind.Image }) IMAGE_ONLY_FALLBACK_PROMPT else ""
+        }
+        val optimisticKey = "user-${Uuid.random()}"
+        val optimisticLine = ChannelChatLine(
+            key = optimisticKey,
+            speaker = null,
+            text = visibleText,
+            fromUser = true,
+            attachments = attachments.map { it.toShown() },
+        )
+        _state.update { cur ->
+            cur.copy(
+                selectedTaskId = null,
+                coordinatorOpen = true,
+                sendingToChannel = true,
+                channelError = null,
+                channelAttachments = emptyList(),
+                channelMessages = cur.channelMessages + optimisticLine,
+                channelTurnRunning = true,
+                channelTurnStatus = null,
+                checkinDueSlot = if (checkinSlotToAck != null) null else cur.checkinDueSlot,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val nowSec = nowMs() / 1000.0
+                val existing = _state.value.coordinatorChannel
+                val channel = existing ?: createCoordinatorSession(gateway, checkinSlotToAck, nowSec)
+                if (channel == null) {
+                    _state.update { cur ->
+                        cur.copy(
+                            channelAttachments = attachments + cur.channelAttachments,
+                            channelMessages = cur.channelMessages.filterNot { it.key == optimisticKey },
+                            channelTurnRunning = false,
+                            channelTurnStatus = null,
+                        )
+                    }
+                    return@launch
+                }
+                if (existing != null) {
+                    ackCoordinatorInteraction(gateway, checkinSlotToAck, nowSec)
+                }
+                lastStreamEventAtMs = nowMs()
+                dispatchMessage(channel, visibleText, attachments)
+                startTurnFallbackPoll(gateway, channel = channel)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { cur ->
+                    cur.copy(
+                        channelAttachments = attachments + cur.channelAttachments,
+                        channelMessages = cur.channelMessages.filterNot { it.key == optimisticKey },
+                        channelTurnRunning = false,
+                        channelTurnStatus = null,
+                        channelError = e.message ?: "Send failed",
+                        actionFeedback = e.message ?: "Send failed",
+                    )
+                }
+            } finally {
+                _state.update { it.copy(sendingToChannel = false) }
+            }
+        }
+    }
+
+    fun triggerQuickCoordinatorAction(
+        action: CoordinatorQuickAction,
+        explicitSlot: String? = null,
+    ) {
+        val nowMillis = nowMs()
+        val moment = localMoment(nowMillis)
+        val dateIso = formatIsoDate(moment.year, moment.month, moment.day)
+        val minuteOfDay = moment.hour * 60 + moment.minute
+        val coord = _state.value.coordinatorConfig
+        val slotToAck = when (action) {
+            CoordinatorQuickAction.CHECK_IN -> explicitSlot
+                ?: _state.value.checkinDueSlot
+                ?: coord.activeOrUpcomingCheckinSlotId(dateIso, minuteOfDay)
+            else -> _state.value.checkinDueSlot
+        }
+        val prompt = when (action) {
+            CoordinatorQuickAction.CHECK_IN -> buildString {
+                append("Run a Dispatch check-in with me now. ")
+                append("Review the live board tasks and projects against my standing guidelines, ")
+                append("highlight any plans waiting for my approval or blocked/overdue items, ")
+                append("and suggest the most effective next actions.")
+            }
+            CoordinatorQuickAction.BLOCKERS -> buildString {
+                append("Review all blocked and overdue tasks across projects on the Dispatch board, ")
+                append("identify the root bottlenecks, and propose concrete unblocking steps or plan options.")
+            }
+            CoordinatorQuickAction.PRIORITIES -> buildString {
+                append("Based on the active tasks, due dates, and my standing guidelines, ")
+                append("suggest the top 3 priorities I should focus on or delegate right now.")
+            }
+        }
+        sendToCoordinator(prompt, checkinSlotToAck = slotToAck)
+    }
+
+    fun resetCoordinatorSession() {
+        val gateway = boundGateway ?: return
+        if (_state.value.resettingCoordinator) return
+        turnPollJob?.cancel()
+        activeRuntimeSessionId = null
+        activeRuntimeChannelId = null
+        _state.update {
+            it.copy(
+                resettingCoordinator = true,
+                channelMessages = emptyList(),
+                channelAttachments = emptyList(),
+                channelChatState = ChatState(),
+                channelError = null,
+                channelTurnRunning = false,
+                channelTurnStatus = null,
+                channelInputRequests = emptyList(),
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val cur = _state.value.coordinatorConfig
+                val oldSid = cur.sessionId.trim()
+                if (oldSid.isNotEmpty()) {
+                    runCatching { sessionsApi.setArchived(gateway.gatewayUrl, oldSid, archived = true, profile = cur.profile) }
+                    dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, archivedIds = setOf(oldSid))
+                }
+                val newChannel = createCoordinatorSession(gateway, checkinSlotToAck = null, nowSec = nowMs() / 1000.0)
+                if (newChannel == null) {
+                    val saved = directusApi.saveCoordinatorConfig(
+                        gateway.gatewayUrl,
+                        DispatchCoordinatorUpdate(sessionId = ""),
+                    )
+                    if (saved is ApiResult.Success && boundGateway == gateway) {
+                        _state.update { it.copy(config = saved.value) }
+                        dispatchStore?.syncCoordinator(gateway.gatewayUrl, saved.value.coordinator)
+                    }
+                }
+                if (boundGateway == gateway) {
+                    _state.update { it.copy(actionFeedback = "Started a fresh coordinator session.") }
+                }
+            } finally {
+                if (boundGateway == gateway) {
+                    _state.update { it.copy(resettingCoordinator = false) }
+                }
+            }
+        }
+    }
+
+    fun openCoordinatorFullscreen() {
+        val gateway = boundGateway ?: return
+        viewModelScope.launch {
+            val channel = _state.value.coordinatorChannel
+                ?: createCoordinatorSession(gateway, checkinSlotToAck = null, nowSec = nowMs() / 1000.0)
+                ?: return@launch
+            _events.send(
+                TasksNavEvent.OpenSession(
+                    sessionId = channel.id,
+                    title = DispatchSessionsStore.COORDINATOR_SESSION_TITLE,
+                    profile = channel.profile,
+                ),
+            )
+        }
+    }
+
+    private fun refreshCheckinEligibility() {
+        val cfg = _state.value.config ?: return
+        if (!cfg.configured) {
+            _state.update { it.copy(checkinDueSlot = null) }
+            return
+        }
+        val nowMillis = nowMs()
+        val moment = localMoment(nowMillis)
+        val dateIso = formatIsoDate(moment.year, moment.month, moment.day)
+        val minuteOfDay = moment.hour * 60 + moment.minute
+        val due = cfg.coordinator.resolveDueCheckinSlot(
+            localDateIso = dateIso,
+            localMinuteOfDay = minuteOfDay,
+            nowEpochSeconds = nowMillis / 1000L,
+        )
+        _state.update { it.copy(checkinDueSlot = due) }
+    }
+
+    private fun maybeRunAutoCheckin() {
+        if (!pageVisible) return
+        if (connection.state.value !is ConnectionState.Connected) return
+        val cfg = _state.value.config ?: return
+        if (!cfg.configured || _state.value.loading) return
+        val dueSlot = _state.value.checkinDueSlot ?: return
+        if (lastAutoTriggeredSlot == dueSlot) return
+        if (_state.value.channelTurnRunning || _state.value.sendingToChannel) return
+        lastAutoTriggeredSlot = dueSlot
+        openCoordinator(autoCheckinPrompt = true)
+    }
+
+    private suspend fun createCoordinatorSession(
+        gateway: SavedGateway,
+        checkinSlotToAck: String?,
+        nowSec: Double,
+    ): TaskChannel? {
+        val client = (connection.state.value as? ConnectionState.Connected)?.client ?: return null
+        val coord = _state.value.coordinatorConfig
+        val profile = coord.profile.trim().removePrefix("@").ifEmpty { Bot.DEFAULT }
+        val picks = _state.value.channelChatState
+        val result = runCatching {
+            client.request(
+                "session.create",
+                buildJsonObject {
+                    put("profile", profile)
+                    put("title", DispatchSessionsStore.COORDINATOR_SESSION_TITLE)
+                    put("source", "desktop")
+                    put("cols", 80)
+                    if (picks.model != null && picks.provider != null) {
+                        put("model", picks.model)
+                        put("provider", picks.provider)
+                    }
+                    picks.reasoningEffort?.let { put("reasoning_effort", it) }
+                    picks.fast?.let { put("fast", it) }
+                },
+            ) as? JsonObject
+        }.getOrNull() ?: return null
+        val runtimeId = (result["session_id"] as? JsonPrimitive)?.contentOrNull
+        val storedId = (result["stored_session_id"] as? JsonPrimitive)?.contentOrNull ?: runtimeId ?: return null
+        val info = result["info"] as? JsonObject
+        activeRuntimeSessionId = runtimeId ?: storedId
+        activeRuntimeChannelId = storedId
+
+        val updatedCoord = coord.copy(
+            profile = profile,
+            sessionId = storedId,
+            lastCheckinSlot = checkinSlotToAck ?: coord.lastCheckinSlot,
+            lastInteractionAt = nowSec,
+        )
+        _state.update { cur ->
+            val nextCfg = (cur.config ?: DirectusConfigStatus(configured = true)).copy(coordinator = updatedCoord)
+            cur.copy(
+                config = nextCfg,
+                checkinDueSlot = if (checkinSlotToAck != null) null else cur.checkinDueSlot,
+                channelChatState = if (info != null) cur.channelChatState.withChannelInfo(info) else cur.channelChatState,
+            )
+        }
+        dispatchStore?.syncCoordinator(gateway.gatewayUrl, updatedCoord)
+        dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf(storedId))
+
+        val saveRes = directusApi.saveCoordinatorConfig(
+            gateway.gatewayUrl,
+            DispatchCoordinatorUpdate(
+                profile = profile,
+                sessionId = storedId,
+                lastCheckinSlot = checkinSlotToAck,
+                lastInteractionAt = nowSec,
+            ),
+        )
+        if (saveRes is ApiResult.Success && boundGateway == gateway) {
+            _state.update { it.copy(config = saveRes.value) }
+            dispatchStore?.syncCoordinator(gateway.gatewayUrl, saveRes.value.coordinator)
+        }
+        return TaskChannel(
+            type = TaskChannel.TYPE_SESSION,
+            id = storedId,
+            label = DispatchSessionsStore.COORDINATOR_SESSION_TITLE,
+            profile = profile,
+            managed = true,
+        )
+    }
+
+    private suspend fun ackCoordinatorInteraction(
+        gateway: SavedGateway,
+        checkinSlotToAck: String?,
+        nowSec: Double,
+    ) {
+        val coord = _state.value.coordinatorConfig
+        val updatedCoord = coord.copy(
+            lastCheckinSlot = checkinSlotToAck ?: coord.lastCheckinSlot,
+            lastInteractionAt = nowSec,
+        )
+        _state.update { cur ->
+            val nextCfg = cur.config?.copy(coordinator = updatedCoord)
+            cur.copy(
+                config = nextCfg,
+                checkinDueSlot = if (checkinSlotToAck != null) null else cur.checkinDueSlot,
+            )
+        }
+        dispatchStore?.syncCoordinator(gateway.gatewayUrl, updatedCoord)
+        val res = directusApi.saveCoordinatorConfig(
+            gateway.gatewayUrl,
+            DispatchCoordinatorUpdate(
+                lastCheckinSlot = checkinSlotToAck,
+                lastInteractionAt = nowSec,
+            ),
+        )
+        if (res is ApiResult.Success && boundGateway == gateway) {
+            _state.update { it.copy(config = res.value) }
+            dispatchStore?.syncCoordinator(gateway.gatewayUrl, res.value.coordinator)
+        }
     }
 
     fun selectChannel(index: Int) {
@@ -439,7 +955,10 @@ class TasksViewModel(
         _state.update { it.copy(modelPicker = it.modelPicker.copy(loading = true, error = null)) }
         modelsLoadJob = viewModelScope.launch {
             try {
-                val profile = _state.value.activeChannel?.profile ?: _state.value.selectedTask?.assignedBots?.firstOrNull()
+                val profile = when {
+                    _state.value.coordinatorOpen -> _state.value.coordinatorConfig.profile.ifBlank { null }
+                    else -> _state.value.activeChannel?.profile ?: _state.value.selectedTask?.assignedBots?.firstOrNull()
+                }
                 val runtimeId = activeRuntimeSessionId
                 val catalog = api.options(runtimeId, profile)
                 _state.update { it.copy(modelPicker = it.modelPicker.copy(catalog = catalog, loading = false)) }
@@ -558,10 +1077,98 @@ class TasksViewModel(
 
     fun refreshActiveChannel() {
         val gateway = boundGateway ?: return
+        if (_state.value.coordinatorOpen) {
+            viewModelScope.launch { loadCoordinatorLog(gateway, attachSession = true) }
+            return
+        }
         val task = _state.value.selectedTask ?: return
         val idx = _state.value.activeChannelIdx
         viewModelScope.launch { loadChannelLog(gateway, task, idx) }
     }
+
+    private suspend fun loadCoordinatorLog(
+        gateway: SavedGateway,
+        attachSession: Boolean = true,
+    ) {
+        val channel = _state.value.coordinatorChannel ?: run {
+            _state.update { it.copy(channelLoading = false, channelMessages = emptyList(), channelError = null) }
+            return
+        }
+        if (_state.value.channelMessages.isEmpty()) {
+            _state.update { it.copy(channelLoading = true, channelError = null) }
+        }
+        val linesResult = fetchSessionLines(gateway, channel)
+        if (boundGateway != gateway || !_state.value.coordinatorOpen || _state.value.coordinatorChannel?.id != channel.id) return
+        _state.update { cur ->
+            val fetched = linesResult.first
+            val hasStreaming = cur.channelMessages.any { it.streaming }
+            val merged = when {
+                linesResult.second != null && cur.channelMessages.isNotEmpty() -> cur.channelMessages
+                cur.channelTurnRunning && hasStreaming -> cur.channelMessages
+                cur.channelTurnRunning && fetched.size < cur.channelMessages.size -> cur.channelMessages
+                else -> fetched
+            }
+            cur.copy(
+                channelLoading = false,
+                channelMessages = merged,
+                channelError = if (merged.isEmpty()) linesResult.second else null,
+            )
+        }
+        if (attachSession) {
+            attachSessionChannel(channel)
+        }
+    }
+
+    private suspend fun fetchSessionLines(
+        gateway: SavedGateway,
+        channel: TaskChannel,
+    ): Pair<List<ChannelChatLine>, String?> =
+        when (val res = sessionsApi.messages(gateway.gatewayUrl, channel.id, limit = 40, profile = channel.profile)) {
+            is ApiResult.Success -> {
+                val botLabel = channel.profile ?: "Hermes"
+                val allMessages = res.value.messages
+                val toolResults = allMessages
+                    .filter { it.role == "tool" && !it.toolCallId.isNullOrBlank() }
+                    .associate { it.toolCallId!! to it.content }
+                val parsed = allMessages
+                    .filterNot { it.isHidden || it.role == "tool" || it.role == "system" }
+                    .mapNotNull { msg ->
+                        val raw = msg.text.trim()
+                        val key = "sess-${msg.id ?: raw.hashCode()}"
+                        val isUser = msg.role == "user"
+                        val (refs, cleanText) = if (isUser) splitAttachmentRefs(raw, key) else emptyList<ShownAttachment>() to raw
+                        val attachments = if (isUser) {
+                            List(msg.imageCount) { ShownAttachment("$key-img$it", "Image", AttachmentKind.Image) } + refs
+                        } else {
+                            emptyList()
+                        }
+                        val interaction = if (!isUser) {
+                            msg.storedToolCalls.asReversed().firstNotNullOfOrNull { call ->
+                                ReplyInteraction.from(call.name, call.arguments, toolResults[call.id])
+                            }
+                        } else {
+                            null
+                        }
+                        if (cleanText.isEmpty() && attachments.isEmpty() && interaction == null) null else ChannelChatLine(
+                            key = key,
+                            speaker = if (isUser) null else botLabel,
+                            text = cleanText,
+                            fromUser = isUser,
+                            profile = channel.profile,
+                            attachments = attachments,
+                            interaction = interaction,
+                        )
+                    }
+                    .takeLast(30)
+                parsed to null
+            }
+            is ApiResult.Failed -> emptyList<ChannelChatLine>() to res.message
+            is ApiResult.Unavailable -> emptyList<ChannelChatLine>() to res.message
+            is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited -> {
+                if (boundGateway == gateway) _state.update { it.copy(sessionExpired = true) }
+                emptyList<ChannelChatLine>() to null
+            }
+        }
 
     private suspend fun loadChannelLog(
         gateway: SavedGateway,
@@ -611,40 +1218,7 @@ class TasksViewModel(
                 emptyList<ChannelChatLine>() to (e.message ?: "Could not read room log")
             }
         } else {
-            when (val res = sessionsApi.messages(gateway.gatewayUrl, channel.id, limit = 40, profile = channel.profile)) {
-                is ApiResult.Success -> {
-                    val botLabel = channel.profile ?: "Hermes"
-                    val parsed = res.value.messages
-                        .filterNot { it.isHidden || it.role == "tool" || it.role == "system" }
-                        .mapNotNull { msg ->
-                            val raw = msg.text.trim()
-                            val key = "sess-${msg.id ?: raw.hashCode()}"
-                            val isUser = msg.role == "user"
-                            val (refs, cleanText) = if (isUser) splitAttachmentRefs(raw, key) else emptyList<ShownAttachment>() to raw
-                            val attachments = if (isUser) {
-                                List(msg.imageCount) { ShownAttachment("$key-img$it", "Image", AttachmentKind.Image) } + refs
-                            } else {
-                                emptyList()
-                            }
-                            if (cleanText.isEmpty() && attachments.isEmpty()) null else ChannelChatLine(
-                                key = key,
-                                speaker = if (isUser) null else botLabel,
-                                text = cleanText,
-                                fromUser = isUser,
-                                profile = channel.profile,
-                                attachments = attachments,
-                            )
-                        }
-                        .takeLast(30)
-                    parsed to null
-                }
-                is ApiResult.Failed -> emptyList<ChannelChatLine>() to res.message
-                is ApiResult.Unavailable -> emptyList<ChannelChatLine>() to res.message
-                is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited -> {
-                    if (boundGateway == gateway) _state.update { it.copy(sessionExpired = true) }
-                    emptyList<ChannelChatLine>() to null
-                }
-            }
+            fetchSessionLines(gateway, channel)
         }
         if (boundGateway != gateway || _state.value.selectedTaskId != task.id || _state.value.activeChannelIdx != channelIdx) return
         _state.update { cur ->
@@ -880,9 +1454,9 @@ class TasksViewModel(
                         activeChannelIdx = if (sameChat) idx else cur.activeChannelIdx,
                     )
                 }
-                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                lastStreamEventAtMs = nowMs()
                 dispatchMessage(channel, visibleText, attachments)
-                startTurnFallbackPoll(gateway, latestTask, idx, channel)
+                startTurnFallbackPoll(gateway, channel = channel, task = latestTask, channelIdx = idx)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -938,10 +1512,10 @@ class TasksViewModel(
                 if (_state.value.selectedTaskId == latestTask.id) {
                     _state.update { it.copy(activeChannelIdx = idx, channelTurnRunning = true, channelTurnStatus = null) }
                 }
-                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                lastStreamEventAtMs = nowMs()
                 dispatchMessage(channel, prompt)
                 loadChannelLog(gateway, latestTask, idx, attachSession = false)
-                startTurnFallbackPoll(gateway, latestTask, idx, channel)
+                startTurnFallbackPoll(gateway, channel = channel, task = latestTask, channelIdx = idx)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1201,25 +1775,59 @@ class TasksViewModel(
         val payload = event.payload as? JsonObject
         when (event.type) {
             "message.start" -> {
-                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                lastStreamEventAtMs = nowMs()
                 _state.update { it.copy(channelTurnRunning = true, channelError = null, channelTurnStatus = it.channelTurnStatus ?: "Thinking…") }
             }
             "thinking.delta" -> {
-                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                lastStreamEventAtMs = nowMs()
                 payload.str("text")?.trim()?.takeIf { it.isNotEmpty() }?.let { frame ->
                     _state.update { it.copy(channelTurnRunning = true, channelTurnStatus = frame) }
                 }
             }
-            "tool.start" -> {
-                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
-                val toolName = payload.str("name") ?: "tool"
-                _state.update { it.copy(channelTurnRunning = true, channelTurnStatus = toolName) }
+            "tool.start", "tool.complete", "tool.result" -> {
+                lastStreamEventAtMs = nowMs()
+                val toolName = payload.str("name") ?: payload.str("tool") ?: "tool"
+                val interaction = ReplyInteraction.from(
+                    toolName = toolName,
+                    args = payload?.get("arguments") ?: payload?.get("args"),
+                    result = payload?.get("result") ?: payload?.get("output"),
+                )
+                _state.update { cur ->
+                    val nextMsgs = if (interaction != null) {
+                        val msgs = cur.channelMessages
+                        val last = msgs.lastOrNull()
+                        val botLabel = cur.activeChannel?.profile ?: "Hermes"
+                        if (last != null && !last.fromUser) {
+                            msgs.dropLast(1) + last.copy(interaction = interaction)
+                        } else {
+                            msgs + ChannelChatLine(
+                                key = "stream-${cur.selectedTaskId ?: "coord"}-${msgs.size}",
+                                speaker = botLabel,
+                                text = "",
+                                fromUser = false,
+                                profile = cur.activeChannel?.profile,
+                                streaming = true,
+                                interaction = interaction,
+                            )
+                        }
+                    } else {
+                        cur.channelMessages
+                    }
+                    cur.copy(
+                        channelTurnRunning = true,
+                        channelTurnStatus = if (event.type == "tool.start") toolName else cur.channelTurnStatus,
+                        channelMessages = nextMsgs,
+                    )
+                }
+                if (event.type != "tool.start" && toolName.startsWith("directus_")) {
+                    boundGateway?.let { gw -> viewModelScope.launch { refreshBoardSilently(gw) } }
+                }
             }
             "message.delta", "message.interim" -> {
                 if (event.type == "message.interim" && payload.bool("already_streamed") == true) return
                 val chunk = payload.str("text") ?: return
                 if (chunk.isEmpty()) return
-                lastStreamEventAtMs = Clock.System.now().toEpochMilliseconds()
+                lastStreamEventAtMs = nowMs()
                 val botLabel = _state.value.activeChannel?.profile ?: "Hermes"
                 val added = if (event.type == "message.interim") "$chunk\n\n" else chunk
                 _state.update { cur ->
@@ -1229,7 +1837,7 @@ class TasksViewModel(
                         msgs.dropLast(1) + last.copy(text = last.text + added)
                     } else {
                         msgs + ChannelChatLine(
-                            key = "stream-${cur.selectedTaskId}-${msgs.size}",
+                            key = "stream-${cur.selectedTaskId ?: "coord"}-${msgs.size}",
                             speaker = botLabel,
                             text = added,
                             fromUser = false,
@@ -1251,6 +1859,13 @@ class TasksViewModel(
                     )
                 }
                 val gw = boundGateway ?: return
+                if (_state.value.coordinatorOpen) {
+                    viewModelScope.launch {
+                        loadCoordinatorLog(gw, attachSession = false)
+                        refreshBoardSilently(gw)
+                    }
+                    return
+                }
                 val task = _state.value.selectedTask ?: return
                 val idx = _state.value.activeChannelIdx
                 viewModelScope.launch {
@@ -1279,24 +1894,33 @@ class TasksViewModel(
 
     private fun startTurnFallbackPoll(
         gateway: SavedGateway,
-        task: DirectusTask,
-        channelIdx: Int,
         channel: TaskChannel,
+        task: DirectusTask? = null,
+        channelIdx: Int = 0,
     ) {
         turnPollJob?.cancel()
         turnPollJob = viewModelScope.launch {
             repeat(60) {
                 delay(3_000)
+                val sameTarget = if (task != null) {
+                    _state.value.selectedTaskId == task.id
+                } else {
+                    _state.value.coordinatorOpen
+                }
                 if (boundGateway != gateway ||
-                    _state.value.selectedTaskId != task.id ||
+                    !sameTarget ||
                     _state.value.activeChannel?.id != channel.id ||
                     connection.state.value !is ConnectionState.Connected
                 ) {
                     return@launch
                 }
-                val sinceLastEvent = Clock.System.now().toEpochMilliseconds() - lastStreamEventAtMs
+                val sinceLastEvent = nowMs() - lastStreamEventAtMs
                 if (channel.isRoom || sinceLastEvent >= 3_500) {
-                    loadChannelLog(gateway, task, channelIdx, attachSession = false)
+                    if (task != null) {
+                        loadChannelLog(gateway, task, channelIdx, attachSession = false)
+                    } else {
+                        loadCoordinatorLog(gateway, attachSession = false)
+                    }
                     if (!channel.isRoom && _state.value.channelMessages.lastOrNull()?.let { !it.fromUser && !it.streaming } == true) {
                         _state.update { it.copy(channelTurnRunning = false, channelTurnStatus = null) }
                         refreshBoardSilently(gateway)
@@ -1520,6 +2144,9 @@ private fun ChatState.withChannelInfo(info: JsonObject?): ChatState {
         fast = info.bool("fast") ?: fast,
     )
 }
+
+internal fun formatIsoDate(year: Int, month: Int, day: Int): String =
+    "${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}"
 
 private fun JsonObject?.str(key: String): String? = (this?.get(key) as? JsonPrimitive)?.contentOrNull
 private fun JsonObject?.bool(key: String): Boolean? = (this?.get(key) as? JsonPrimitive)?.booleanOrNull

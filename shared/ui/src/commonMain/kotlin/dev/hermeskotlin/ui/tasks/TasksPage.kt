@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
@@ -38,12 +39,14 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -88,6 +91,7 @@ import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.TriangleAlert
@@ -104,15 +108,25 @@ import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.gateway.SavedGateway
 import dev.hermeskotlin.core.models.ModelOption
 import dev.hermeskotlin.core.models.ReasoningEffort
+import dev.hermeskotlin.core.pet.PetApi
+import dev.hermeskotlin.core.pet.PetSprite
+import dev.hermeskotlin.core.pet.PetState
+import dev.hermeskotlin.core.pet.petStateOf
 import dev.hermeskotlin.core.projects.Project
 import dev.hermeskotlin.core.rooms.Room
 import dev.hermeskotlin.core.settings.AppSettings
 import dev.hermeskotlin.core.settings.SettingsStore
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
+import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
+import dev.hermeskotlin.core.tasks.DispatchCoordinatorUpdate
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
+import dev.hermeskotlin.core.voice.AudioApi
+import dev.hermeskotlin.core.voice.DeviceDictation
+import dev.hermeskotlin.core.voice.SpeechPlayer
+import dev.hermeskotlin.core.voice.VoiceRecorder
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.accentSoft
 import dev.hermeskotlin.designsystem.accentText
@@ -168,6 +182,7 @@ import dev.hermeskotlin.designsystem.warning
 import dev.hermeskotlin.designsystem.warningSoft
 import dev.hermeskotlin.designsystem.well
 import dev.hermeskotlin.ui.PlatformBackHandler
+import dev.hermeskotlin.ui.bots.BotAvatar
 import dev.hermeskotlin.ui.chat.AttachButton
 import dev.hermeskotlin.ui.chat.AttachSheet
 import dev.hermeskotlin.ui.chat.AttachmentPicker
@@ -175,6 +190,7 @@ import dev.hermeskotlin.ui.chat.ComposerKey
 import dev.hermeskotlin.ui.chat.ComposerTextInput
 import dev.hermeskotlin.ui.chat.ComposerTray
 import dev.hermeskotlin.ui.chat.DEFAULT_RAIL_WIDTH
+import dev.hermeskotlin.ui.chat.DictationButton
 import dev.hermeskotlin.ui.chat.DockShadow
 import dev.hermeskotlin.ui.chat.InputRequestPanel
 import dev.hermeskotlin.ui.chat.LocalModelPillBounds
@@ -184,6 +200,7 @@ import dev.hermeskotlin.ui.chat.ModelPill
 import dev.hermeskotlin.ui.chat.ModelSelection
 import dev.hermeskotlin.ui.chat.ModelSheet
 import dev.hermeskotlin.ui.chat.ParameterizedActionContent
+import dev.hermeskotlin.ui.chat.ReplyInteractionCard
 import dev.hermeskotlin.ui.chat.RightRailLayout
 import dev.hermeskotlin.ui.chat.SendButton
 import dev.hermeskotlin.ui.chat.SendIcon
@@ -200,10 +217,18 @@ import dev.hermeskotlin.ui.clearOfWindowControls
 import dev.hermeskotlin.ui.components.EmptyState
 import dev.hermeskotlin.ui.components.ListSkeleton
 import dev.hermeskotlin.ui.enterSends
+import dev.hermeskotlin.ui.hasVoice
 import dev.hermeskotlin.ui.imeVisible
 import dev.hermeskotlin.ui.isDesktop
+import dev.hermeskotlin.ui.pet.PetController
+import dev.hermeskotlin.ui.pet.PetSheet
+import dev.hermeskotlin.ui.pet.PetView
 import dev.hermeskotlin.ui.resources.*
 import dev.hermeskotlin.ui.sessions.SubpageHeader
+import dev.hermeskotlin.ui.voice.DictationState
+import dev.hermeskotlin.ui.voice.VoiceController
+import dev.hermeskotlin.ui.voice.rememberMicrophonePermission
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.compose.resources.stringResource
@@ -213,6 +238,8 @@ import org.koin.compose.viewmodel.koinViewModel
 internal data class TasksBoardActions(
     val onRefresh: () -> Unit = {},
     val onSaveConfig: (url: String, token: String) -> Unit = { _, _ -> },
+    val onSaveConfigAndCoordinator: (url: String, token: String, coordinator: DispatchCoordinatorUpdate?) -> Unit = { u, t, _ -> onSaveConfig(u, t) },
+    val onSaveCoordinatorConfig: (DispatchCoordinatorUpdate) -> Unit = {},
     val onTogglePriorityStrip: (Boolean) -> Unit = {},
     val onToggleIncludeDone: () -> Unit = {},
     val onFocusProject: (String?) -> Unit = {},
@@ -229,6 +256,13 @@ internal data class TasksBoardActions(
     val onCreateSessionChannel: (DirectusTask, profile: String?) -> Unit = { _, _ -> },
     val onCreateRoomChannel: (DirectusTask, members: List<Bot>) -> Unit = { _, _ -> },
     val onSendToChannel: (DirectusTask, text: String) -> Unit = { _, _ -> },
+    val onOpenCoordinator: () -> Unit = {},
+    val onCloseCoordinator: () -> Unit = {},
+    val onToggleCoordinator: () -> Unit = {},
+    val onSendToCoordinator: (String) -> Unit = {},
+    val onQuickCoordinatorAction: (CoordinatorQuickAction) -> Unit = {},
+    val onResetCoordinatorSession: () -> Unit = {},
+    val onOpenCoordinatorFullscreen: () -> Unit = {},
     val onRemoveAttachment: (String) -> Unit = {},
     val onRefreshModels: (Boolean) -> Unit = {},
     val onSelectModel: (ModelOption, Boolean) -> Unit = { _, _ -> },
@@ -270,11 +304,56 @@ internal fun TasksPage(
 ) {
     val state = viewModel.state.collectAsStateWithLifecycle().value
     val settingsStore = koinInject<SettingsStore>()
+    val petApi = koinInject<PetApi>()
+    val audioApi = koinInject<AudioApi>()
+    val voiceRecorder = koinInject<VoiceRecorder>()
+    val speechPlayer = koinInject<SpeechPlayer>()
+    val deviceDictation = koinInject<DeviceDictation>()
+    val appScope = koinInject<CoroutineScope>()
+    val scope = rememberCoroutineScope()
+
+    val petController = remember(petApi, scope) { PetController(petApi, scope) }
+    val petSprite by petController.sprite.collectAsStateWithLifecycle()
+    var petSheetOpen by remember { mutableStateOf(false) }
+
+    val voiceController = remember(audioApi, voiceRecorder, speechPlayer, scope, appScope, deviceDictation) {
+        VoiceController(
+            audio = audioApi,
+            recorder = voiceRecorder,
+            player = speechPlayer,
+            scope = scope,
+            appScope = appScope,
+            deviceDictation = deviceDictation,
+        )
+    }
+    DisposableEffect(voiceController) {
+        onDispose { voiceController.stopAll() }
+    }
+    DisposableEffect(visible) {
+        viewModel.setVisible(visible)
+        if (!visible) voiceController.stopAll()
+        onDispose { viewModel.setVisible(false) }
+    }
+
+    val dictation by voiceController.dictation.collectAsStateWithLifecycle()
+    val microphone = rememberMicrophonePermission()
+    val dictationNeedsMic = stringResource(Res.string.chat_notice_dictation_mic)
+    LaunchedEffect(dictation.error) {
+        val err = dictation.error
+        if (!err.isNullOrBlank()) {
+            viewModel.reportAttachmentError(err)
+            voiceController.dismissDictationError()
+        }
+    }
+
     val attachmentPicker = rememberAttachmentPicker(
         onPicked = viewModel::addAttachments,
         onError = viewModel::reportAttachmentError,
     )
     LaunchedEffect(gateway) { viewModel.bind(gateway) }
+    LaunchedEffect(gateway, state.coordinatorConfig.profile) {
+        petController.bind(state.coordinatorConfig.profile.ifBlank { Bot.DEFAULT })
+    }
     LaunchedEffect(visible) { if (visible && state.tasks.isEmpty() && !state.loading) viewModel.refresh() }
     LaunchedEffect(state.sessionExpired) {
         if (state.sessionExpired) {
@@ -300,10 +379,46 @@ internal fun TasksPage(
         }
     }
 
+    val onToggleDictation: (TextFieldState) -> Unit = { fieldState ->
+        microphone.withMicrophone(onDenied = { viewModel.reportAttachmentError(dictationNeedsMic) }) {
+            if (voiceController.dictation.value.recording) {
+                voiceController.finishDictation()
+            } else {
+                val engine = (settingsStore.settings.value ?: AppSettings()).dictationEngine
+                val profile = state.activeChannel?.profile
+                    ?: if (state.coordinatorOpen) state.coordinatorConfig.profile else state.selectedTask?.assignedBots?.firstOrNull()
+                val typed = fieldState.text.toString()
+                var shown = typed
+                fun withSpoken(base: String, spoken: String) = if (base.isBlank()) spoken else "${base.trimEnd()} $spoken"
+                voiceController.startDictation(
+                    gateway = gateway.gatewayUrl,
+                    profile = profile,
+                    engine = engine,
+                    onPartial = { partial ->
+                        if (fieldState.text.toString() == shown) {
+                            shown = withSpoken(typed, partial)
+                            fieldState.setTextAndPlaceCursorAtEnd(shown)
+                        }
+                    },
+                    onCancelled = {
+                        if (shown != typed && fieldState.text.toString() == shown) {
+                            fieldState.setTextAndPlaceCursorAtEnd(typed)
+                        }
+                    },
+                ) { text ->
+                    val current = fieldState.text.toString()
+                    fieldState.setTextAndPlaceCursorAtEnd(withSpoken(if (current == shown) typed else current, text))
+                }
+            }
+        }
+    }
+
     val actions = remember(viewModel, settingsStore) {
         TasksBoardActions(
             onRefresh = viewModel::refresh,
-            onSaveConfig = viewModel::saveConfig,
+            onSaveConfig = { url, token -> viewModel.saveConfig(url, token) },
+            onSaveConfigAndCoordinator = viewModel::saveConfig,
+            onSaveCoordinatorConfig = viewModel::saveCoordinatorConfig,
             onTogglePriorityStrip = viewModel::togglePriorityStrip,
             onToggleIncludeDone = viewModel::toggleIncludeDone,
             onFocusProject = viewModel::focusProject,
@@ -320,6 +435,13 @@ internal fun TasksPage(
             onCreateSessionChannel = viewModel::openOrCreateSessionChannel,
             onCreateRoomChannel = viewModel::openOrCreateRoomChannel,
             onSendToChannel = viewModel::sendToActiveChannel,
+            onOpenCoordinator = { viewModel.openCoordinator(autoCheckinPrompt = false) },
+            onCloseCoordinator = viewModel::closeCoordinator,
+            onToggleCoordinator = viewModel::toggleCoordinator,
+            onSendToCoordinator = { txt -> viewModel.sendToCoordinator(txt) },
+            onQuickCoordinatorAction = { act -> viewModel.triggerQuickCoordinatorAction(act) },
+            onResetCoordinatorSession = viewModel::resetCoordinatorSession,
+            onOpenCoordinatorFullscreen = viewModel::openCoordinatorFullscreen,
             onRemoveAttachment = viewModel::removeAttachment,
             onRefreshModels = viewModel::loadModels,
             onSelectModel = viewModel::selectModel,
@@ -341,6 +463,17 @@ internal fun TasksPage(
         onBack = onBack,
         onToggleSidebar = onToggleSidebar,
         attachmentPicker = attachmentPicker,
+        petSprite = petSprite,
+        onOpenPetPicker = { petSheetOpen = true },
+        dictation = dictation,
+        onToggleDictation = onToggleDictation,
+    )
+
+    PetSheet(
+        visible = petSheetOpen,
+        controller = petController,
+        onDismiss = { petSheetOpen = false },
+        onAdopted = { petSheetOpen = false },
     )
 }
 
@@ -352,6 +485,10 @@ internal fun TasksBoardContent(
     onBack: () -> Unit,
     onToggleSidebar: (() -> Unit)? = null,
     attachmentPicker: AttachmentPicker? = null,
+    petSprite: PetSprite? = null,
+    onOpenPetPicker: (() -> Unit)? = null,
+    dictation: DictationState = DictationState(),
+    onToggleDictation: ((TextFieldState) -> Unit)? = null,
 ) {
     val railState = rememberRightRailState()
     var railTrigger by remember { mutableIntStateOf(0) }
@@ -364,29 +501,96 @@ internal fun TasksBoardContent(
     var attachOpen by remember { mutableStateOf(false) }
     val modelPillBounds = remember { mutableStateOf<Rect?>(null) }
 
-    LaunchedEffect(state.selectedTaskId, railState.docked, railTrigger) {
-        if (state.selectedTaskId != null) railState.open() else railState.close()
+    val selected = state.selectedTask
+    val railOpenTarget = state.selectedTaskId != null || state.coordinatorOpen
+    val configured = state.config?.configured == true
+
+    LaunchedEffect(state.selectedTaskId, state.coordinatorOpen, railState.docked, railTrigger) {
+        if (railOpenTarget) railState.open() else railState.close()
     }
 
     val selectAndOpen: (String?) -> Unit = { id ->
         if (id != null) railTrigger++
         actions.onSelectTask(id)
     }
+    val toggleCoordinatorRail: () -> Unit = {
+        railTrigger++
+        actions.onToggleCoordinator()
+    }
 
-    val selected = state.selectedTask
-    val configured = state.config?.configured == true
+    val coordinatorPetState = remember(
+        state.channelError,
+        state.checkinDueSlot,
+        state.channelInputRequests,
+        state.priorityTasks.size,
+        state.sendingToChannel,
+        state.channelTurnRunning,
+        state.channelTurnStatus,
+    ) {
+        petStateOf(
+            failed = state.channelError != null,
+            justFinished = state.checkinDueSlot != null,
+            awaitingInput = state.channelInputRequests.isNotEmpty() || state.priorityTasks.isNotEmpty(),
+            toolRunning = (state.sendingToChannel || state.channelTurnRunning) &&
+                !state.channelTurnStatus.isNullOrBlank() && state.channelTurnStatus != "Thinking…",
+            reasoning = (state.sendingToChannel || state.channelTurnRunning) &&
+                (state.channelTurnStatus.isNullOrBlank() || state.channelTurnStatus == "Thinking…"),
+            busy = state.sendingToChannel || state.channelTurnRunning,
+        )
+    }
 
     CompositionLocalProvider(LocalModelPillBounds provides modelPillBounds) {
     RightRailLayout(
         state = railState,
         railWidth = DEFAULT_RAIL_WIDTH,
-        swipeEnabled = !isDesktop && selected != null,
+        swipeEnabled = !isDesktop && railOpenTarget,
         dockOnWide = true,
         rail = {
-            if (selected != null) {
+            if (state.coordinatorOpen) {
+                CoordinatorInspector(
+                    coordinatorBot = state.coordinatorBot,
+                    bots = state.bots,
+                    botAvatars = state.botAvatars,
+                    petSprite = petSprite,
+                    petState = coordinatorPetState,
+                    activeChannel = state.activeChannel,
+                    channelLoading = state.channelLoading,
+                    channelMessages = state.channelMessages,
+                    channelAttachments = state.channelAttachments,
+                    channelChatState = state.channelChatState,
+                    modelPicker = state.modelPicker,
+                    channelError = state.channelError,
+                    sendingToChannel = state.sendingToChannel,
+                    channelTurnRunning = state.channelTurnRunning,
+                    channelTurnStatus = state.channelTurnStatus,
+                    channelInputRequests = state.channelInputRequests,
+                    checkinDue = state.checkinDueSlot != null,
+                    resettingSession = state.resettingCoordinator,
+                    gatewayConnected = state.gatewayConnected,
+                    attachmentPicker = attachmentPicker,
+                    dictation = dictation,
+                    onToggleDictation = onToggleDictation,
+                    onClose = actions.onCloseCoordinator,
+                    onRefreshChannel = actions.onRefreshChannel,
+                    onResetSession = actions.onResetCoordinatorSession,
+                    onOpenFullscreen = actions.onOpenCoordinatorFullscreen,
+                    onOpenPetPicker = onOpenPetPicker,
+                    onOpenSettings = { setupDialogOpen = true },
+                    onQuickAction = actions.onQuickCoordinatorAction,
+                    onSendToCoordinator = actions.onSendToCoordinator,
+                    onRemoveAttachment = actions.onRemoveAttachment,
+                    onAttach = {
+                        if (isDesktop) attachmentPicker?.pickFiles() else attachOpen = true
+                    },
+                    onOpenModels = { modelsOpen = true },
+                    onAnswerRequest = actions.onAnswerRequest,
+                )
+            } else if (selected != null) {
                 TaskDetailInspector(
                     task = selected,
                     projects = state.projects,
+                    bots = state.bots,
+                    botAvatars = state.botAvatars,
                     busy = selected.id in state.busyTaskIds,
                     activeChannelIdx = state.activeChannelIdx,
                     activeChannel = state.activeChannel,
@@ -402,6 +606,8 @@ internal fun TasksBoardContent(
                     channelInputRequests = state.channelInputRequests,
                     gatewayConnected = state.gatewayConnected,
                     attachmentPicker = attachmentPicker,
+                    dictation = dictation,
+                    onToggleDictation = onToggleDictation,
                     onClose = { actions.onSelectTask(null) },
                     onAssignProject = { pid -> actions.onAssignProject(selected.id, pid) },
                     onUpdateStatus = { status -> actions.onUpdateStatus(selected.id, status) },
@@ -425,8 +631,8 @@ internal fun TasksBoardContent(
             }
         },
     ) { contentModifier ->
-        PlatformBackHandler(enabled = state.selectedTaskId != null && railState.isOpen) {
-            actions.onSelectTask(null)
+        PlatformBackHandler(enabled = railOpenTarget && railState.isOpen) {
+            if (state.coordinatorOpen) actions.onCloseCoordinator() else actions.onSelectTask(null)
         }
         Column(contentModifier.fillMaxSize()) {
             SubpageHeader(
@@ -499,9 +705,11 @@ internal fun TasksBoardContent(
                     )
                     state.config != null && !configured -> DirectusSetupPanel(
                         config = state.config,
+                        bots = state.bots,
+                        botAvatars = state.botAvatars,
                         saving = state.savingConfig,
                         error = state.configError,
-                        onSave = actions.onSaveConfig,
+                        onSave = actions.onSaveConfigAndCoordinator,
                     )
                     state.error != null && state.tasks.isEmpty() -> EmptyState(
                         icon = Lucide.TriangleAlert,
@@ -526,6 +734,21 @@ internal fun TasksBoardContent(
                         onToggleWorkstreamCollapsed = actions.onToggleWorkstreamCollapsed,
                     )
                 }
+
+                if (configured && !state.coordinatorOpen) {
+                    CoordinatorFloatingTrigger(
+                        bot = state.coordinatorBot,
+                        avatarBytes = state.botAvatars[state.coordinatorBot.name],
+                        petSprite = petSprite,
+                        petState = coordinatorPetState,
+                        checkinDue = state.checkinDueSlot != null,
+                        busy = state.sendingToChannel || state.channelTurnRunning,
+                        onClick = toggleCoordinatorRail,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 16.dp),
+                    )
+                }
             }
         }
     }
@@ -533,11 +756,15 @@ internal fun TasksBoardContent(
     if (setupDialogOpen) {
         DirectusSetupDialog(
             config = state.config,
+            bots = state.bots,
+            botAvatars = state.botAvatars,
             saving = state.savingConfig,
             error = state.configError,
+            onOpenPetPicker = onOpenPetPicker,
+            onResetCoordinatorSession = actions.onResetCoordinatorSession,
             onDismiss = { setupDialogOpen = false },
-            onSave = { url, token ->
-                actions.onSaveConfig(url, token)
+            onSave = { url, token, coordUpdate ->
+                actions.onSaveConfigAndCoordinator(url, token, coordUpdate)
                 setupDialogOpen = false
             },
         )
@@ -745,12 +972,22 @@ private fun FeedbackBanner(message: String, onDismiss: () -> Unit) {
 @Composable
 private fun DirectusSetupPanel(
     config: dev.hermeskotlin.core.tasks.DirectusConfigStatus?,
+    bots: List<Bot>,
+    botAvatars: Map<String, ByteArray>,
     saving: Boolean,
     error: String?,
-    onSave: (url: String, token: String) -> Unit,
+    onSave: (url: String, token: String, coordinator: DispatchCoordinatorUpdate?) -> Unit,
 ) {
     val urlState = rememberTextFieldState(config?.url.orEmpty())
     val tokenState = rememberTextFieldState("")
+    val coord = config?.coordinator ?: DispatchCoordinatorConfig()
+    var selectedProfile by remember(coord.profile) { mutableStateOf(coord.profile.ifBlank { "default" }) }
+    val promptState = rememberTextFieldState(coord.defaultPrompt)
+    var checkinEnabled by remember(coord.checkinEnabled) { mutableStateOf(coord.checkinEnabled) }
+    var autoOpenOnLaunch by remember(coord.autoOpenOnLaunch) { mutableStateOf(coord.autoOpenOnLaunch) }
+    val checkinTimesState = rememberTextFieldState(coord.checkinTimes.joinToString(", "))
+    val windowState = rememberTextFieldState(coord.windowMinutes.toString())
+
     Box(
         Modifier.fillMaxSize().verticalScrollWithBar().padding(16.dp),
         contentAlignment = Alignment.TopCenter,
@@ -758,7 +995,7 @@ private fun DirectusSetupPanel(
         val shape = RoundedCornerShape(Theme[radii][radiusLarge])
         Column(
             Modifier
-                .widthIn(max = 480.dp)
+                .widthIn(max = 520.dp)
                 .fillMaxWidth()
                 .clip(shape)
                 .background(Theme[colors][surface])
@@ -789,6 +1026,21 @@ private fun DirectusSetupPanel(
                 },
                 password = true,
             )
+            CoordinatorSettingsSection(
+                bots = bots,
+                botAvatars = botAvatars,
+                selectedProfile = selectedProfile,
+                onSelectProfile = { selectedProfile = it },
+                promptState = promptState,
+                checkinEnabled = checkinEnabled,
+                onToggleCheckin = { checkinEnabled = it },
+                autoOpenOnLaunch = autoOpenOnLaunch,
+                onToggleAutoOpen = { autoOpenOnLaunch = it },
+                checkinTimesState = checkinTimesState,
+                windowState = windowState,
+                onOpenPetPicker = null,
+                onResetCoordinatorSession = null,
+            )
             if (error != null) {
                 Text(error, style = Theme[typography][bodySmall], color = Theme[colors][danger])
             }
@@ -796,7 +1048,25 @@ private fun DirectusSetupPanel(
             val canSave = !saving && urlText.isNotBlank() && (tokenState.text.toString().trim().isNotBlank() || config?.tokenSet == true)
             Button(
                 text = stringResource(if (saving) Res.string.tasks_testing else Res.string.tasks_save_connect),
-                onClick = { onSave(urlText, tokenState.text.toString()) },
+                onClick = {
+                    val parsedTimes = checkinTimesState.text.toString()
+                        .split(',', ';')
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                    val parsedWindow = windowState.text.toString().trim().toIntOrNull() ?: coord.windowMinutes
+                    onSave(
+                        urlText,
+                        tokenState.text.toString(),
+                        DispatchCoordinatorUpdate(
+                            profile = selectedProfile,
+                            defaultPrompt = promptState.text.toString().trim(),
+                            checkinEnabled = checkinEnabled,
+                            checkinTimes = parsedTimes,
+                            windowMinutes = parsedWindow,
+                            autoOpenOnLaunch = autoOpenOnLaunch,
+                        ),
+                    )
+                },
                 enabled = canSave,
                 loading = saving,
                 modifier = Modifier.fillMaxWidth(),
@@ -1712,9 +1982,327 @@ private fun MiniBadge(
 }
 
 @Composable
+private fun CoordinatorFloatingTrigger(
+    bot: Bot,
+    avatarBytes: ByteArray?,
+    petSprite: PetSprite?,
+    petState: PetState,
+    checkinDue: Boolean,
+    busy: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(Theme[radii][radiusFull])
+    val borderColor = when {
+        checkinDue -> Theme[colors][warning]
+        busy -> Theme[colors][accent]
+        else -> Theme[colors][strokeStrong]
+    }
+    Row(
+        modifier
+            .testTag("dispatch_coordinator_button")
+            .dropShadow(shape, DockShadow)
+            .clip(shape)
+            .background(Theme[colors][surface], shape)
+            .border(if (checkinDue) 1.5.dp else 1.dp, borderColor, shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .handCursor()
+            .padding(start = 8.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (petSprite != null) {
+            PetView(
+                sprite = petSprite,
+                state = petState,
+                size = 34.dp,
+            )
+        } else {
+            BotAvatar(
+                bot = bot,
+                avatarBytes = avatarBytes,
+                size = 32.dp,
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(Res.string.tasks_coordinator_button, bot.label),
+                    style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
+                    color = Theme[colors][textColor],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (busy) {
+                    Spinner(Modifier.size(12.dp))
+                } else if (checkinDue) {
+                    MiniBadge(
+                        text = stringResource(Res.string.tasks_coordinator_checkin_due),
+                        backgroundColor = Theme[colors][warningSoft],
+                        contentColor = Theme[colors][warning],
+                    )
+                }
+            }
+            Text(
+                stringResource(Res.string.tasks_coordinator_title),
+                style = Theme[typography][caption],
+                color = Theme[colors][textTertiary],
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CoordinatorInspector(
+    coordinatorBot: Bot,
+    bots: List<Bot>,
+    botAvatars: Map<String, ByteArray>,
+    petSprite: PetSprite?,
+    petState: PetState,
+    activeChannel: TaskChannel?,
+    channelLoading: Boolean,
+    channelMessages: List<ChannelChatLine>,
+    channelAttachments: List<OutgoingAttachment>,
+    channelChatState: ChatState,
+    modelPicker: ModelPickerState,
+    channelError: String?,
+    sendingToChannel: Boolean,
+    channelTurnRunning: Boolean,
+    channelTurnStatus: String?,
+    channelInputRequests: List<InputRequest>,
+    checkinDue: Boolean,
+    resettingSession: Boolean,
+    gatewayConnected: Boolean,
+    attachmentPicker: AttachmentPicker?,
+    dictation: DictationState,
+    onToggleDictation: (TextFieldState) -> Unit,
+    onClose: () -> Unit,
+    onRefreshChannel: () -> Unit,
+    onResetSession: () -> Unit,
+    onOpenFullscreen: () -> Unit,
+    onOpenPetPicker: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onQuickAction: (CoordinatorQuickAction) -> Unit,
+    onSendToCoordinator: (String) -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onAttach: () -> Unit,
+    onOpenModels: () -> Unit,
+    onAnswerRequest: (InputRequest, JsonObject) -> Unit,
+) {
+    val steerState = rememberTextFieldState("")
+    val quickScroll = rememberScrollState()
+    val turnBusy = sendingToChannel || channelTurnRunning
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clearOfWindowControls()
+                .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BotAvatar(
+                bot = coordinatorBot,
+                avatarBytes = botAvatars[coordinatorBot.name],
+                size = 30.dp,
+            )
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        coordinatorBot.label,
+                        style = Theme[typography][heading],
+                        color = Theme[colors][textColor],
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (checkinDue) {
+                        MiniBadge(
+                            text = stringResource(Res.string.tasks_coordinator_checkin_due),
+                            backgroundColor = Theme[colors][warningSoft],
+                            contentColor = Theme[colors][warning],
+                        )
+                    }
+                }
+                Text(
+                    "${stringResource(Res.string.tasks_coordinator_title)} · @${coordinatorBot.name}",
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textTertiary],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(
+                Lucide.Sparkles,
+                contentDescription = stringResource(Res.string.tasks_coordinator_choose_pet),
+                onClick = onOpenPetPicker,
+            )
+            if (resettingSession) {
+                Spinner(Modifier.size(16.dp).padding(horizontal = 4.dp))
+            } else {
+                IconButton(
+                    Lucide.RotateCcw,
+                    contentDescription = stringResource(Res.string.tasks_coordinator_reset_session),
+                    onClick = onResetSession,
+                    modifier = Modifier.testTag("coordinator_reset_session_button"),
+                )
+            }
+            if (activeChannel != null) {
+                IconButton(
+                    Lucide.ExternalLink,
+                    contentDescription = stringResource(Res.string.tasks_open_fullscreen),
+                    onClick = onOpenFullscreen,
+                )
+            }
+            IconButton(
+                Lucide.Settings2,
+                contentDescription = stringResource(Res.string.tasks_coordinator_settings_title),
+                onClick = onOpenSettings,
+                modifier = Modifier.testTag("coordinator_settings_button"),
+            )
+            IconButton(
+                Lucide.X,
+                contentDescription = stringResource(Res.string.tasks_close_inspector),
+                onClick = onClose,
+            )
+        }
+
+        if (petSprite != null) {
+            val petShape = RoundedCornerShape(Theme[radii][radiusMedium])
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                    .clip(petShape)
+                    .background(Theme[colors][surface])
+                    .border(1.dp, Theme[colors][stroke], petShape)
+                    .clickable(role = Role.Button, onClick = onOpenPetPicker)
+                    .handCursor()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PetView(
+                    sprite = petSprite,
+                    state = petState,
+                    size = 42.dp,
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        stringResource(Res.string.tasks_coordinator_subtitle),
+                        style = Theme[typography][bodySmall],
+                        color = Theme[colors][textSecondary],
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
+
+        TaskChannelLog(
+            activeChannel = activeChannel,
+            loading = channelLoading,
+            messages = channelMessages,
+            bots = bots,
+            botAvatars = botAvatars,
+            emptyText = stringResource(Res.string.tasks_coordinator_empty),
+            error = channelError,
+            turnRunning = turnBusy,
+            turnStatus = channelTurnStatus,
+            onRefresh = onRefreshChannel,
+            onOpenFullscreen = if (activeChannel != null) onOpenFullscreen else null,
+            onSelectInteraction = onSendToCoordinator,
+            onFillInteraction = { text -> steerState.setTextAndPlaceCursorAtEnd(text) },
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        )
+
+        if (channelInputRequests.isNotEmpty()) {
+            val requestScroll = rememberScrollState()
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+                    .scrollbar(requestScroll)
+                    .verticalScroll(requestScroll),
+            ) {
+                InputRequestPanel(
+                    requests = channelInputRequests,
+                    connected = gatewayConnected,
+                    onAnswer = onAnswerRequest,
+                )
+            }
+        }
+
+        // Text-only quick action chips (explicitly no icons/emojis).
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(quickScroll)
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Chip(
+                text = stringResource(Res.string.tasks_chip_checkin),
+                selected = checkinDue,
+                onClick = { if (!turnBusy) onQuickAction(CoordinatorQuickAction.CHECK_IN) },
+            )
+            Chip(
+                text = stringResource(Res.string.tasks_chip_blockers),
+                selected = false,
+                onClick = { if (!turnBusy) onQuickAction(CoordinatorQuickAction.BLOCKED_AND_OVERDUE) },
+            )
+            Chip(
+                text = stringResource(Res.string.tasks_chip_priorities),
+                selected = false,
+                onClick = { if (!turnBusy) onQuickAction(CoordinatorQuickAction.NEXT_PRIORITIES) },
+            )
+        }
+
+        TaskChatComposer(
+            state = steerState,
+            connected = gatewayConnected,
+            attachments = channelAttachments,
+            channelChatState = channelChatState,
+            modelPicker = modelPicker,
+            showModelPicker = true,
+            attachmentPicker = attachmentPicker,
+            dictation = dictation,
+            onToggleDictation = onToggleDictation,
+            placeholderText = stringResource(Res.string.tasks_coordinator_hint, coordinatorBot.label),
+            onRemoveAttachment = onRemoveAttachment,
+            onAttach = onAttach,
+            onOpenModels = onOpenModels,
+            onSend = {
+                val txt = steerState.text.toString().trim()
+                if (txt.isNotEmpty() || channelAttachments.isNotEmpty()) {
+                    onSendToCoordinator(txt)
+                    steerState.clearText()
+                }
+            },
+        )
+    }
+}
+
+@Composable
 private fun TaskDetailInspector(
     task: DirectusTask,
     projects: List<DirectusProject>,
+    bots: List<Bot>,
+    botAvatars: Map<String, ByteArray>,
     busy: Boolean,
     activeChannelIdx: Int,
     activeChannel: TaskChannel?,
@@ -1730,6 +2318,8 @@ private fun TaskDetailInspector(
     channelInputRequests: List<InputRequest>,
     gatewayConnected: Boolean,
     attachmentPicker: AttachmentPicker?,
+    dictation: DictationState,
+    onToggleDictation: (TextFieldState) -> Unit,
     onClose: () -> Unit,
     onAssignProject: (String?) -> Unit,
     onUpdateStatus: (String) -> Unit,
@@ -1852,11 +2442,15 @@ private fun TaskDetailInspector(
                 activeChannel = activeChannel,
                 loading = channelLoading,
                 messages = channelMessages,
+                bots = bots,
+                botAvatars = botAvatars,
                 error = channelError,
                 turnRunning = sendingToChannel || channelTurnRunning,
                 turnStatus = channelTurnStatus,
                 onRefresh = onRefreshChannel,
                 onOpenFullscreen = activeChannel?.let { ch -> { onOpenFullscreen(ch) } },
+                onSelectInteraction = onSendToChannel,
+                onFillInteraction = { text -> steerState.setTextAndPlaceCursorAtEnd(text) },
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -1917,7 +2511,7 @@ private fun TaskDetailInspector(
             },
         )
 
-        // Two-row floating composer matching normal chat (+ attachments, model picker, multiline input, send).
+        // Two-row floating composer matching normal chat (+ attachments, model picker, voice dictation, multiline input, send).
         TaskChatComposer(
             state = steerState,
             connected = gatewayConnected,
@@ -1926,6 +2520,8 @@ private fun TaskDetailInspector(
             modelPicker = modelPicker,
             showModelPicker = activeChannel?.isRoom != true,
             attachmentPicker = attachmentPicker,
+            dictation = dictation,
+            onToggleDictation = onToggleDictation,
             onRemoveAttachment = onRemoveAttachment,
             onAttach = onAttach,
             onOpenModels = onOpenModels,
@@ -2134,15 +2730,21 @@ private fun TaskChannelLog(
     activeChannel: TaskChannel?,
     loading: Boolean,
     messages: List<ChannelChatLine>,
+    bots: List<Bot> = emptyList(),
+    botAvatars: Map<String, ByteArray> = emptyMap(),
+    emptyText: String? = null,
     error: String?,
     turnRunning: Boolean,
     turnStatus: String?,
     onRefresh: () -> Unit,
     onOpenFullscreen: (() -> Unit)?,
+    onSelectInteraction: ((String) -> Unit)? = null,
+    onFillInteraction: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
     val lastTextLen = messages.lastOrNull()?.text?.length ?: 0
+    val botByName = remember(bots) { bots.associateBy { it.name } }
     LaunchedEffect(activeChannel?.id, messages.size, lastTextLen, turnRunning) {
         if (messages.isNotEmpty() || turnRunning) {
             scrollState.animateScrollTo(scrollState.maxValue)
@@ -2191,7 +2793,7 @@ private fun TaskChannelLog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when {
-                    activeChannel == null && messages.isEmpty() && !turnRunning -> {
+                    activeChannel == null && emptyText == null && messages.isEmpty() && !turnRunning -> {
                         val hintShape = RoundedCornerShape(Theme[radii][radiusLarge])
                         Row(
                             Modifier
@@ -2233,7 +2835,7 @@ private fun TaskChannelLog(
                         )
                     }
                     messages.isEmpty() && !turnRunning -> Text(
-                        stringResource(Res.string.tasks_chat_empty),
+                        emptyText ?: stringResource(Res.string.tasks_chat_empty),
                         style = Theme[typography][bodySmall],
                         color = Theme[colors][textTertiary],
                     )
@@ -2269,22 +2871,48 @@ private fun TaskChannelLog(
                             }
                         }
                     } else {
+                        val speakerName = line.speaker?.trim()?.takeIf { it.isNotEmpty() }
+                        val speakerBot = speakerName?.let { name ->
+                            botByName[name] ?: Bot(name = name, label = name.replaceFirstChar { it.uppercase() })
+                        }
                         Column(
                             Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            if (!line.speaker.isNullOrBlank()) {
-                                Text(
-                                    "@${line.speaker}",
-                                    style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
-                                    color = Theme[colors][accentText],
+                            if (speakerBot != null) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    BotAvatar(
+                                        bot = speakerBot,
+                                        avatarBytes = botAvatars[speakerBot.name],
+                                        size = 20.dp,
+                                    )
+                                    Text(
+                                        "@${speakerBot.name}",
+                                        style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                                        color = Theme[colors][accentText],
+                                    )
+                                }
+                            }
+                            if (line.text.isNotBlank()) {
+                                MarkdownText(
+                                    text = line.text,
+                                    streaming = line.streaming,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
                             }
-                            MarkdownText(
-                                text = line.text,
-                                streaming = line.streaming,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            val interaction = line.interaction
+                            if (interaction != null) {
+                                ReplyInteractionCard(
+                                    replyKey = line.id,
+                                    interaction = interaction,
+                                    sendEnabled = !turnRunning,
+                                    onSend = { text -> onSelectInteraction?.invoke(text) },
+                                    onFill = { text -> onFillInteraction?.invoke(text) },
+                                )
+                            }
                         }
                     }
                 }
@@ -2503,6 +3131,9 @@ private fun TaskChatComposer(
     modelPicker: ModelPickerState,
     showModelPicker: Boolean,
     attachmentPicker: AttachmentPicker?,
+    dictation: DictationState = DictationState(),
+    onToggleDictation: ((TextFieldState) -> Unit)? = null,
+    placeholderText: String? = null,
     onRemoveAttachment: (String) -> Unit,
     onAttach: () -> Unit,
     onOpenModels: () -> Unit,
@@ -2575,7 +3206,7 @@ private fun TaskChatComposer(
                     ),
                 placeholder = {
                     Text(
-                        stringResource(Res.string.tasks_quick_steer_hint),
+                        placeholderText ?: stringResource(Res.string.tasks_quick_steer_hint),
                         style = Theme[typography][body],
                         color = Theme[colors][textTertiary],
                         maxLines = 1,
@@ -2617,6 +3248,13 @@ private fun TaskChatComposer(
                     }
                 }
                 Snug {
+                    if (onToggleDictation != null && (hasVoice || dictation.active)) {
+                        DictationButton(
+                            state = dictation,
+                            enabled = connected,
+                            onClick = { onToggleDictation(state) },
+                        )
+                    }
                     SendButton(
                         icon = SendIcon.Send,
                         onClick = onSend,
@@ -2686,13 +3324,25 @@ private fun FallbackModelPill(
 @Composable
 private fun DirectusSetupDialog(
     config: dev.hermeskotlin.core.tasks.DirectusConfigStatus?,
+    bots: List<Bot>,
+    botAvatars: Map<String, ByteArray>,
     saving: Boolean,
     error: String?,
+    onOpenPetPicker: (() -> Unit)? = null,
+    onResetCoordinatorSession: (() -> Unit)? = null,
     onDismiss: () -> Unit,
-    onSave: (url: String, token: String) -> Unit,
+    onSave: (url: String, token: String, coordinator: DispatchCoordinatorUpdate?) -> Unit,
 ) {
     val urlState = rememberTextFieldState(config?.url.orEmpty())
     val tokenState = rememberTextFieldState("")
+    val coord = config?.coordinator ?: DispatchCoordinatorConfig()
+    var selectedProfile by remember(coord.profile) { mutableStateOf(coord.profile.ifBlank { "default" }) }
+    val promptState = rememberTextFieldState(coord.defaultPrompt)
+    var checkinEnabled by remember(coord.checkinEnabled) { mutableStateOf(coord.checkinEnabled) }
+    var autoOpenOnLaunch by remember(coord.autoOpenOnLaunch) { mutableStateOf(coord.autoOpenOnLaunch) }
+    val checkinTimesState = rememberTextFieldState(coord.checkinTimes.joinToString(", "))
+    val windowState = rememberTextFieldState(coord.windowMinutes.toString())
+
     val urlText = urlState.text.toString().trim()
     val canSave = !saving && urlText.isNotBlank() && (tokenState.text.toString().trim().isNotBlank() || config?.tokenSet == true)
     Dialog(
@@ -2704,7 +3354,25 @@ private fun DirectusSetupDialog(
             Button(stringResource(Res.string.common_cancel), onClick = onDismiss, variant = ButtonVariant.Ghost)
             Button(
                 stringResource(if (saving) Res.string.tasks_testing else Res.string.tasks_save_connect),
-                onClick = { onSave(urlText, tokenState.text.toString()) },
+                onClick = {
+                    val parsedTimes = checkinTimesState.text.toString()
+                        .split(',', ';')
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                    val parsedWindow = windowState.text.toString().trim().toIntOrNull() ?: coord.windowMinutes
+                    onSave(
+                        urlText,
+                        tokenState.text.toString(),
+                        DispatchCoordinatorUpdate(
+                            profile = selectedProfile,
+                            defaultPrompt = promptState.text.toString().trim(),
+                            checkinEnabled = checkinEnabled,
+                            checkinTimes = parsedTimes,
+                            windowMinutes = parsedWindow,
+                            autoOpenOnLaunch = autoOpenOnLaunch,
+                        ),
+                    )
+                },
                 enabled = canSave,
                 loading = saving,
             )
@@ -2723,9 +3391,168 @@ private fun DirectusSetupDialog(
             },
             password = true,
         )
+        CoordinatorSettingsSection(
+            bots = bots,
+            botAvatars = botAvatars,
+            selectedProfile = selectedProfile,
+            onSelectProfile = { selectedProfile = it },
+            promptState = promptState,
+            checkinEnabled = checkinEnabled,
+            onToggleCheckin = { checkinEnabled = it },
+            autoOpenOnLaunch = autoOpenOnLaunch,
+            onToggleAutoOpen = { autoOpenOnLaunch = it },
+            checkinTimesState = checkinTimesState,
+            windowState = windowState,
+            onOpenPetPicker = onOpenPetPicker,
+            onResetCoordinatorSession = onResetCoordinatorSession,
+        )
         if (error != null) {
             Text(error, style = Theme[typography][bodySmall], color = Theme[colors][danger])
         }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CoordinatorSettingsSection(
+    bots: List<Bot>,
+    botAvatars: Map<String, ByteArray>,
+    selectedProfile: String,
+    onSelectProfile: (String) -> Unit,
+    promptState: TextFieldState,
+    checkinEnabled: Boolean,
+    onToggleCheckin: (Boolean) -> Unit,
+    autoOpenOnLaunch: Boolean,
+    onToggleAutoOpen: (Boolean) -> Unit,
+    checkinTimesState: TextFieldState,
+    windowState: TextFieldState,
+    onOpenPetPicker: (() -> Unit)?,
+    onResetCoordinatorSession: (() -> Unit)?,
+) {
+    val visibleBots = remember(bots) {
+        val list = bots.filterNot { it.meta.hidden }
+        if (list.any { it.name == "default" }) {
+            list
+        } else {
+            listOf(Bot(name = "default", label = "Miller")) + list
+        }
+    }
+    val activeBot = remember(visibleBots, selectedProfile) {
+        visibleBots.firstOrNull { it.name == selectedProfile }
+            ?: Bot(name = selectedProfile, label = selectedProfile.replaceFirstChar { it.uppercase() })
+    }
+
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
+
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BotAvatar(
+            bot = activeBot,
+            avatarBytes = botAvatars[activeBot.name],
+            size = 28.dp,
+        )
+        Text(
+            stringResource(Res.string.tasks_coordinator_settings_title),
+            style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
+            color = Theme[colors][textColor],
+            modifier = Modifier.weight(1f),
+        )
+        if (onOpenPetPicker != null) {
+            Chip(
+                text = stringResource(Res.string.tasks_coordinator_choose_pet),
+                selected = false,
+                onClick = onOpenPetPicker,
+            )
+        }
+        if (onResetCoordinatorSession != null) {
+            Chip(
+                text = stringResource(Res.string.tasks_coordinator_reset_session),
+                selected = false,
+                onClick = onResetCoordinatorSession,
+            )
+        }
+    }
+
+    Text(
+        stringResource(Res.string.tasks_coordinator_profile),
+        style = Theme[typography][labelStyle],
+        color = Theme[colors][textSecondary],
+    )
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        visibleBots.forEach { bot ->
+            Chip(
+                text = "${bot.label} (@${bot.name})",
+                selected = selectedProfile == bot.name,
+                onClick = { onSelectProfile(bot.name) },
+            )
+        }
+    }
+
+    TextField(
+        state = promptState,
+        label = stringResource(Res.string.tasks_coordinator_default_prompt),
+        placeholder = stringResource(Res.string.tasks_coordinator_default_prompt_hint),
+        singleLine = false,
+        maxLines = 4,
+    )
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+            .background(Theme[colors][surface2])
+            .toggleable(value = checkinEnabled, role = Role.Switch, onValueChange = onToggleCheckin)
+            .handCursor()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(Res.string.tasks_coordinator_checkin_toggle),
+            style = Theme[typography][bodySmall],
+            color = Theme[colors][textColor],
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checkinEnabled)
+    }
+
+    if (checkinEnabled) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+                .background(Theme[colors][surface2])
+                .toggleable(value = autoOpenOnLaunch, role = Role.Switch, onValueChange = onToggleAutoOpen)
+                .handCursor()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                stringResource(Res.string.tasks_coordinator_auto_open_toggle),
+                style = Theme[typography][bodySmall],
+                color = Theme[colors][textColor],
+                modifier = Modifier.weight(1f),
+            )
+            Switch(checked = autoOpenOnLaunch)
+        }
+
+        TextField(
+            state = checkinTimesState,
+            label = stringResource(Res.string.tasks_coordinator_checkin_times),
+            placeholder = stringResource(Res.string.tasks_coordinator_checkin_times_hint),
+        )
+        TextField(
+            state = windowState,
+            label = stringResource(Res.string.tasks_coordinator_window_minutes),
+        )
     }
 }
 

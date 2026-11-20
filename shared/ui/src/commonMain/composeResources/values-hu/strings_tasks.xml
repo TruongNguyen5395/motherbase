@@ -74,4 +74,23 @@
     <string name="tasks_status_done">Kész</string>
     <string name="tasks_attention_count">%1$d jelzés</string>
     <string name="tasks_project_empty">Nincs nyitott feladat ebben a projektben.</string>
+    <string name="tasks_coordinator_title">Dispatch koordinátor</string>
+    <string name="tasks_coordinator_ask">Kérdezd: %1$s</string>
+    <string name="tasks_coordinator_checkin_ready">Bejelentkezés kész</string>
+    <string name="tasks_coordinator_reset_session">Munkamenet alaphelyzetbe</string>
+    <string name="tasks_coordinator_choose_pet">Kedvenc választása</string>
+    <string name="tasks_coordinator_hint">Tábla koordinálása, check-in vagy feladat létrehozása…</string>
+    <string name="tasks_coordinator_empty">Kérd meg a koordinátort a tábla áttekintésére, check-in indítására vagy a napi prioritások tervezésére.</string>
+    <string name="tasks_chip_checkin">Check-in most</string>
+    <string name="tasks_chip_blockers">Blokkolt és lejárt feladatok</string>
+    <string name="tasks_chip_priorities">Következő prioritások javaslata</string>
+    <string name="tasks_coordinator_settings_heading">Koordinátor ügynök</string>
+    <string name="tasks_coordinator_agent_label">Ügynök profil</string>
+    <string name="tasks_coordinator_default_prompt">Állandó irányelvek (alapértelmezett prompt)</string>
+    <string name="tasks_coordinator_default_prompt_hint">Szempontok, amelyeket a koordinátor mindig figyelembe vesz (pl. energiaszint, határidők, akadályok)…</string>
+    <string name="tasks_coordinator_checkin_toggle">Proaktív check-in a Dispatchben</string>
+    <string name="tasks_coordinator_auto_open_toggle">Dispatch automatikus megnyitása check-in idején</string>
+    <string name="tasks_coordinator_checkin_times">Check-in időpontok (ÓÓ:PP, vesszővel elválasztva)</string>
+    <string name="tasks_coordinator_checkin_window">Időablak (± perc)</string>
+    <string name="tasks_coordinator_session_reset_done">Új koordinátori munkamenet indult.</string>
 </resources>

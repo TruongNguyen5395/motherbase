@@ -531,6 +531,8 @@ fun SessionsSidebar(
     var newRoomOpen by remember { mutableStateOf(false) }
     val threads by viewModel.threads.collectAsStateWithLifecycle()
     val dispatchSessions by viewModel.dispatchSessions.collectAsStateWithLifecycle()
+    val dispatchCoordinator by viewModel.dispatchCoordinator.collectAsStateWithLifecycle()
+    var autoRoutedDispatchForGateway by remember { mutableStateOf<String?>(null) }
     var threadActions by remember { mutableStateOf<ThreadRow?>(null) }
     var renameThread by remember { mutableStateOf<ChatThread?>(null) }
     var freshThread by remember { mutableStateOf<ChatThread?>(null) }
@@ -558,6 +560,27 @@ fun SessionsSidebar(
         insightsOpen = false
     }
     val pageOpen = scheduledOpen || inboxOpen || tasksOpen || routinesOf != null || capabilitiesOpen || configOpen || pluginsOpen || insightsOpen
+
+    LaunchedEffect(activeGatewayUrl, dispatchCoordinator, isConnected) {
+        val coord = dispatchCoordinator ?: return@LaunchedEffect
+        if (!isConnected || !coord.autoOpenOnLaunch) return@LaunchedEffect
+        if (autoRoutedDispatchForGateway == activeGatewayUrl) return@LaunchedEffect
+        if (pageOpen || inboxLink != null) return@LaunchedEffect
+        val nowMillis = Clock.System.now().toEpochMilliseconds()
+        val moment = localMoment(nowMillis)
+        val dateIso = dev.hermeskotlin.ui.tasks.formatIsoDate(moment.year, moment.month, moment.day)
+        val minuteOfDay = moment.hour * 60 + moment.minute
+        val dueSlot = coord.resolveDueCheckinSlot(
+            localDateIso = dateIso,
+            localMinuteOfDay = minuteOfDay,
+            nowEpochSeconds = nowMillis / 1000L,
+        )
+        autoRoutedDispatchForGateway = activeGatewayUrl
+        if (dueSlot != null) {
+            tasksOpen = true
+            onCloseSidebar()
+        }
+    }
 
     // Back steps out of search or the Scheduled / Archived pages before it closes the drawer. On the desktop the
     // sidebar stays put and a filter is picked like a tab, so Escape leaves it for the chat (stopping a reply).

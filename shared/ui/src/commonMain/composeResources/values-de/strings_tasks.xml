@@ -74,4 +74,23 @@
     <string name="tasks_status_done">Erledigt</string>
     <string name="tasks_attention_count">%1$d Hinweis</string>
     <string name="tasks_project_empty">Keine offenen Aufgaben in diesem Projekt.</string>
+    <string name="tasks_coordinator_title">Dispatch-Koordinator</string>
+    <string name="tasks_coordinator_ask">%1$s fragen</string>
+    <string name="tasks_coordinator_checkin_ready">Check-in bereit</string>
+    <string name="tasks_coordinator_reset_session">Sitzung zurücksetzen</string>
+    <string name="tasks_coordinator_choose_pet">Pet auswählen</string>
+    <string name="tasks_coordinator_hint">Board koordinieren, einchecken oder Aufgaben erstellen…</string>
+    <string name="tasks_coordinator_empty">Bitte deinen Koordinator, das Board zu prüfen, ein Check-in zu starten oder Prioritäten zu planen.</string>
+    <string name="tasks_chip_checkin">Jetzt einchecken</string>
+    <string name="tasks_chip_blockers">Blockierte &amp; überfällige prüfen</string>
+    <string name="tasks_chip_priorities">Nächste Prioritäten vorschlagen</string>
+    <string name="tasks_coordinator_settings_heading">Koordinator-Agent</string>
+    <string name="tasks_coordinator_agent_label">Agenten-Profil</string>
+    <string name="tasks_coordinator_default_prompt">Ständige Anweisungen (Standard-Prompt)</string>
+    <string name="tasks_coordinator_default_prompt_hint">Aspekte, die der Koordinator immer berücksichtigt (z. B. Energielevel, Fristen, Engpässe)…</string>
+    <string name="tasks_coordinator_checkin_toggle">Proaktives Check-in in Dispatch</string>
+    <string name="tasks_coordinator_auto_open_toggle">Dispatch zur Check-in-Zeit automatisch öffnen</string>
+    <string name="tasks_coordinator_checkin_times">Check-in-Zeiten (HH:MM, kommagetrennt)</string>
+    <string name="tasks_coordinator_checkin_window">Zeitfenster (± Minuten)</string>
+    <string name="tasks_coordinator_session_reset_done">Neue Koordinator-Sitzung gestartet.</string>
 </resources>

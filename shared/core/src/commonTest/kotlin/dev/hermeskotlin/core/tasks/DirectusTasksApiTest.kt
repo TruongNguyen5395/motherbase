@@ -170,4 +170,82 @@ class DirectusTasksApiTest {
         assertEquals("in_progress", updated.status)
         assertEquals(TaskContext.STATE_RUNNING, updated.agentState)
     }
+
+    @Test
+    fun savesCoordinatorConfigAndEvaluatesCheckinWindowWithCooldownAndGrace() = runTest {
+        var sentBody = ""
+        val api = DirectusTasksApi(
+            createHttpClient(
+                MockEngine { req ->
+                    assertEquals(HttpMethod.Put, req.method)
+                    assertEquals("/api/plugins/directus-tasks/coordinator", req.url.encodedPath)
+                    sentBody = req.body.toByteArray().decodeToString()
+                    respond(
+                        """{
+                            "configured": true,
+                            "url": "https://directus.example.com",
+                            "token_set": true,
+                            "token_preview": "••••4321",
+                            "source": "saved",
+                            "coordinator": {
+                                "profile": "default",
+                                "session_id": "coord-1",
+                                "default_prompt": "Check energy, blockers, and due dates.",
+                                "checkin_enabled": true,
+                                "checkin_times": ["09:00", "16:00"],
+                                "window_minutes": 30,
+                                "grace_minutes": 180,
+                                "cooldown_minutes": 45,
+                                "auto_open_on_launch": true,
+                                "last_checkin_slot": "2026-11-20@09:00",
+                                "last_interaction_at": 1000.0
+                            }
+                        }""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                },
+            ),
+        )
+
+        val res = assertIs<ApiResult.Success<DirectusConfigStatus>>(
+            api.saveCoordinatorConfig(
+                gatewayUrl,
+                DispatchCoordinatorUpdate(
+                    profile = "default",
+                    sessionId = "coord-1",
+                    defaultPrompt = "Check energy, blockers, and due dates.",
+                    checkinTimes = listOf("09:00", "16:00"),
+                    lastCheckinSlot = "2026-11-20@09:00",
+                ),
+            ),
+        ).value
+        assertTrue("coord-1" in sentBody)
+        val coord = res.coordinator
+        assertEquals("coord-1", coord.sessionId)
+
+        // Morning slot (09:00) was already checked in today -> returns null at 09:15 (minute 555).
+        assertEquals(null, coord.resolveDueCheckinSlot("2026-11-20", 9 * 60 + 15, nowEpochSeconds = 10_000L))
+
+        // Afternoon slot (16:00, window 15:30..19:00) triggers at 15:40 (minute 940) when cooldown has elapsed.
+        assertEquals(
+            "2026-11-20@16:00",
+            coord.resolveDueCheckinSlot("2026-11-20", 15 * 60 + 40, nowEpochSeconds = 10_000L),
+        )
+
+        // Late arrival within grace window (17:20 -> minute 1040) still triggers afternoon check-in.
+        assertEquals(
+            "2026-11-20@16:00",
+            coord.resolveDueCheckinSlot("2026-11-20", 17 * 60 + 20, nowEpochSeconds = 10_000L),
+        )
+
+        // Cooldown gate: if user already chatted 10 minutes ago (now = 1600, lastInteractionAt = 1000), skip auto prompt.
+        assertEquals(
+            null,
+            coord.resolveDueCheckinSlot("2026-11-20", 16 * 60, nowEpochSeconds = 1_600L),
+        )
+
+        // Manual check-in at 15:10 (50m before 16:00) claims the upcoming 16:00 slot.
+        assertEquals("2026-11-20@16:00", coord.activeOrUpcomingCheckinSlotId("2026-11-20", 15 * 60 + 10))
+    }
 }

@@ -74,4 +74,23 @@
     <string name="tasks_status_done">已完成</string>
     <string name="tasks_attention_count">%1$d 关注</string>
     <string name="tasks_project_empty">该项目中暂无未完成任务。</string>
+    <string name="tasks_coordinator_title">Dispatch 协调员</string>
+    <string name="tasks_coordinator_ask">询问 %1$s</string>
+    <string name="tasks_coordinator_checkin_ready">签到就绪</string>
+    <string name="tasks_coordinator_reset_session">重置会话</string>
+    <string name="tasks_coordinator_choose_pet">选择宠物</string>
+    <string name="tasks_coordinator_hint">协调看板、进行进度签到或创建任务…</string>
+    <string name="tasks_coordinator_empty">让协调员为您梳理看板进度、开始每日签到或规划优先级。</string>
+    <string name="tasks_chip_checkin">立即签到</string>
+    <string name="tasks_chip_blockers">排查阻塞与逾期</string>
+    <string name="tasks_chip_priorities">建议下一步优先级</string>
+    <string name="tasks_coordinator_settings_heading">协调智能体</string>
+    <string name="tasks_coordinator_agent_label">智能体配置</string>
+    <string name="tasks_coordinator_default_prompt">常驻指令（默认提示词）</string>
+    <string name="tasks_coordinator_default_prompt_hint">协调员始终考量的维度（如精力状态、截止时间、跨项目瓶颈）…</string>
+    <string name="tasks_coordinator_checkin_toggle">在 Dispatch 中主动签到</string>
+    <string name="tasks_coordinator_auto_open_toggle">签到时段启动应用自动打开 Dispatch</string>
+    <string name="tasks_coordinator_checkin_times">签到时间（HH:MM，逗号分隔）</string>
+    <string name="tasks_coordinator_checkin_window">时间窗口（± 分钟）</string>
+    <string name="tasks_coordinator_session_reset_done">已开启新的协调员会话。</string>
 </resources>
