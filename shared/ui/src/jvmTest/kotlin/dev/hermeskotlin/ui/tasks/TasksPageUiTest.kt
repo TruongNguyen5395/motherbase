@@ -39,10 +39,10 @@ import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
 import dev.hermeskotlin.ui.LocalWindowControls
 import dev.hermeskotlin.ui.WindowControls
-import dev.hermeskotlin.ui.chat.DictationState
 import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.components.ProvideAppWords
 import dev.hermeskotlin.ui.preview.PageSamples
+import dev.hermeskotlin.ui.voice.DictationState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
