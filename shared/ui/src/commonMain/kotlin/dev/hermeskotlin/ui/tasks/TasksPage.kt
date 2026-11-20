@@ -3340,36 +3340,44 @@ private fun DirectusSetupDialog(
             )
         },
     ) {
-        TextField(
-            state = urlState,
-            label = stringResource(Res.string.tasks_directus_url),
-            placeholder = stringResource(Res.string.tasks_directus_url_hint),
-        )
-        TextField(
-            state = tokenState,
-            label = stringResource(Res.string.tasks_directus_token),
-            placeholder = config?.tokenPreview?.takeIf { it.isNotBlank() }?.let {
-                stringResource(Res.string.tasks_directus_token_keep, it)
-            },
-            password = true,
-        )
-        CoordinatorSettingsSection(
-            bots = bots,
-            botAvatars = botAvatars,
-            selectedProfile = selectedProfile,
-            onSelectProfile = { selectedProfile = it },
-            promptState = promptState,
-            checkinEnabled = checkinEnabled,
-            onToggleCheckin = { checkinEnabled = it },
-            autoOpenOnLaunch = autoOpenOnLaunch,
-            onToggleAutoOpen = { autoOpenOnLaunch = it },
-            checkinTimesState = checkinTimesState,
-            windowState = windowState,
-            onOpenPetPicker = onOpenPetPicker,
-            onResetCoordinatorSession = onResetCoordinatorSession,
-        )
-        if (error != null) {
-            Text(error, style = Theme[typography][bodySmall], color = Theme[colors][danger])
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 360.dp)
+                .verticalScrollWithBar(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextField(
+                state = urlState,
+                label = stringResource(Res.string.tasks_directus_url),
+                placeholder = stringResource(Res.string.tasks_directus_url_hint),
+            )
+            TextField(
+                state = tokenState,
+                label = stringResource(Res.string.tasks_directus_token),
+                placeholder = config?.tokenPreview?.takeIf { it.isNotBlank() }?.let {
+                    stringResource(Res.string.tasks_directus_token_keep, it)
+                },
+                password = true,
+            )
+            CoordinatorSettingsSection(
+                bots = bots,
+                botAvatars = botAvatars,
+                selectedProfile = selectedProfile,
+                onSelectProfile = { selectedProfile = it },
+                promptState = promptState,
+                checkinEnabled = checkinEnabled,
+                onToggleCheckin = { checkinEnabled = it },
+                autoOpenOnLaunch = autoOpenOnLaunch,
+                onToggleAutoOpen = { autoOpenOnLaunch = it },
+                checkinTimesState = checkinTimesState,
+                windowState = windowState,
+                onOpenPetPicker = onOpenPetPicker,
+                onResetCoordinatorSession = onResetCoordinatorSession,
+            )
+            if (error != null) {
+                Text(error, style = Theme[typography][bodySmall], color = Theme[colors][danger])
+            }
         }
     }
 }

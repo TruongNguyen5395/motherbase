@@ -1260,7 +1260,7 @@ class TasksViewModelTest {
                             }
                         """.trimIndent()
                     }
-                    "/api/sessions/coord-1/archive" ->
+                    "/api/sessions/coord-1" ->
                         HttpStatusCode.OK to """{"session_id":"coord-1","archived":true}"""
                     "/api/sessions/coord-1/messages", "/api/sessions/coord-2/messages" ->
                         HttpStatusCode.OK to """{"session_id":"$activeSessionId","messages":[]}"""
@@ -1307,7 +1307,7 @@ class TasksViewModelTest {
                 h.vm.state.first { !it.resettingCoordinator && it.coordinatorConfig.sessionId == "coord-2" }
             }
             assertEquals("coord-2", afterReset.activeChannel?.id)
-            assertTrue(h.httpCalls.any { it.path == "/api/sessions/coord-1/archive" })
+            assertTrue(h.httpCalls.any { it.method == HttpMethod.Patch && it.path == "/api/sessions/coord-1" })
         } finally {
             h.connection.stop()
         }
