@@ -1260,6 +1260,8 @@ class TasksViewModelTest {
                             }
                         """.trimIndent()
                     }
+                    "/api/sessions/coord-1/mutation-snapshot" ->
+                        HttpStatusCode.OK to """{"exists":true,"revision":1,"generation":"g1"}"""
                     "/api/sessions/coord-1" ->
                         HttpStatusCode.OK to """{"session_id":"coord-1","archived":true}"""
                     "/api/sessions/coord-1/messages", "/api/sessions/coord-2/messages" ->
