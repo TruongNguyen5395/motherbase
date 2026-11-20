@@ -726,8 +726,8 @@ class TasksPageUiTest {
         onNodeWithText("Apply").performClick()
         waitForIdle()
 
-        onNodeWithText("20:00").assertIsDisplayed()
-        onNodeWithText("Verify sprint capacity").assertIsDisplayed()
+        onNodeWithText("20:00").performScrollTo().assertIsDisplayed()
+        onNodeWithText("Verify sprint capacity").performScrollTo().assertIsDisplayed()
 
         onNodeWithText("Save settings").performClick()
         waitForIdle()
