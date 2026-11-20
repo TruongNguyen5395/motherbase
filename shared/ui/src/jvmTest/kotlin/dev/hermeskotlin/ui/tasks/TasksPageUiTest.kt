@@ -39,6 +39,7 @@ import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
 import dev.hermeskotlin.ui.LocalWindowControls
 import dev.hermeskotlin.ui.WindowControls
+import dev.hermeskotlin.ui.chat.DictationState
 import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.components.ProvideAppWords
 import dev.hermeskotlin.ui.preview.PageSamples
@@ -497,6 +498,8 @@ class TasksPageUiTest {
                                 onSendToChannel = { _, txt -> sentTexts += txt },
                             ),
                             onBack = {},
+                            dictation = DictationState(recording = true),
+                            onToggleDictation = {},
                         )
                     }
                 }
@@ -504,10 +507,12 @@ class TasksPageUiTest {
         }
         waitForIdle()
 
-        // + attachment button, queued attachment chip, and Session model pill are displayed.
+        // + attachment button, queued attachment chip, model pill, dictation mic, and Send button are all displayed together.
         onNodeWithContentDescription("Add photos or files").assertIsDisplayed()
         onNodeWithText("brief.pdf").assertIsDisplayed()
         onNodeWithContentDescription("Change model", substring = true).assertIsDisplayed()
+        onNodeWithContentDescription("Finish dictating").assertIsDisplayed()
+        onNodeWithContentDescription("Send").assertIsDisplayed()
 
         // Attachment-only message enables Send and dispatches even when text box is empty.
         onNodeWithContentDescription("Send").performClick()

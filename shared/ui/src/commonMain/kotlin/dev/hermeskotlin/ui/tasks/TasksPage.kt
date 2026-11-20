@@ -3214,14 +3214,16 @@ private fun TaskChatComposer(
                         }
                     }
                 }
-                Snug {
-                    if (onToggleDictation != null && (hasVoice || dictation.active)) {
+                if (onToggleDictation != null && (hasVoice || dictation.active)) {
+                    Snug {
                         DictationButton(
                             state = dictation,
                             enabled = connected,
                             onClick = { onToggleDictation(state) },
                         )
                     }
+                }
+                Snug {
                     SendButton(
                         icon = SendIcon.Send,
                         onClick = onSend,
