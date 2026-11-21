@@ -1440,14 +1440,14 @@ private fun FocusedProjectHeader(
     taskCount: Int,
     onClearFocus: () -> Unit,
 ) {
-    val dotColor = project?.color?.let(::parseHexColorOrNull) ?: Theme[colors][accent]
+    val folderTint = Theme[colors][textTertiary]
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(9.dp).clip(CircleShape).background(dotColor))
+            UnstyledIcon(Lucide.Folder, contentDescription = null, tint = folderTint, modifier = Modifier.size(16.dp))
             Text(
                 projectLabel,
                 style = Theme[typography][heading],
@@ -1719,67 +1719,77 @@ private fun ProjectBentoCard(
     val shown = if (expanded || hiddenCount == 0) tasks else tasks.take(DEFAULT_PROJECT_PREVIEW_LIMIT)
     val alertCount = tasks.count { it.agentState == TaskContext.STATE_NEEDS_YOU || isAttentionRisk(it, todayEpochDay) }
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
-    val dotColor = project?.color?.let(::parseHexColorOrNull) ?: Theme[colors][accent]
+    val folderTint = Theme[colors][textTertiary]
 
     Column(
         modifier
             .clip(shape)
             .background(Theme[colors][surface])
-            .border(1.dp, Theme[colors][stroke], shape)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .border(1.dp, Theme[colors][stroke], shape),
     ) {
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                .background(Theme[colors][surface2])
                 .clickable(role = Role.Button, onClick = onFocusProject)
                 .handCursor()
-                .padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Box(Modifier.size(9.dp).clip(CircleShape).background(dotColor))
-            Text(
-                projectLabel,
-                style = Theme[typography][labelStyle].copy(fontWeight = FontWeight.SemiBold),
-                color = Theme[colors][textColor],
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (alertCount > 0) {
-                MiniBadge(
-                    text = stringResource(Res.string.tasks_attention_count, alertCount),
-                    backgroundColor = Theme[colors][dangerSoft],
-                    contentColor = Theme[colors][danger],
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                UnstyledIcon(Lucide.Folder, contentDescription = null, tint = folderTint, modifier = Modifier.size(15.dp))
+                Text(
+                    projectLabel,
+                    style = Theme[typography][body].copy(fontWeight = FontWeight.SemiBold),
+                    color = Theme[colors][textColor],
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (alertCount > 0) {
+                    MiniBadge(
+                        text = stringResource(Res.string.tasks_attention_count, alertCount),
+                        backgroundColor = Theme[colors][dangerSoft],
+                        contentColor = Theme[colors][danger],
+                    )
+                }
+                Text(
+                    stringResource(Res.string.tasks_project_count, tasks.size),
+                    style = Theme[typography][code].copy(fontSize = 11.sp),
+                    color = Theme[colors][textTertiary],
                 )
             }
-            Text(
-                stringResource(Res.string.tasks_project_count, tasks.size),
-                style = Theme[typography][code].copy(fontSize = 11.sp),
-                color = Theme[colors][textTertiary],
-            )
+
+            if (!project?.workspaceCwd.isNullOrBlank()) {
+                Text(
+                    project?.workspaceCwd.orEmpty(),
+                    style = Theme[typography][code].copy(fontSize = 11.sp),
+                    color = Theme[colors][textMuted],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 23.dp),
+                )
+            }
         }
 
-        if (!project?.workspaceCwd.isNullOrBlank()) {
-            Text(
-                project?.workspaceCwd.orEmpty(),
-                style = Theme[typography][code].copy(fontSize = 11.sp),
-                color = Theme[colors][textMuted],
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][strokeStrong]))
 
         if (tasks.isEmpty()) {
             Text(
                 stringResource(Res.string.tasks_project_empty),
                 style = Theme[typography][bodySmall],
                 color = Theme[colors][textTertiary],
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             )
         } else {
-            shown.forEach { task ->
+            shown.forEachIndexed { idx, task ->
+                if (idx > 0) {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
+                }
                 TaskPill(
                     task = task,
                     projectName = projectLabel,
@@ -1789,13 +1799,15 @@ private fun ProjectBentoCard(
                     busy = task.id in busyTaskIds,
                     onClick = { onSelectTask(task.id) },
                     modifier = Modifier.fillMaxWidth(),
+                    flat = true,
                 )
             }
         }
 
         if (hiddenCount > 0) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
             Row(
-                Modifier.fillMaxWidth().padding(top = 2.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1835,18 +1847,68 @@ private fun TaskPill(
     busy: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    flat: Boolean = false,
 ) {
     val overdueDays = taskOverdueDays(task, todayEpochDay)
     val dueEpochDay = parseDueEpochDay(task.dueDate)
-    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
-    val fill = if (selected) Theme[colors][accentSoft].compositeOver(Theme[colors][surface]) else Theme[colors][surface2]
-    val borderColor = when {
-        selected -> Theme[colors][accent]
-        task.agentState == TaskContext.STATE_NEEDS_YOU -> Theme[colors][warning].copy(alpha = 0.6f)
-        task.status == DirectusTask.STATUS_BLOCKED || overdueDays > 0 -> Theme[colors][danger].copy(alpha = 0.45f)
-        else -> Theme[colors][stroke]
+    val isAttention = task.agentState == TaskContext.STATE_NEEDS_YOU
+    val isRisk = task.status == DirectusTask.STATUS_BLOCKED || overdueDays > 0
+    val surfaceColor = Theme[colors][surface]
+    val fill = when {
+        selected -> Theme[colors][accentSoft].compositeOver(surfaceColor)
+        !flat -> Theme[colors][surface2]
+        isAttention -> Theme[colors][warningSoft].compositeOver(surfaceColor)
+        isRisk -> Theme[colors][dangerSoft].compositeOver(surfaceColor)
+        else -> Color.Transparent
+    }
+    val edgeStripeColor = if (flat) {
+        when {
+            selected -> Theme[colors][accent]
+            isAttention -> Theme[colors][warning]
+            isRisk -> Theme[colors][danger]
+            else -> null
+        }
+    } else {
+        null
+    }
+    val containerModifier = if (flat) {
+        modifier
+            .background(fill)
+            .let { base ->
+                if (edgeStripeColor != null) {
+                    base.drawWithContent {
+                        drawContent()
+                        drawRect(
+                            color = edgeStripeColor,
+                            topLeft = Offset.Zero,
+                            size = Size(3.dp.toPx(), size.height),
+                        )
+                    }
+                } else {
+                    base
+                }
+            }
+            .clickable(role = Role.Button, onClick = onClick)
+            .handCursor()
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    } else {
+        val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+        val borderColor = when {
+            selected -> Theme[colors][accent]
+            isAttention -> Theme[colors][warning].copy(alpha = 0.6f)
+            isRisk -> Theme[colors][danger].copy(alpha = 0.45f)
+            else -> Theme[colors][stroke]
+        }
+        modifier
+            .clip(shape)
+            .background(fill)
+            .border(1.dp, borderColor, shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .handCursor()
+            .padding(horizontal = 10.dp, vertical = 8.dp)
     }
     val dotColor = stateDotColor(task, overdueDays)
+    val neutralBadgeBg = if (flat) Theme[colors][surface2] else surfaceColor
     val hasMetaBadges = showProjectBadge ||
         task.agentState != TaskContext.STATE_IDLE ||
         task.status != DirectusTask.STATUS_TODO ||
@@ -1855,13 +1917,7 @@ private fun TaskPill(
         task.assignedBots.isNotEmpty()
 
     Column(
-        modifier
-            .clip(shape)
-            .background(fill)
-            .border(1.dp, borderColor, shape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .handCursor()
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+        containerModifier,
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Row(
@@ -1901,15 +1957,15 @@ private fun TaskPill(
                 if (task.agentState != TaskContext.STATE_IDLE) {
                     MiniBadge(
                         text = agentStateLabel(task.agentState),
-                        backgroundColor = if (task.agentState == TaskContext.STATE_NEEDS_YOU) Theme[colors][warningSoft] else Theme[colors][accentSoft],
-                        contentColor = if (task.agentState == TaskContext.STATE_NEEDS_YOU) Theme[colors][warning] else Theme[colors][accentText],
+                        backgroundColor = if (isAttention) Theme[colors][warningSoft] else Theme[colors][accentSoft],
+                        contentColor = if (isAttention) Theme[colors][warning] else Theme[colors][accentText],
                     )
                 }
                 if (task.status != DirectusTask.STATUS_TODO) {
                     val isBlocked = task.status == DirectusTask.STATUS_BLOCKED
                     MiniBadge(
                         text = taskStatusLabel(task.status),
-                        backgroundColor = if (isBlocked) Theme[colors][dangerSoft] else Theme[colors][surface],
+                        backgroundColor = if (isBlocked) Theme[colors][dangerSoft] else neutralBadgeBg,
                         contentColor = if (isBlocked) Theme[colors][danger] else Theme[colors][textTertiary],
                     )
                 }
@@ -1929,7 +1985,7 @@ private fun TaskPill(
                     } else {
                         MiniBadge(
                             text = stringResource(Res.string.tasks_due_date_short, formatShortDueLabel(dueEpochDay)),
-                            backgroundColor = Theme[colors][surface],
+                            backgroundColor = neutralBadgeBg,
                             contentColor = Theme[colors][textTertiary],
                         )
                     }
@@ -4274,14 +4330,4 @@ private fun agentStateLabel(agentState: String): String = when (agentState) {
     TaskContext.STATE_RUNNING -> stringResource(Res.string.tasks_state_running)
     TaskContext.STATE_QUEUED -> stringResource(Res.string.tasks_state_queued)
     else -> stringResource(Res.string.tasks_state_idle)
-}
-
-private fun parseHexColorOrNull(hex: String): Color? {
-    val clean = hex.trim().removePrefix("#")
-    val value = clean.toLongOrNull(16) ?: return null
-    return when (clean.length) {
-        6 -> Color((0xFF000000L or value).toInt())
-        8 -> Color(value.toInt())
-        else -> null
-    }
 }
