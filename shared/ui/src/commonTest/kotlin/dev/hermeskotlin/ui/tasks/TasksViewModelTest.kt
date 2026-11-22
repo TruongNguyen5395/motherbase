@@ -1537,6 +1537,8 @@ class TasksViewModelTest {
                         HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
                     rec.path == "/api/plugins/directus-tasks/board" ->
                         HttpStatusCode.OK to boardWithReply
+                    rec.path == "/api/sessions/sess-1/mutation-snapshot" ->
+                        HttpStatusCode.OK to """{"exists":true,"runtime_revision":1,"runtime_generation":1}"""
                     rec.path == "/api/sessions/sess-1" && rec.method == HttpMethod.Patch -> {
                         markedSessionRead = true
                         HttpStatusCode.OK to """{}"""
@@ -1572,11 +1574,13 @@ class TasksViewModelTest {
                 h.vm.state.first { st ->
                     st.replyBadges["t1"] == TaskReplyBadge.NONE &&
                         ackBodies.isNotEmpty() &&
-                        markedSessionRead
+                        st.tasks.firstOrNull { it.id == "t1" }?.replyAckedAt == "2026-11-22T07:00:00Z"
                 }
             }
+            dispatcher.scheduler.advanceUntilIdle()
             assertEquals(0, cleared.attentionSplit.agentReplies.size)
             assertTrue(ackBodies.any { it.contains("reply_acked_at") })
+            assertTrue(markedSessionRead)
         } finally {
             h.connection.stop()
         }

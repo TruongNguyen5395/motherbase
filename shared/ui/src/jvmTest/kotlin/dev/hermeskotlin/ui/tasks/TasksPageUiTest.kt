@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -816,7 +817,7 @@ class TasksPageUiTest {
         onNodeWithText("High impact & urgent (1)").assertIsDisplayed()
 
         // One-tap Ack clears the unread reply from Agent replies.
-        onNodeWithTag("task_pill_ack_t-reply").performClick()
+        onAllNodesWithTag("task_pill_ack_t-reply")[0].performClick()
         waitForIdle()
         assertTrue("t-reply" in ackedIds)
         onNodeWithText("NEEDS ATTENTION (1)").assertIsDisplayed()
