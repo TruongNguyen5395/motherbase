@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
 class DisplayStoreTest {
 
     @Test
-    fun enforcesEpochMonotonicityAndInstallSudoAndAutoRaise() = runTest {
+    fun enforcesLeaseEpochMonotonicity() = runTest {
         val gateway = FakeGateway(backgroundScope, reconnects = false)
         gateway.ready = { FakeGateway.QUIET_READY }
         val viewerId = "vw-local"
@@ -44,7 +44,6 @@ class DisplayStoreTest {
                     "viewer_id":"$viewerId"
                 }"""
                 "display.lease.acquire" -> """{"lease":{"holder":"human","viewer_hash":"$viewerHash","epoch":3,"reason":"human_takeover"}}"""
-                "display.install" -> """{"started":true,"command":"sudo apt install -y tigervnc","profile_key":"/opt/data"}"""
                 else -> "{}"
             }
         }
@@ -69,8 +68,22 @@ class DisplayStoreTest {
         advanceUntilIdle()
         assertFalse(store.stateOf("default").iHoldLease)
         assertEquals(LeaseHolder.Agent, store.stateOf("default").status?.lease?.holder)
+    }
 
-        // Install logs + display.install.sudo roundtrip
+    @Test
+    fun tracksInstallLogsAndRespondsToSudo() = runTest {
+        val gateway = FakeGateway(backgroundScope, reconnects = false)
+        gateway.ready = { FakeGateway.QUIET_READY }
+        gateway.answer = { call ->
+            when (call.method) {
+                "display.install" -> """{"started":true,"command":"sudo apt install -y tigervnc","profile_key":"/opt/data"}"""
+                else -> "{}"
+            }
+        }
+        val conn = gateway.start()
+        val store = DisplayStore(DisplayApi(conn), conn, backgroundScope)
+        advanceUntilIdle()
+
         assertTrue(store.startInstall("default").isSuccess)
         gateway.socket.push(event("display.install.log", payload = """{"profile_key":"/opt/data","line":"Reading package lists..."}"""))
         gateway.socket.push("""{"jsonrpc":"2.0","id":"sudo-1","method":"display.install.sudo","params":{"session_id":"","profile_key":"/opt/data"}}""")
@@ -83,8 +96,16 @@ class DisplayStoreTest {
         assertNull(store.stateOf("default").installSudoRequestId)
         val sudoReply = gateway.socket.sent.value.last().toString()
         assertTrue(sudoReply.contains("my-sudo-pw"))
+    }
 
-        // tool.start triggers autoRaise for computer_use and browser_ tools
+    @Test
+    fun emitsAutoRaiseForComputerUseAndBrowserTools() = runTest {
+        val gateway = FakeGateway(backgroundScope, reconnects = false)
+        gateway.ready = { FakeGateway.QUIET_READY }
+        val conn = gateway.start()
+        val store = DisplayStore(DisplayApi(conn), conn, backgroundScope)
+        advanceUntilIdle()
+
         val raised = async(start = CoroutineStart.UNDISPATCHED) { store.autoRaise.first() }
         gateway.socket.push(event("tool.start", sessionId = "s-1", payload = """{"tool":"browser_navigate"}"""))
         advanceUntilIdle()
