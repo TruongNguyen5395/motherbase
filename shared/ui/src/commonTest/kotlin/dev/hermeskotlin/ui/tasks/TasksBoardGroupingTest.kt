@@ -64,29 +64,41 @@ class TasksBoardGroupingTest {
     }
 
     @Test
-    fun matrixAutoBoostsEffectiveUrgencyNearOrPastDueDateWhilePreservingRawUrgency() {
-        val manualLowFuture = task("future", impact = "high", urgency = "low", dueDate = "2026-11-28")
-        val manualLowDueTomorrow = task("tomorrow", impact = "high", urgency = "low", dueDate = "2026-11-19")
-        val manualLowDueInTwoDays = task("two-days", impact = "medium", urgency = "low", dueDate = "2026-11-20")
+    fun matrixAutoBoostsUnplacedUrgencyNearDueDateWhileRespectingExplicitPlacement() {
+        val unplacedFuture = task("future", priority = "medium", dueDate = "2026-11-28")
+        val unplacedDueTomorrow = task("tomorrow", priority = "high", dueDate = "2026-11-19")
+        val unplacedDueInTwoDays = task("two-days", priority = "low", dueDate = "2026-11-20")
+        val explicitlyMovedToLater = task("moved-later", priority = "low", impact = "low", urgency = "low", dueDate = "2026-11-15")
+        val explicitlyMovedToSchedule = task("moved-sched", priority = "high", impact = "high", urgency = "medium", dueDate = "2026-11-19")
 
-        val pFuture = resolveTaskMatrix(manualLowFuture, today)
-        assertEquals(MatrixLevel.HIGH, pFuture.impact)
-        assertEquals(MatrixLevel.LOW, pFuture.rawUrgency)
-        assertEquals(MatrixLevel.LOW, pFuture.effectiveUrgency)
+        val pFuture = resolveTaskMatrix(unplacedFuture, today)
+        assertEquals(MatrixLevel.MEDIUM, pFuture.impact)
+        assertEquals(MatrixLevel.MEDIUM, pFuture.rawUrgency)
+        assertEquals(MatrixLevel.MEDIUM, pFuture.effectiveUrgency)
         assertFalse(pFuture.boostedByDue)
-        assertEquals(EisenhowerQuadrant.SCHEDULE, pFuture.quadrant)
+        assertEquals(EisenhowerQuadrant.LATER, pFuture.quadrant)
 
-        val pTomorrow = resolveTaskMatrix(manualLowDueTomorrow, today)
-        assertEquals(MatrixLevel.LOW, pTomorrow.rawUrgency)
+        val pTomorrow = resolveTaskMatrix(unplacedDueTomorrow, today)
+        assertEquals(MatrixLevel.MEDIUM, pTomorrow.rawUrgency)
         assertEquals(MatrixLevel.HIGH, pTomorrow.effectiveUrgency)
         assertTrue(pTomorrow.boostedByDue)
         assertEquals(EisenhowerQuadrant.DO_NOW, pTomorrow.quadrant)
 
-        val pTwoDays = resolveTaskMatrix(manualLowDueInTwoDays, today)
+        val pTwoDays = resolveTaskMatrix(unplacedDueInTwoDays, today)
         assertEquals(MatrixLevel.LOW, pTwoDays.rawUrgency)
         assertEquals(MatrixLevel.MEDIUM, pTwoDays.effectiveUrgency)
         assertTrue(pTwoDays.boostedByDue)
         assertEquals(EisenhowerQuadrant.LATER, pTwoDays.quadrant)
+
+        val pLater = resolveTaskMatrix(explicitlyMovedToLater, today)
+        assertEquals(MatrixLevel.LOW, pLater.effectiveUrgency)
+        assertFalse(pLater.boostedByDue)
+        assertEquals(EisenhowerQuadrant.LATER, pLater.quadrant)
+
+        val pSched = resolveTaskMatrix(explicitlyMovedToSchedule, today)
+        assertEquals(MatrixLevel.MEDIUM, pSched.effectiveUrgency)
+        assertFalse(pSched.boostedByDue)
+        assertEquals(EisenhowerQuadrant.SCHEDULE, pSched.quadrant)
     }
 
     @Test

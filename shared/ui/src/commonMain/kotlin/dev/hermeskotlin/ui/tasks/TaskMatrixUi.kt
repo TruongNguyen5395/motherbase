@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -1166,7 +1167,7 @@ private fun MatrixTaskRow(
         replyBadge == TaskReplyBadge.AWAITING_REPLY -> Theme[colors][warning].copy(alpha = 0.6f)
         else -> Theme[colors][stroke]
     }
-    var gripRootOrigin by remember { mutableStateOf(Offset.Zero) }
+    var gripCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     Row(
         Modifier
@@ -1180,14 +1181,19 @@ private fun MatrixTaskRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Dedicated drag handle: isolates drag gesture so vertical scrolling never conflicts on mobile
+        // Dedicated drag handle: isolates drag gesture with a generous touch target so scrolling never conflicts
         Box(
             Modifier
                 .testTag("matrix_drag_${task.id}")
-                .onGloballyPositioned { gripRootOrigin = it.positionInRoot() }
+                .widthIn(min = 32.dp)
+                .heightIn(min = 36.dp)
+                .onGloballyPositioned { gripCoords = it }
                 .pointerInput(task.id) {
                     detectDragGestures(
-                        onDragStart = { local -> latestStart(gripRootOrigin + local) },
+                        onDragStart = { local ->
+                            val origin = gripCoords?.takeIf { it.isAttached }?.positionInRoot() ?: Offset.Zero
+                            latestStart(origin + local)
+                        },
                         onDrag = { change, amount ->
                             change.consume()
                             latestUpdate(amount)
@@ -1196,7 +1202,7 @@ private fun MatrixTaskRow(
                         onDragCancel = { latestCancel() },
                     )
                 }
-                .padding(horizontal = 4.dp, vertical = 6.dp)
+                .padding(horizontal = 6.dp, vertical = 8.dp)
                 .handCursor(),
             contentAlignment = Alignment.Center,
         ) {

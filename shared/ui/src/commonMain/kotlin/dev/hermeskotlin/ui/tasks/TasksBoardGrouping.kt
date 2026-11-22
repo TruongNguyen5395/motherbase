@@ -146,13 +146,15 @@ internal fun inferUrgencyFromPriority(priority: String?): MatrixLevel = when (pr
 }
 
 /**
- * Resolves a task's 2D Impact × Urgency position. Stored manual [DirectusTask.urgency] is preserved,
- * while effective urgency elevates automatically when blocked, overdue, or due within 1–2 days.
+ * Resolves a task's 2D Impact × Urgency position. Explicit manual [DirectusTask.urgency] is always
+ * respected so dragging a task to Schedule/Later sticks even when overdue; unplaced tasks
+ * (`urgency == null`) elevate automatically when blocked, overdue, or due within 1–2 days.
  */
 internal fun resolveTaskMatrix(task: DirectusTask, todayEpochDay: Long): TaskMatrixPosition {
     val impact = MatrixLevel.fromWire(task.impact) ?: inferImpactFromPriority(task.priority)
-    val rawUrgency = MatrixLevel.fromWire(task.urgency) ?: inferUrgencyFromPriority(task.priority)
-    val effectiveUrgency = if (task.status == DirectusTask.STATUS_DONE) {
+    val explicitUrgency = MatrixLevel.fromWire(task.urgency)
+    val rawUrgency = explicitUrgency ?: inferUrgencyFromPriority(task.priority)
+    val effectiveUrgency = if (task.status == DirectusTask.STATUS_DONE || explicitUrgency != null) {
         rawUrgency
     } else {
         val overdue = taskOverdueDays(task, todayEpochDay)
