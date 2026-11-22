@@ -185,10 +185,12 @@ internal fun resolveTaskReplyBadge(
     if (task.id in localAckedTaskIds) return TaskReplyBadge.NONE
     if (task.id in localUnreadTaskIds) return TaskReplyBadge.UNREAD
     val rs = task.replyStatus ?: return TaskReplyBadge.NONE
+    val roomChannelId = rs.lastReplyChannelId
+    val roomSeq = rs.latestRoomSeq
     val roomUnread = rs.lastReplyChannelType == TaskChannel.TYPE_ROOM &&
-        rs.lastReplyChannelId != null &&
-        rs.latestRoomSeq != null &&
-        seenRoomSeqs[rs.lastReplyChannelId]?.let { seen -> rs.latestRoomSeq > seen } == true
+        roomChannelId != null &&
+        roomSeq != null &&
+        seenRoomSeqs[roomChannelId]?.let { seen -> roomSeq > seen } == true
     val serverUnread = rs.hasUnreadReply || roomUnread
     if (serverUnread && task.id !in localReadTaskIds) return TaskReplyBadge.UNREAD
     if (rs.awaitingReply) return TaskReplyBadge.AWAITING_REPLY
