@@ -77,7 +77,7 @@ class DisplayStoreTest {
         store.respondInstallSudo("default", "my-sudo-pw")
         advanceUntilIdle()
         assertNull(store.stateOf("default").installSudoRequestId)
-        val sudoReply = gateway.socket.sentRaw.last()
+        val sudoReply = gateway.socket.sent.value.last().toString()
         assertTrue(sudoReply.contains("my-sudo-pw"))
 
         // tool.start triggers autoRaise for computer_use and browser_ tools

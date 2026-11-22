@@ -245,13 +245,13 @@ fun BotScreenPane(
                 when {
                     screenState.unavailable -> ScreenMessageCard(
                         title = stringResource(Res.string.screen_title),
-                        body = stringResource(Res.string.screen_unavailable),
+                        message = stringResource(Res.string.screen_unavailable),
                     )
                     status?.imageSwitch != null -> {
                         val sw = status.imageSwitch!!
                         ScreenActionCard(
                             title = stringResource(Res.string.screen_sandbox_switch_title),
-                            body = stringResource(Res.string.screen_sandbox_switch_body, sw.currentImage, sw.desktopImage),
+                            message = stringResource(Res.string.screen_sandbox_switch_body, sw.currentImage, sw.desktopImage),
                             command = sw.rebuildCommand,
                             primaryLabel = stringResource(Res.string.screen_sandbox_switch_button),
                             busy = screenState.actionBusy,
@@ -283,7 +283,7 @@ fun BotScreenPane(
                         }
                         ScreenActionCard(
                             title = stringResource(Res.string.screen_title),
-                            body = ramLine,
+                            message = ramLine,
                             primaryLabel = stringResource(Res.string.screen_retry),
                             busy = screenState.loading || screenState.actionBusy,
                             onPrimary = viewModel::startScreen,
@@ -297,7 +297,7 @@ fun BotScreenPane(
                     status?.running == false -> {
                         ScreenActionCard(
                             title = stringResource(Res.string.screen_status_off),
-                            body = screenState.error ?: stringResource(Res.string.screen_desktop_only_hint),
+                            message = screenState.error ?: stringResource(Res.string.screen_desktop_only_hint),
                             primaryLabel = stringResource(Res.string.screen_start),
                             busy = screenState.actionBusy,
                             onPrimary = viewModel::startScreen,
@@ -335,7 +335,7 @@ fun BotScreenPane(
                         val msg = ui.surfaceFailure ?: screenState.error ?: disconnectNoticeText(ui.disconnectNotice)
                         ScreenActionCard(
                             title = stringResource(Res.string.screen_title),
-                            body = msg.ifBlank { stringResource(Res.string.screen_notice_lost) },
+                            message = msg.ifBlank { stringResource(Res.string.screen_notice_lost) },
                             primaryLabel = stringResource(Res.string.screen_reconnect),
                             busy = screenState.loading,
                             onPrimary = viewModel::connectLive,
@@ -889,7 +889,7 @@ private fun InstallRuntimeCard(
 @Composable
 private fun ScreenActionCard(
     title: String,
-    body: String,
+    message: String,
     primaryLabel: String,
     busy: Boolean,
     onPrimary: () -> Unit,
@@ -910,7 +910,7 @@ private fun ScreenActionCard(
                 UnstyledIcon(Lucide.Monitor, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(18.dp))
                 Text(title, style = Theme[typography][body].copy(fontWeight = FontWeight.SemiBold), color = Theme[colors][textColor])
             }
-            Text(body, style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
+            Text(message, style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
             if (!command.isNullOrBlank()) {
                 Text(
                     command,
@@ -932,7 +932,7 @@ private fun ScreenActionCard(
 }
 
 @Composable
-private fun ScreenMessageCard(title: String, body: String) {
+private fun ScreenMessageCard(title: String, message: String) {
     Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
         val shape = RoundedCornerShape(Theme[radii][radiusLarge])
         Column(
@@ -945,7 +945,7 @@ private fun ScreenMessageCard(title: String, body: String) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(title, style = Theme[typography][body].copy(fontWeight = FontWeight.SemiBold), color = Theme[colors][textColor])
-            Text(body, style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
+            Text(message, style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
         }
     }
 }

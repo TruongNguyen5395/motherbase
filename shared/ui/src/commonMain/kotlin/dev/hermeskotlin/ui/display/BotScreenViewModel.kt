@@ -12,7 +12,7 @@ import dev.hermeskotlin.core.display.DisplayRelay
 import dev.hermeskotlin.core.gateway.GatewayRepository
 import dev.hermeskotlin.core.gateway.GatewayUrl
 import dev.hermeskotlin.ui.resources.Res
-import io.ktor.util.date.getTimeMillis
+import kotlin.time.Clock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,7 +58,7 @@ class BotScreenViewModel(
     private val loadAssets: suspend () -> Pair<ByteArray, ByteArray> = {
         Res.readBytes("files/bot_screen/viewer.html") to Res.readBytes("files/bot_screen/rfb.js")
     },
-    private val clockMs: () -> Long = ::getTimeMillis,
+    private val clockMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) : ViewModel() {
 
     val profiles: StateFlow<Map<String, ProfileScreenState>> = displayStore.profiles
