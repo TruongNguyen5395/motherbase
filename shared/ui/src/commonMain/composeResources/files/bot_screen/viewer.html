@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>Bot Screen</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0d1117;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #viewport {
+      width: 100%;
+      height: 100%;
+      transform-origin: 0 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      will-change: transform;
+    }
+    #screen {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #screen canvas {
+      outline: none !important;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="viewport">
+    <div id="screen"></div>
+  </div>
+  <script type="module">
+    import RFB from './rfb.js';
+
+    const screenEl = document.getElementById('screen');
+    const viewportEl = document.getElementById('viewport');
+
+    let rfb = null;
+    let cursorX = 0.5;
+    let cursorY = 0.5;
+    let activeButtons = 0;
+
+    function postEvent(type, extra = {}) {
+      const payload = JSON.stringify({ type, ...extra });
+      try {
+        if (window.mbHost && typeof window.mbHost.onEvent === 'function') {
+          window.mbHost.onEvent(payload);
+        }
+      } catch (_) {}
+      try {
+        fetch('./event', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    function canvas() {
+      return rfb && (rfb._canvas || screenEl.querySelector('canvas'));
+    }
+
+    function normalizedToClient(nx, ny) {
+      const c = canvas();
+      if (!c) return { clientX: 0, clientY: 0, width: 1, height: 1 };
+      const rect = c.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, nx));
+      const y = Math.max(0, Math.min(1, ny));
+      return {
+        clientX: rect.left + x * Math.max(1, rect.width),
+        clientY: rect.top + y * Math.max(1, rect.height),
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height),
+      };
+    }
+
+    function clientToNormalized(clientX, clientY) {
+      const c = canvas();
+      if (!c) return { nx: cursorX, ny: cursorY };
+      const rect = c.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return { nx: cursorX, ny: cursorY };
+      return {
+        nx: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+        ny: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)),
+      };
+    }
+
+    function dispatchMouse(type, clientX, clientY, buttons) {
+      const c = canvas();
+      if (!c || !rfb) return;
+      c.dispatchEvent(new MouseEvent(type, {
+        clientX,
+        clientY,
+        buttons,
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      }));
+    }
+
+    function reportDesktopSize() {
+      const c = canvas();
+      if (!c) return;
+      const rect = c.getBoundingClientRect();
+      postEvent('canvas_metrics', {
+        fbWidth: c.width || 0,
+        fbHeight: c.height || 0,
+        cssWidth: rect.width || 0,
+        cssHeight: rect.height || 0,
+        cursorX,
+        cursorY,
+      });
+    }
+
+    const api = {
+      connect(wsUrl, optsJson = '{}') {
+        api.disconnect();
+        const opts = typeof optsJson === 'string' ? JSON.parse(optsJson || '{}') : (optsJson || {});
+        const instance = new RFB(screenEl, wsUrl, { shared: true });
+        instance.viewOnly = opts.viewOnly !== false;
+        instance.scaleViewport = opts.scaleViewport !== false;
+        instance.clipViewport = false;
+        instance.resizeSession = false;
+        instance.qualityLevel = typeof opts.qualityLevel === 'number' ? opts.qualityLevel : 6;
+        instance.compressionLevel = typeof opts.compressionLevel === 'number' ? opts.compressionLevel : 2;
+        instance.focusOnClick = opts.focusOnClick !== false;
+        instance.showDotCursor = !!opts.showDotCursor;
+
+        instance.addEventListener('connect', () => {
+          postEvent('connect', { desktopName: instance._fbName || '' });
+          setTimeout(reportDesktopSize, 50);
+        });
+        instance.addEventListener('disconnect', (e) => {
+          postEvent('disconnect', { clean: !!(e && e.detail && e.detail.clean) });
+        });
+        instance.addEventListener('desktopname', (e) => {
+          postEvent('desktopname', { name: (e && e.detail && e.detail.name) || '' });
+          setTimeout(reportDesktopSize, 50);
+        });
+        instance.addEventListener('clipboard', (e) => {
+          const text = (e && e.detail && e.detail.text) || '';
+          if (text) postEvent('clipboard', { text });
+        });
+        instance.addEventListener('securityfailure', (e) => {
+          postEvent('securityfailure', {
+            status: e && e.detail ? e.detail.status : 0,
+            reason: (e && e.detail && e.detail.reason) || '',
+          });
+        });
+
+        rfb = instance;
+      },
+
+      disconnect() {
+        if (rfb) {
+          try { rfb.disconnect(); } catch (_) {}
+          rfb = null;
+        }
+        activeButtons = 0;
+        screenEl.innerHTML = '';
+      },
+
+      setViewOnly(flag) {
+        if (rfb) rfb.viewOnly = !!flag;
+      },
+
+      setQuality(qualityLevel, compressionLevel) {
+        if (!rfb) return;
+        rfb.qualityLevel = Number(qualityLevel);
+        rfb.compressionLevel = Number(compressionLevel);
+      },
+
+      setShowDotCursor(flag) {
+        if (rfb) rfb.showDotCursor = !!flag;
+      },
+
+      focusScreen() {
+        const c = canvas();
+        if (rfb && typeof rfb.focus === 'function') rfb.focus();
+        else if (c && typeof c.focus === 'function') c.focus();
+      },
+
+      blurScreen() {
+        if (rfb && typeof rfb.blur === 'function') rfb.blur();
+      },
+
+      sendKey(keysym, code, down) {
+        if (rfb) rfb.sendKey(Number(keysym), code || undefined, down);
+      },
+
+      tapKey(keysym, code = '') {
+        if (!rfb) return;
+        const ks = Number(keysym);
+        rfb.sendKey(ks, code || undefined, true);
+        rfb.sendKey(ks, code || undefined, false);
+      },
+
+      sendCombo(keysJson) {
+        if (!rfb) return;
+        const keys = typeof keysJson === 'string' ? JSON.parse(keysJson) : keysJson;
+        if (!Array.isArray(keys)) return;
+        for (const [ks, code] of keys) {
+          rfb.sendKey(Number(ks), code || undefined, true);
+        }
+        for (let i = keys.length - 1; i >= 0; i--) {
+          const [ks, code] = keys[i];
+          rfb.sendKey(Number(ks), code || undefined, false);
+        }
+      },
+
+      sendCtrlAltDel() {
+        if (rfb) rfb.sendCtrlAltDel();
+      },
+
+      pasteClipboard(text) {
+        if (rfb && typeof text === 'string') {
+          rfb.clipboardPasteFrom(text);
+        }
+      },
+
+      typeText(text) {
+        if (!rfb || typeof text !== 'string') return;
+        for (const ch of text) {
+          if (ch === '\n' || ch === '\r') {
+            rfb.sendKey(0xFF0D, 'Enter', true);
+            rfb.sendKey(0xFF0D, 'Enter', false);
+            continue;
+          }
+          if (ch === '\t') {
+            rfb.sendKey(0xFF09, 'Tab', true);
+            rfb.sendKey(0xFF09, 'Tab', false);
+            continue;
+          }
+          const cp = ch.codePointAt(0);
+          if (cp == null) continue;
+          const ks = (cp >= 0x20 && cp <= 0x7E) ? cp : (0x01000000 | cp);
+          rfb.sendKey(ks, '', true);
+          rfb.sendKey(ks, '', false);
+        }
+      },
+
+      pointerMoveNormalized(nx, ny) {
+        cursorX = Math.max(0, Math.min(1, Number(nx)));
+        cursorY = Math.max(0, Math.min(1, Number(ny)));
+        const pt = normalizedToClient(cursorX, cursorY);
+        dispatchMouse('mousemove', pt.clientX, pt.clientY, activeButtons);
+        postEvent('cursor', { cursorX, cursorY });
+      },
+
+      pointerMoveAtViewPx(viewX, viewY) {
+        const norm = clientToNormalized(Number(viewX), Number(viewY));
+        api.pointerMoveNormalized(norm.nx, norm.ny);
+      },
+
+      pointerMoveRelative(dxPx, dyPx) {
+        const c = canvas();
+        if (!c) return;
+        const rect = c.getBoundingClientRect();
+        const nx = cursorX + Number(dxPx) / Math.max(1, rect.width);
+        const ny = cursorY + Number(dyPx) / Math.max(1, rect.height);
+        api.pointerMoveNormalized(nx, ny);
+      },
+
+      pointerDown(nx, ny, buttonMask = 1) {
+        if (nx >= 0 && ny >= 0) {
+          cursorX = Math.max(0, Math.min(1, Number(nx)));
+          cursorY = Math.max(0, Math.min(1, Number(ny)));
+        }
+        activeButtons = Number(buttonMask) || 1;
+        const pt = normalizedToClient(cursorX, cursorY);
+        dispatchMouse('mousemove', pt.clientX, pt.clientY, 0);
+        dispatchMouse('mousedown', pt.clientX, pt.clientY, activeButtons);
+      },
+
+      pointerUp(nx = -1, ny = -1) {
+        if (nx >= 0 && ny >= 0) {
+          cursorX = Math.max(0, Math.min(1, Number(nx)));
+          cursorY = Math.max(0, Math.min(1, Number(ny)));
+        }
+        activeButtons = 0;
+        const pt = normalizedToClient(cursorX, cursorY);
+        dispatchMouse('mouseup', pt.clientX, pt.clientY, 0);
+      },
+
+      pointerTap(nx = -1, ny = -1, buttonMask = 1) {
+        api.pointerDown(nx, ny, buttonMask);
+        api.pointerUp(-1, -1);
+      },
+
+      pointerTapAtViewPx(viewX, viewY, buttonMask = 1) {
+        const norm = clientToNormalized(Number(viewX), Number(viewY));
+        api.pointerTap(norm.nx, norm.ny, buttonMask);
+      },
+
+      pointerDownAtViewPx(viewX, viewY, buttonMask = 1) {
+        const norm = clientToNormalized(Number(viewX), Number(viewY));
+        api.pointerDown(norm.nx, norm.ny, buttonMask);
+      },
+
+      pointerWheel(dx, dy, nx = -1, ny = -1) {
+        const c = canvas();
+        if (!c || !rfb) return;
+        const x = (nx >= 0 && ny >= 0) ? nx : cursorX;
+        const y = (nx >= 0 && ny >= 0) ? ny : cursorY;
+        const pt = normalizedToClient(x, y);
+        c.dispatchEvent(new WheelEvent('wheel', {
+          clientX: pt.clientX,
+          clientY: pt.clientY,
+          deltaX: Number(dx),
+          deltaY: Number(dy),
+          deltaMode: 0,
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        }));
+      },
+
+      setViewportTransform(scale, txPx, tyPx) {
+        viewportEl.style.transform = `translate3d(${Number(txPx)}px, ${Number(tyPx)}px, 0) scale(${Number(scale)})`;
+      },
+
+      resetTransform() {
+        viewportEl.style.transform = 'none';
+      },
+
+      getMetrics: reportDesktopSize,
+    };
+
+    window.mbScreenApi = api;
+    window.addEventListener('resize', () => setTimeout(reportDesktopSize, 50));
+    postEvent('ready');
+  </script>
+</body>
+</html>

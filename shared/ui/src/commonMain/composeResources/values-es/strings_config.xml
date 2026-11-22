@@ -125,4 +125,10 @@
     <string name="config_label_delegation_child_timeout_seconds">Tiempo límite de subagentes</string>
     <string name="config_label_delegation_reasoning_effort">Esfuerzo de razonamiento de subagentes</string>
     <string name="config_label_updates_non_interactive_local_changes">Cambios locales al actualizar en la app</string>
+    <string name="config_section_bot_desktop">Pantalla del bot</string>
+    <string name="config_label_bot_desktop_auto_start">Iniciar automáticamente al usar herramientas</string>
+    <string name="config_label_bot_desktop_idle_stop_minutes">Tiempo de inactividad (minutos)</string>
+    <string name="config_label_bot_desktop_geometry">Resolución de pantalla</string>
+    <string name="config_label_bot_desktop_min_free_memory_mb">Memoria libre mínima (MB)</string>
+    <string name="config_label_bot_desktop_placement">Ubicación de pantalla</string>
 </resources>

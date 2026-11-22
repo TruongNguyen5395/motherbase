@@ -35,7 +35,7 @@ val desktopModule = module {
     single<PhoneToolRunner> { NoPhoneTools }
     single { PhoneToolsBridge(get(), get(), get(), get(), get(), get(), get(), get(), deviceName = ::computerName) }
     // Widgets and plugin pages in the app, where the runtime carries Chromium (the installer's does).
-    if (Jcef.available) single<DesktopWeb> { JcefWeb(get(), get()) }
+    if (Jcef.available) single<DesktopWeb> { JcefWeb(get(), get(), get()) }
 }
 
 private fun computerName(): String = runCatching { InetAddress.getLocalHost().hostName }.getOrNull() ?: "Desktop"

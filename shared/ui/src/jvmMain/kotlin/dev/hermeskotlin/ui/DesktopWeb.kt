@@ -23,6 +23,20 @@ interface DesktopWeb {
     /** A plugin's page at [url] on [gateway], signed in as the app is, with a bar that names it and closes it. */
     @Composable
     fun PluginPage(url: String, gateway: String, title: String, onClose: () -> Unit)
+
+    /**
+     * An interactive Bot Screen viewport served solely from [url] (local `DisplayRelay`), with
+     * [initScript] run on main-frame load and [evalScript] evaluated on updates.
+     */
+    @Composable
+    fun RemoteScreen(
+        url: String,
+        initScript: String,
+        evalScript: String?,
+        captureAllKeys: Boolean,
+        modifier: Modifier,
+        onFailure: (String) -> Unit,
+    )
 }
 
 /** The app's [DesktopWeb], or null where the runtime has no browser. */

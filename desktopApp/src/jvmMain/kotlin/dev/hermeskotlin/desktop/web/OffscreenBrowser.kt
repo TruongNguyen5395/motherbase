@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -27,8 +28,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import dev.hermeskotlin.ui.LocalCaptureAllKeys
 import org.cef.CefClient
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefRendering
@@ -183,13 +186,34 @@ private val PAGE_EDITING_KEYS = setOf(
 )
 
 @Composable
-internal fun BrowserSurface(page: OffscreenBrowser, modifier: Modifier = Modifier, keepsWheel: (down: Boolean) -> Boolean = { true }) {
+internal fun BrowserSurface(
+    page: OffscreenBrowser,
+    modifier: Modifier = Modifier,
+    captureAllKeys: Boolean = false,
+    keepsWheel: (down: Boolean) -> Boolean = { true },
+) {
     val density = LocalDensity.current.density
     val focus = remember { FocusRequester() }
     val wheel by rememberUpdatedState(keepsWheel)
+    val captureState = LocalCaptureAllKeys.current
+    val focusManager = LocalFocusManager.current
+    var wasFocused by remember { mutableStateOf(false) }
     // Chromium wants an AWT component as each event's source; it reads only the event's own fields.
     val source = remember { java.awt.Canvas() }
-    DisposableEffect(page) { onDispose { page.close() } }
+    LaunchedEffect(captureAllKeys) {
+        if (!captureAllKeys && captureState.value && wasFocused) {
+            captureState.value = false
+            focusManager.clearFocus()
+        } else if (captureAllKeys && wasFocused) {
+            captureState.value = true
+        }
+    }
+    DisposableEffect(page) {
+        onDispose {
+            if (wasFocused) captureState.value = false
+            page.close()
+        }
+    }
     Box(
         modifier
             .onGloballyPositioned { coordinates ->
@@ -240,13 +264,20 @@ internal fun BrowserSurface(page: OffscreenBrowser, modifier: Modifier = Modifie
                     }
                 }
             }
-            .onFocusChanged { page.browser.setFocus(it.isFocused) }
+            .onFocusChanged {
+                wasFocused = it.isFocused
+                page.browser.setFocus(it.isFocused)
+                if (captureAllKeys) captureState.value = it.isFocused
+            }
             .focusRequester(focus)
             .focusable()
             .onKeyEvent { event ->
                 val awt = event.awtEventOrNull ?: return@onKeyEvent false
+                if (captureAllKeys && awt.keyCode == KeyEvent.VK_ESCAPE && awt.isControlDown && awt.isShiftDown) {
+                    return@onKeyEvent false
+                }
                 page.browser.sendKeyEvent(awt)
-                !reachesApp(awt)
+                if (captureAllKeys) true else !reachesApp(awt)
             },
     ) {
         Canvas(Modifier.fillMaxSize()) {

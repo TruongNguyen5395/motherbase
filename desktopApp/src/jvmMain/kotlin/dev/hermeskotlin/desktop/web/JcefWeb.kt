@@ -31,6 +31,7 @@ import com.composeunstyled.Text
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.auth.WebCookieJar
 import dev.hermeskotlin.core.auth.WebSession
+import dev.hermeskotlin.core.display.DisplayRelay
 import dev.hermeskotlin.core.gateway.GatewayRepository
 import dev.hermeskotlin.designsystem.background
 import dev.hermeskotlin.designsystem.body
@@ -87,11 +88,15 @@ import java.net.URI
 import java.util.Date
 import java.util.Vector
 
-/** Widgets and plugin pages in the Chromium the JetBrains Runtime carries; see [Jcef]. */
-internal class JcefWeb(private val cookies: WebCookieJar, private val gateways: GatewayRepository) : DesktopWeb {
+/** Widgets, Bot Screen, and plugin pages in the Chromium the JetBrains Runtime carries; see [Jcef]. */
+internal class JcefWeb(
+    private val cookies: WebCookieJar,
+    private val gateways: GatewayRepository,
+    private val displayRelay: DisplayRelay,
+) : DesktopWeb {
 
     private suspend fun app(): CefApp? {
-        val saved = gateways.all().gateways.map { it.url }
+        val saved = gateways.all().gateways.map { it.url } + displayRelay.localOrigin
         return Jcef.app { saved }
     }
 
@@ -131,6 +136,56 @@ internal class JcefWeb(private val cookies: WebCookieJar, private val gateways: 
             }
         }
         BrowserSurface(page, modifier) { down -> keepsWheel(page.title, down) }
+    }
+
+    @Composable
+    override fun RemoteScreen(
+        url: String,
+        initScript: String,
+        evalScript: String?,
+        captureAllKeys: Boolean,
+        modifier: Modifier,
+        onFailure: (String) -> Unit,
+    ) {
+        val failure by rememberUpdatedState(onFailure)
+        val noBrowser by rememberUpdatedState(stringResource(Res.string.web_widget_no_browser))
+        val widgetFailed by rememberUpdatedState(stringResource(Res.string.web_widget_failed))
+        val app by produceState<CefApp?>(null, url) {
+            value = app()?.takeIf { Jcef.reaches(url) }
+            if (value == null) failure(noBrowser)
+        }
+        val cef = app
+        if (cef == null) {
+            Box(modifier)
+            return
+        }
+        val relayOrigin = remember(url) { parseUrl(url) }
+        val latestInit by rememberUpdatedState(initScript)
+        val client = remember(cef, url) { cef.createClient() }
+        var loaded by remember(client, url) { mutableStateOf(false) }
+        val page = remember(client, url) {
+            client.lockDownRelay(
+                relayOrigin = relayOrigin,
+                onMainLoaded = { browser ->
+                    loaded = true
+                    if (latestInit.isNotBlank()) browser.executeJavaScript(latestInit, url, 0)
+                },
+                onFailure = { failure(widgetFailed) },
+            )
+            OffscreenBrowser(client, url, transparent = false)
+        }
+        DisposableEffect(client) { onDispose { client.dispose() } }
+        LaunchedEffect(loaded, initScript) {
+            if (loaded && initScript.isNotBlank()) {
+                page.browser.executeJavaScript(initScript, url, 0)
+            }
+        }
+        LaunchedEffect(loaded, evalScript) {
+            if (loaded && !evalScript.isNullOrBlank()) {
+                page.browser.executeJavaScript(evalScript, url, 0)
+            }
+        }
+        BrowserSurface(page, modifier, captureAllKeys = captureAllKeys) { true }
     }
 
     @Composable
@@ -373,6 +428,65 @@ private const val RENEW_RETRY_MS = 60_000L
 
 /** A second trip to the sign-in this soon after a renewal means the renewal didn't take. */
 private const val RECOVERY_WINDOW_MS = 30_000L
+
+private fun isRelaySameEndpoint(candidateUrl: String, relayOrigin: URI?): Boolean {
+    if (relayOrigin == null) return false
+    if (candidateUrl.startsWith("data:") || candidateUrl.startsWith("blob:") || candidateUrl.startsWith("about:")) return true
+    val target = parseUrl(candidateUrl) ?: return false
+    val scheme = target.scheme?.lowercase() ?: return false
+    if (scheme != "http" && scheme != "ws") return false
+    return target.host.equals(relayOrigin.host, ignoreCase = true) && target.effectivePort == relayOrigin.effectivePort
+}
+
+private fun CefClient.lockDownRelay(
+    relayOrigin: URI?,
+    onMainLoaded: (CefBrowser) -> Unit,
+    onFailure: () -> Unit,
+) {
+    addRequestHandler(object : CefRequestHandlerAdapter() {
+        override fun onBeforeBrowse(browser: CefBrowser, frame: CefFrame, request: CefRequest, userGesture: Boolean, isRedirect: Boolean): Boolean =
+            !isRelaySameEndpoint(request.url, relayOrigin)
+
+        override fun getResourceRequestHandler(
+            browser: CefBrowser, frame: CefFrame, request: CefRequest, isNavigation: Boolean, isDownload: Boolean,
+            requestInitiator: String?, disableDefaultHandling: BoolRef,
+        ): CefResourceRequestHandler = object : CefResourceRequestHandlerAdapter() {
+            override fun onBeforeResourceLoad(browser: CefBrowser, frame: CefFrame, request: CefRequest): Boolean =
+                !isRelaySameEndpoint(request.url, relayOrigin)
+        }
+
+        override fun onRenderProcessTerminated(browser: CefBrowser, status: CefRequestHandler.TerminationStatus, errorCode: Int, errorString: String?) {
+            onFailure()
+        }
+    })
+    addLoadHandler(object : CefLoadHandlerAdapter() {
+        override fun onLoadEnd(browser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
+            if (frame.isMain) onMainLoaded(browser)
+        }
+
+        override fun onLoadError(browser: CefBrowser, frame: CefFrame, errorCode: CefLoadHandler.ErrorCode, errorText: String?, failedUrl: String?) {
+            if (frame.isMain && errorCode != CefLoadHandler.ErrorCode.ERR_ABORTED) onFailure()
+        }
+    })
+    addLifeSpanHandler(object : CefLifeSpanHandlerAdapter() {
+        override fun onBeforePopup(browser: CefBrowser, frame: CefFrame, targetUrl: String?, targetFrameName: String?): Boolean = true
+    })
+    addPermissionHandler { _, _, _, _, callback ->
+        callback.Continue(0)
+        true
+    }
+    addJSDialogHandler(object : CefJSDialogHandlerAdapter() {
+        override fun onJSDialog(
+            browser: CefBrowser, originUrl: String?, dialogType: CefJSDialogHandler.JSDialogType, messageText: String?,
+            defaultPromptText: String?, callback: CefJSDialogCallback, suppressMessage: BoolRef,
+        ): Boolean {
+            suppressMessage.set(true)
+            return false
+        }
+    })
+    addContextMenuHandler(NoContextMenu)
+    addDialogHandler(NoFileDialogs)
+}
 
 /**
  * A widget's client: the only thing it loads is [document] at [WIDGET_URL]; anything else, from the network to

@@ -57,8 +57,10 @@ import dev.hermeskotlin.core.storage.startDesktopStorageFresh
 import dev.hermeskotlin.desktop.web.Jcef
 import dev.hermeskotlin.ui.App
 import dev.hermeskotlin.ui.DesktopBack
+import dev.hermeskotlin.ui.LocalCaptureAllKeys
 import dev.hermeskotlin.ui.LocalDesktopBack
 import dev.hermeskotlin.ui.LocalFocusHeld
+import dev.hermeskotlin.ui.isScreenCaptureReleaseChord
 import dev.hermeskotlin.ui.QuickEntryHotkey
 import dev.hermeskotlin.ui.SystemColorScheme
 import dev.hermeskotlin.ui.keepFocusHeld
@@ -150,6 +152,7 @@ fun main(args: Array<String>) {
     ClassArchive.refreshLater()
     application(exitProcessOnExit = false) {
         val shortcuts = remember { ShortcutBus() }
+        val captureAllKeys = remember { mutableStateOf(false) }
         val back = remember { DesktopBack() }
         val settings = settingsStore.settings.collectAsState().value ?: AppSettings()
         var windowShown by remember { mutableStateOf(true) }
@@ -316,8 +319,18 @@ fun main(args: Array<String>) {
             title = TITLE,
             icon = icon,
             state = windowState,
-            // The app's shortcuts go before anything focused, so Ctrl+N is a new chat even from the composer.
-            onPreviewKeyEvent = { event -> Shortcut.of(event, mac)?.let(shortcuts::fire) ?: false },
+            // The app's shortcuts go before anything focused, so Ctrl+N is a new chat even from the composer,
+            // except while an interactive Bot Screen viewport holds keyboard capture.
+            onPreviewKeyEvent = { event ->
+                when {
+                    captureAllKeys.value && isScreenCaptureReleaseChord(event) -> {
+                        captureAllKeys.value = false
+                        true
+                    }
+                    captureAllKeys.value -> false
+                    else -> Shortcut.of(event, mac)?.let(shortcuts::fire) ?: false
+                }
+            },
             onKeyEvent = { event ->
                 when {
                     // Escape is the desktop's back; with nothing to close, it stops the reply.
@@ -349,6 +362,7 @@ fun main(args: Array<String>) {
                 LocalDesktopBack provides back,
                 LocalClipboard provides rememberPatientClipboard(),
                 LocalFocusHeld provides focusHeld,
+                LocalCaptureAllKeys provides captureAllKeys,
             ) {
                 // Under the app's handlers, so a page open over the chat sees Ctrl+W first.
                 ShortcutHandler { shortcut ->

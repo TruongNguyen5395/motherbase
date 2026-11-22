@@ -62,6 +62,7 @@ import com.composables.icons.lucide.Eye
 import com.composables.icons.lucide.EyeOff
 import com.composables.icons.lucide.History
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Monitor
 import com.composables.icons.lucide.MessageSquarePlus
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Pin
@@ -80,6 +81,7 @@ import dev.hermeskotlin.core.bots.BotTrouble
 import dev.hermeskotlin.core.bots.lastActivity
 import dev.hermeskotlin.core.bots.rosterPreview
 import dev.hermeskotlin.core.bots.showsPicture
+import dev.hermeskotlin.core.display.ProfileScreenState
 import dev.hermeskotlin.core.chat.Waiting
 import dev.hermeskotlin.core.cron.CronJob
 import dev.hermeskotlin.core.rooms.DesktopRoom
@@ -165,6 +167,9 @@ interface BotActions {
 
     /** The bot's scheduled routines. */
     fun routines(bot: Bot)
+
+    /** Opens the bot's live screen. */
+    fun openScreen(bot: Bot) {}
 }
 
 /**
@@ -209,6 +214,8 @@ fun BotsRoster(
     /** Why a room's rename or delete didn't work. */
     roomsNotice: Words? = null,
     onDismissRoomsNotice: () -> Unit = {},
+    screenStates: Map<String, ProfileScreenState> = emptyMap(),
+    showScreenAction: Boolean = false,
 ) {
     val heldUp = remember(needsYou) { needsYou.filterIsInstance<NeedsYou.Answer>().associate { it.bot.name to it.waiting } }
     var roomAsk by remember { mutableStateOf<RoomAsk?>(null) }
@@ -238,6 +245,8 @@ fun BotsRoster(
             trouble = troubles[bot.name],
             failingRoutine = failingRoutines[bot.name],
             waiting = heldUp[bot.name],
+            screenState = screenStates[bot.name],
+            showScreenAction = showScreenAction,
             actions = actions,
             onStartOver = { startOver = bot },
             onDelete = { deleting = bot },
@@ -432,6 +441,8 @@ private fun BotCard(
     failingRoutine: CronJob?,
     /** Its chat is held up on the user. */
     waiting: Waiting?,
+    screenState: ProfileScreenState? = null,
+    showScreenAction: Boolean = false,
     actions: BotActions,
     onStartOver: () -> Unit,
     onDelete: () -> Unit,
@@ -471,11 +482,13 @@ private fun BotCard(
     val routines = stringResource(Res.string.bots_routines)
     val startFresh = stringResource(Res.string.bots_start_fresh)
     val edit = stringResource(Res.string.bots_edit)
+    val openScreenLabel = stringResource(Res.string.screen_open)
     val duplicate = stringResource(Res.string.bots_duplicate)
     val delete = stringResource(Res.string.bots_delete)
     val menuItems = {
         listOfNotNull(
             RowMenuItem(checkAgain, Lucide.RefreshCw) { actions.checkAgain(bot) }.takeIf { trouble != null },
+            RowMenuItem(openScreenLabel, Lucide.Monitor) { actions.openScreen(bot) }.takeIf { showScreenAction && screenState?.unavailable != true },
             RowMenuItem(pinLabel, if (pinned) Lucide.PinOff else Lucide.Pin) { actions.setPinned(bot, !pinned) },
             RowMenuItem(hideLabel, if (hidden) Lucide.Eye else Lucide.EyeOff) { actions.setHidden(bot, !hidden) },
             RowMenuItem(openRecent, Lucide.History) { actions.openRecent(bot) }.takeIf { recent != null },
@@ -522,9 +535,21 @@ private fun BotCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 BotAvatar(bot, picture, size = 44.dp)
                 Spacer(Modifier.weight(1f))
+                if (screenState?.status?.running == true) {
+                    UnstyledIcon(
+                        Lucide.Monitor,
+                        contentDescription = stringResource(Res.string.screen_title),
+                        tint = if (screenState.status?.lease?.holder == dev.hermeskotlin.core.display.LeaseHolder.Human) {
+                            Theme[colors][warning]
+                        } else {
+                            Theme[colors][accentText]
+                        },
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
                 when {
                     opening -> Spinner(Modifier.size(14.dp))
                     else -> StatusDot(tone, unread)

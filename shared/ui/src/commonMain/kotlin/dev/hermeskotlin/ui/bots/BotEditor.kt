@@ -65,7 +65,11 @@ import com.composables.icons.lucide.Blocks
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Cpu
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Monitor
 import com.composables.icons.lucide.SlidersHorizontal
+import dev.hermeskotlin.core.display.DisplayStore
+import dev.hermeskotlin.designsystem.components.Switch
+import dev.hermeskotlin.ui.display.BotScreenHero
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
@@ -141,6 +145,9 @@ fun BotEditor(
     onCapabilities: () -> Unit = {},
     /** Opens the bot's own Hermes settings. */
     onConfig: () -> Unit = {},
+    /** Optional Bot Screen portal card state & launch callback. */
+    displayStore: DisplayStore? = null,
+    onOpenScreen: ((Bot) -> Unit)? = null,
 ) {
     PlatformBackHandler(enabled = busy == null, onBack = onBack)
     val meta = bot?.meta ?: BotMeta()
@@ -153,6 +160,7 @@ fun BotEditor(
     val current = remember(bot) { bot?.let(::botLook) }
     var shape by remember { mutableStateOf(current?.shape) }
     var color by remember { mutableStateOf(current?.color) }
+    var screenAutoOpen by remember(bot?.name, meta.screenAutoOpen) { mutableStateOf(meta.screenAutoOpen) }
     var typedName by remember { mutableStateOf("") }
     LaunchedEffect(name) { snapshotFlow { name.text.toString() }.collect { typedName = it } }
     LaunchedEffect(bot) {
@@ -257,6 +265,14 @@ fun BotEditor(
                 // What it runs and can do: each saved as soon as it's picked, apart from the form.
                 if (bot != null) {
                     val now = live ?: bot
+                    if (displayStore != null && onOpenScreen != null) {
+                        BotScreenHero(
+                            profile = now.name,
+                            displayStore = displayStore,
+                            visible = true,
+                            onOpenScreen = { onOpenScreen(now) },
+                        )
+                    }
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         SectionLabel(stringResource(Res.string.bots_how_it_works))
                         // The two settings on one ringed card, split by a hairline.
@@ -291,6 +307,24 @@ fun BotEditor(
                                 stringResource(Res.string.bots_config_detail, bot.label),
                                 onClick = onConfig,
                             )
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = MinTouchTarget)
+                                    .handCursor()
+                                    .clickable { screenAutoOpen = !screenAutoOpen }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                UnstyledIcon(Lucide.Monitor, contentDescription = null, tint = Theme[colors][textSecondary], modifier = Modifier.size(18.dp))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(stringResource(Res.string.bots_screen_auto_open_label), style = Theme[typography][body], color = Theme[colors][text])
+                                    Text(stringResource(Res.string.bots_screen_auto_open_hint), style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
+                                }
+                                Switch(checked = screenAutoOpen)
+                            }
                         }
                     }
                 }
@@ -326,6 +360,9 @@ fun BotEditor(
                                 if (shape != current?.shape || color != current?.color) {
                                     put("custom", JsonPrimitive(true))
                                     put("imageKind", JsonPrimitive("shape"))
+                                }
+                                if (screenAutoOpen != meta.screenAutoOpen) {
+                                    put("screenAutoOpen", JsonPrimitive(screenAutoOpen))
                                 }
                             }
                             val loaded = details

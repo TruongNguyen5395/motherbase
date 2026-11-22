@@ -187,7 +187,7 @@ class GatewayConnection(
      * dies. Never returns normally.
      */
     private suspend fun runSession(transport: RpcTransport, onConnected: () -> Unit): Nothing = coroutineScope {
-        val client = JsonRpcClient(transport, answers = InputRequest.METHODS::contains)
+        val client = JsonRpcClient(transport, answers = { it in InputRequest.METHODS || it == "display.install.sudo" })
         val pump = async { client.run() }
         val ready = try {
             withTimeout(readyTimeoutMs) { client.ready.await() }

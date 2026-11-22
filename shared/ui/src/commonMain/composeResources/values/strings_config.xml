@@ -129,4 +129,10 @@
     <string name="config_label_delegation_child_timeout_seconds">Subagent timeout</string>
     <string name="config_label_delegation_reasoning_effort">Subagent reasoning effort</string>
     <string name="config_label_updates_non_interactive_local_changes">In-app update local changes</string>
+    <string name="config_section_bot_desktop">Bot Screen</string>
+    <string name="config_label_bot_desktop_auto_start">Auto-start on tool use</string>
+    <string name="config_label_bot_desktop_idle_stop_minutes">Idle stop timeout (minutes)</string>
+    <string name="config_label_bot_desktop_geometry">Screen resolution</string>
+    <string name="config_label_bot_desktop_min_free_memory_mb">Minimum free memory (MB)</string>
+    <string name="config_label_bot_desktop_placement">Screen placement</string>
 </resources>

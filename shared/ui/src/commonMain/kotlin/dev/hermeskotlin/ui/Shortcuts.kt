@@ -295,6 +295,16 @@ val LocalShortcuts = staticCompositionLocalOf { ShortcutBus() }
  */
 val LocalFocusHeld = staticCompositionLocalOf<State<Boolean>> { mutableStateOf(false) }
 
+/** Whether an interactive Bot Screen viewport holds keyboard focus and wants app shortcuts bypassed. */
+val LocalCaptureAllKeys = staticCompositionLocalOf<MutableState<Boolean>> { mutableStateOf(false) }
+
+/** Emergency chord (`Ctrl+Shift+Esc`) that exits Bot Screen keyboard capture back to MotherBase. */
+fun isScreenCaptureReleaseChord(event: KeyEvent): Boolean =
+    event.type == KeyEventType.KeyDown &&
+        event.key == Key.Escape &&
+        event.isCtrlPressed &&
+        event.isShiftPressed
+
 /** The window's root, keeping [held] to whether anything inside it has the focus. */
 fun Modifier.keepFocusHeld(held: MutableState<Boolean>): Modifier = onFocusChanged { held.value = it.hasFocus }
 

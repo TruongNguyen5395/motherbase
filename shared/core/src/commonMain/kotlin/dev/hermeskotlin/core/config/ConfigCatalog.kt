@@ -89,6 +89,17 @@ object ConfigCatalog {
         ),
         ConfigSection("browser", "Browser", listOf("browser.use_real_profile", "browser.allow_private_urls", "browser.auto_local_for_private_urls")),
         ConfigSection(
+            "bot_desktop",
+            "Bot Screen",
+            listOf(
+                "bot_desktop.auto_start",
+                "bot_desktop.idle_stop_minutes",
+                "bot_desktop.geometry",
+                "bot_desktop.min_free_memory_mb",
+                "bot_desktop.placement",
+            ),
+        ),
+        ConfigSection(
             "memory",
             "Memory and context",
             listOf(
@@ -381,6 +392,8 @@ object ConfigCatalog {
     /** Desktop's choices for fields the schema leaves as plain text. */
     private val SUGGESTIONS: Map<String, List<String>> = mapOf(
         "agent.image_input_mode" to listOf("auto", "native", "text"),
+        "bot_desktop.placement" to listOf("auto", "gateway", "terminal"),
+        "bot_desktop.geometry" to listOf("1440x900", "1280x800", "1920x1080"),
         "code_execution.mode" to listOf("project", "strict"),
         "stt.provider" to listOf("local", "groq", "openai", "mistral", "xai", "elevenlabs", "deepinfra"),
         "voice.voice_chat_mode" to listOf("chained", "gpt-live"),
@@ -423,6 +436,11 @@ object ConfigCatalog {
         "display.show_reasoning" to "Reasoning blocks",
         "desktop.repo_scan_enabled" to "Find repositories",
         "desktop.repo_scan_roots" to "Folders to search for repositories",
+        "bot_desktop.auto_start" to "Auto-start on tool use",
+        "bot_desktop.idle_stop_minutes" to "Idle stop timeout (minutes)",
+        "bot_desktop.geometry" to "Screen resolution",
+        "bot_desktop.min_free_memory_mb" to "Minimum free memory (MB)",
+        "bot_desktop.placement" to "Screen placement",
         "desktop.repo_scan_exclude_paths" to "Folders to skip",
         "agent.max_turns" to "Max agent steps",
         "agent.image_input_mode" to "Image attachments",
@@ -534,6 +552,11 @@ object ConfigCatalog {
         "desktop.repo_scan_exclude_paths" to "Folders, and everything in them, left out of the search.",
         "timezone" to "Empty uses the gateway's own time zone.",
         "browser.use_real_profile" to "Local browsing uses a copy of the gateway computer's default Chromium profile, with its logins. Off by default.",
+        "bot_desktop.auto_start" to "Start the bot's virtual desktop automatically when Chromium or computer-use tools run.",
+        "bot_desktop.idle_stop_minutes" to "Stop an idle Bot Screen after this many minutes with no active agent or viewer (0 disables).",
+        "bot_desktop.geometry" to "Virtual screen dimensions (WIDTHxHEIGHT) used when starting Xvnc.",
+        "bot_desktop.min_free_memory_mb" to "Refuse starting a Bot Screen when available RAM is below this threshold.",
+        "bot_desktop.placement" to "Run the Bot Screen on the gateway host or inside the isolated terminal sandbox container.",
         "agent.image_input_mode" to "How pictures you attach are sent to the model.",
         "agent.max_turns" to "Most tool-calling steps before Hermes stops a run.",
         "terminal.cwd" to "Default folder for tool and terminal work.",

@@ -24,6 +24,9 @@ import dev.hermeskotlin.core.plugins.NextPromptApi
 import dev.hermeskotlin.core.plugins.PluginsApi
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
+import dev.hermeskotlin.core.display.DisplayApi
+import dev.hermeskotlin.core.display.DisplayRelay
+import dev.hermeskotlin.core.display.DisplayStore
 import dev.hermeskotlin.core.cron.CronApi
 import dev.hermeskotlin.core.insights.InsightsApi
 import dev.hermeskotlin.core.config.ConfigApi
@@ -163,4 +166,7 @@ val coreModule = module {
     single { PushApi(get()) }
     single { InboxStore(get()) }
     single { InboxLinks() }
+    single { DisplayApi(get()) }
+    single { DisplayStore(get(), get(), get()) }
+    single { DisplayRelay(get(), get()) }
 }

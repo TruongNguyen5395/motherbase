@@ -252,7 +252,11 @@ import dev.hermeskotlin.core.bots.mentionable
 import dev.hermeskotlin.ui.bots.BotAvatar
 import dev.hermeskotlin.ui.bots.LocalBotFaces
 import dev.hermeskotlin.ui.bots.DecodedBotAvatar
+import dev.hermeskotlin.core.display.ProfileScreenState
+import dev.hermeskotlin.ui.display.BotScreenPane
+import dev.hermeskotlin.ui.display.BotScreenViewModel
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Monitor
 import com.composables.icons.lucide.PanelRight
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.MessageSquare
@@ -424,6 +428,7 @@ fun ChatScreen(
     /** Switches profile (`/profile`); null is the gateway's launch profile. */
     onSwitchProfile: (String?) -> Unit,
     viewModel: ChatViewModel = koinViewModel(),
+    botScreen: BotScreenViewModel = koinViewModel(),
     /** The desktop's keys reach the chat; off while something covers it. */
     keysEnabled: Boolean = true,
     /** What the Sessions button says about the other chats. */
@@ -467,6 +472,7 @@ fun ChatScreen(
     LaunchedEffect(hasControl) { if (!hasControl) controlOpen = false }
     var viewing by remember { mutableStateOf<ViewerImage?>(null) }
     var previewing by remember(target) { mutableStateOf<PreviewTarget?>(null) }
+    var screenInRail by remember(target) { mutableStateOf(false) }
     var railExpanded by remember(target) { mutableStateOf(false) }
     var nextArtifactId by remember { mutableLongStateOf(0L) }
     val chatKey = target.copy(readUpTo = null)
@@ -480,6 +486,30 @@ fun ChatScreen(
     val rightRail = rememberRightRailState()
     val railScope = rememberCoroutineScope()
     val railWidth = LocalAppSettings.current.railWidth.dp
+    val screenUi by botScreen.ui.collectAsStateWithLifecycle()
+    val screenProfiles by botScreen.profiles.collectAsStateWithLifecycle()
+    val activeScreenProfile = target.profile?.takeIf { it.isNotBlank() } ?: Bot.DEFAULT
+    val screenState = screenProfiles[activeScreenProfile] ?: ProfileScreenState(profile = activeScreenProfile)
+    val screenOpenForChat = screenUi.screenOpen && screenUi.profile == activeScreenProfile
+    val screenBot = LocalBotFaces.current.find(target.bot?.name ?: activeScreenProfile)
+    val screenTitle = target.bot?.label ?: state.title?.takeIf { it.isNotBlank() } ?: target.title ?: stringResource(Res.string.screen_title)
+    LaunchedEffect(target.profile, target.gateway.gatewayUrl, state.storedSessionId, screenBot?.meta?.screenAutoOpen) {
+        botScreen.bindChatContext(
+            profile = target.profile,
+            gatewayUrl = target.gateway.gatewayUrl,
+            sessionId = state.storedSessionId,
+            autoOpenEnabled = screenBot?.meta?.screenAutoOpen == true,
+        )
+    }
+    LaunchedEffect(screenOpenForChat, rightRail.docked) {
+        if (screenOpenForChat) {
+            screenInRail = true
+            if (rightRail.docked) railScope.launch { rightRail.open() }
+        } else if (screenInRail && previewing == null && rightRail.docked && rightRail.isOpen) {
+            screenInRail = false
+            rightRail.close()
+        }
+    }
     val artifacts = remember(state.messages, openedFiles.size) {
         extractChatArtifacts(state.messages, openedFiles.toList())
     }
@@ -487,7 +517,8 @@ fun ChatScreen(
     val docked = previewing?.let { rightRail.docked && it.dockedEligible } == true
     // Over a sheet or a viewer, typing and shortcuts are the dialog's, not the chat's behind it.
     val dialogOpen = modelsOpen || attachOpen || petsOpen || journeyOpen || usageOpen || processesOpen ||
-        checkpointsOpen || controlOpen || viewing != null || (previewing != null && (!docked || railExpanded))
+        checkpointsOpen || controlOpen || viewing != null || (previewing != null && (!docked || railExpanded)) ||
+        (screenOpenForChat && !rightRail.docked)
     ShortcutHandler(enabled = keysEnabled && isDesktop) { shortcut ->
         (shortcut == Shortcut.ToggleRail).also {
             if (it) railScope.launch { rightRail.toggle() }
@@ -610,6 +641,7 @@ fun ChatScreen(
             viewing = ViewerImage(file.name, fetch = { viewModel.downloadFile(file) })
         } else {
             previewing = PreviewTarget.File(file)
+            screenInRail = false
             railExpanded = false
             if (rightRail.docked) railScope.launch { rightRail.open() }
         }
@@ -687,6 +719,7 @@ fun ChatScreen(
         onOpenFile = openPreviewFile,
         onOpenArtifact = {
             previewing = PreviewTarget.Artifact(it, ++nextArtifactId)
+            screenInRail = false
             railExpanded = false
             if (rightRail.docked) railScope.launch { rightRail.open() }
         },
@@ -709,7 +742,28 @@ fun ChatScreen(
         railWidth = railWidth,
         onRailWidthChange = onRailWidthChange,
         railOpen = rightRail.isOpen,
-        onToggleRail = { railScope.launch { rightRail.toggle() } },
+        onToggleRail = {
+            if (rightRail.isOpen && screenInRail && screenOpenForChat) {
+                botScreen.requestClose()
+            } else {
+                screenInRail = false
+                railScope.launch { rightRail.toggle() }
+            }
+        },
+        screenOpen = screenOpenForChat,
+        screenRunning = screenState.status?.running == true,
+        screenHeldByMe = screenState.iHoldLease,
+        onToggleScreen = if (!screenState.unavailable) {
+            {
+                if (screenOpenForChat && (!rightRail.docked || (rightRail.isOpen && screenInRail))) {
+                    botScreen.requestClose()
+                } else {
+                    screenInRail = true
+                    botScreen.openScreen(target.profile, target.gateway.gatewayUrl)
+                    if (rightRail.docked) railScope.launch { rightRail.open() }
+                }
+            }
+        } else null,
         rail = {
             val current = previewing
             val showHistory: @Composable () -> Unit = {
@@ -720,7 +774,14 @@ fun ChatScreen(
                     onClose = { railScope.launch { rightRail.close() } },
                 )
             }
-            if (current != null && docked) {
+            if (screenInRail && screenOpenForChat && rightRail.docked) {
+                BotScreenPane(
+                    viewModel = botScreen,
+                    title = screenTitle,
+                    fullScreenOverlay = false,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else if (current != null && docked) {
                 if (railExpanded) showHistory()
                 key(current) {
                     PreviewTargetViewer(
@@ -797,6 +858,14 @@ fun ChatScreen(
                 onFileOpened = recordOpenedFile,
             )
         }
+    }
+    if (!rightRail.docked && screenOpenForChat) {
+        BotScreenPane(
+            viewModel = botScreen,
+            title = screenTitle,
+            fullScreenOverlay = true,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
     viewing?.let { image ->
         CompositionLocalProvider(LocalMediaLoader provides viewModel::loadMedia) {
@@ -917,6 +986,10 @@ internal fun ChatView(
     onRailWidthChange: ((Dp) -> Unit)? = null,
     railOpen: Boolean = false,
     onToggleRail: (() -> Unit)? = null,
+    screenOpen: Boolean = false,
+    screenRunning: Boolean = false,
+    screenHeldByMe: Boolean = false,
+    onToggleScreen: (() -> Unit)? = null,
     /** A panel at the right, beside the conversation on desktop or sliding over on mobile. */
     rail: (@Composable () -> Unit)? = null,
 ) {
@@ -971,6 +1044,10 @@ internal fun ChatView(
                     onNextChat = onNextChat,
                     railOpen = railOpen,
                     onToggleRail = onToggleRail,
+                    screenOpen = screenOpen,
+                    screenRunning = screenRunning,
+                    screenHeldByMe = screenHeldByMe,
+                    onToggleScreen = onToggleScreen,
                 )
             // The composer floats over the conversation, which scrolls on beneath it; its height pads the list.
             var dockHeight by remember { mutableIntStateOf(0) }
@@ -1704,6 +1781,10 @@ internal fun TopBar(
     onNextChat: (() -> Unit)? = null,
     railOpen: Boolean = false,
     onToggleRail: (() -> Unit)? = null,
+    screenOpen: Boolean = false,
+    screenRunning: Boolean = false,
+    screenHeldByMe: Boolean = false,
+    onToggleScreen: (() -> Unit)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().clearOfWindowControls().padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 8.dp),
@@ -1744,6 +1825,24 @@ internal fun TopBar(
                 trailing()
             } else {
                 BarButton(Lucide.SquarePen, stringResource(Res.string.chat_new_chat), onClick = { onNewChat?.invoke() }, enabled = onNewChat != null, keys = "Ctrl+N")
+                if (onToggleScreen != null) {
+                    Box {
+                        BarButton(
+                            Lucide.Monitor,
+                            stringResource(if (screenOpen) Res.string.screen_close else Res.string.screen_open),
+                            onClick = onToggleScreen,
+                            tint = when {
+                                screenHeldByMe -> Theme[colors][warning]
+                                screenOpen -> Theme[colors][accentText]
+                                else -> Theme[colors][textSecondary]
+                            },
+                        )
+                        if (screenRunning) {
+                            val dotColor = if (screenHeldByMe) Theme[colors][warning] else Theme[colors][success]
+                            Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(6.dp).background(dotColor, CircleShape))
+                        }
+                    }
+                }
                 if (onToggleRail != null) {
                     BarButton(
                         Lucide.PanelRight,

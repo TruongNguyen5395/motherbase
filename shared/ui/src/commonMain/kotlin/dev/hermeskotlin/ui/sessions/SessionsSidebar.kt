@@ -220,6 +220,7 @@ import dev.hermeskotlin.designsystem.components.SegmentedControl
 import dev.hermeskotlin.ui.bots.BotActions
 import dev.hermeskotlin.ui.bots.BotsRoster
 import dev.hermeskotlin.ui.bots.BotsUiState
+import dev.hermeskotlin.core.display.ProfileScreenState
 import dev.hermeskotlin.ui.bots.NeedsYou
 import dev.hermeskotlin.ui.bots.BotsViewModel
 import dev.hermeskotlin.core.gateway.SavedGateway
@@ -345,6 +346,9 @@ fun SessionsSidebar(
     onOpenBotSession: (Bot, String, String) -> Unit,
     /** Starts a throwaway chat in a bot's profile. */
     onNewBotChat: (Bot) -> Unit,
+    /** Opens the bot's live screen. */
+    onOpenBotScreen: ((Bot) -> Unit)? = null,
+    screenStates: Map<String, ProfileScreenState> = emptyMap(),
     /** Opens the bot editor: null makes a new bot. */
     onEditBot: (Bot?) -> Unit,
     /** A bot was deleted, e.g. to leave its chat if it was open. */
@@ -934,7 +938,7 @@ fun SessionsSidebar(
                             selectedId = selectedId,
                             selectedRunning = selectedRunning,
                             nowSeconds = bots.nowSeconds(),
-                            actions = remember(bots, onOpenBot, onOpenBotSession, onNewBotChat, onEditBot, onBotDeleted) {
+                            actions = remember(bots, onOpenBot, onOpenBotSession, onNewBotChat, onOpenBotScreen, onEditBot, onBotDeleted) {
                                 object : BotActions {
                                     override fun open(bot: Bot) = bots.open(bot) { id, readUpTo -> onOpenBot(bot, id, readUpTo) }
                                     override fun setPinned(bot: Bot, pinned: Boolean) = bots.setPinned(bot, pinned)
@@ -952,6 +956,9 @@ fun SessionsSidebar(
                                     override fun checkAgain(bot: Bot) = bots.checkAgain(bot)
                                     override fun routines(bot: Bot) {
                                         routinesOf = bot
+                                    }
+                                    override fun openScreen(bot: Bot) {
+                                        onOpenBotScreen?.invoke(bot)
                                     }
                                 }
                             },
@@ -977,6 +984,8 @@ fun SessionsSidebar(
                             onDeleteRoom = rooms::deleteRoom,
                             roomsNotice = roomsState.actionNotice,
                             onDismissRoomsNotice = rooms::dismissActionNotice,
+                            screenStates = screenStates,
+                            showScreenAction = onOpenBotScreen != null,
                         )
                         CreateRoomDialog(
                             visible = newRoomOpen,

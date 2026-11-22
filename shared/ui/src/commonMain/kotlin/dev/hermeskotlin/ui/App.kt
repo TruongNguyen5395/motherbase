@@ -57,9 +57,12 @@ import dev.hermeskotlin.designsystem.components.SidebarLayout
 import dev.hermeskotlin.designsystem.components.Spinner
 import dev.hermeskotlin.designsystem.components.rememberSidebarState
 import dev.hermeskotlin.core.bots.Bot
+import dev.hermeskotlin.core.display.DisplayStore
 import dev.hermeskotlin.core.chat.DraftStart
 import dev.hermeskotlin.ui.bots.BotEditor
 import dev.hermeskotlin.ui.bots.BotFaces
+import dev.hermeskotlin.ui.display.BotScreenPane
+import dev.hermeskotlin.ui.display.BotScreenViewModel
 import dev.hermeskotlin.designsystem.components.Dialog
 import dev.hermeskotlin.designsystem.components.Button
 import dev.hermeskotlin.ui.bots.StartOverDialog
@@ -458,6 +461,10 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
     val chatsProfile by app.chatsProfile.collectAsStateWithLifecycle()
     val bots: BotsViewModel = koinViewModel()
     val rooms: RoomsViewModel = koinViewModel()
+    val botScreen: BotScreenViewModel = koinViewModel()
+    val displayStore: DisplayStore = koinInject()
+    val botScreenProfiles by displayStore.profiles.collectAsStateWithLifecycle()
+    val botScreenUi by botScreen.ui.collectAsStateWithLifecycle()
 
     // The hosted room filling the content area; null shows the chat. The view model owns it, so a
     // gateway switch (which closes the room) brings the chat back on its own.
@@ -771,6 +778,14 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                     app.newBotChat(bot)
                     closeDrawerToChat()
                 },
+                onOpenBotScreen = { bot ->
+                    bots.open(bot) { id, readUpTo ->
+                        app.openBotChat(bot, id, readUpTo)
+                        botScreen.openScreen(bot.name, route.gateway.gatewayUrl)
+                        closeDrawerToChat()
+                    }
+                },
+                screenStates = botScreenProfiles,
                 onEditBot = { bot -> editing = BotEditing(bot) },
                 onBotDeleted = { bot -> if (route.target.bot?.name == bot.name || route.target.profile == bot.name) app.newChat() },
                 onOpenRoom = { room ->
@@ -996,6 +1011,8 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
             onPickModel = { pickingModel = true },
             onCapabilities = { capabilitiesOpen = true },
             onConfig = { configOpen = true },
+            displayStore = displayStore,
+            onOpenScreen = { bot -> botScreen.openScreen(bot.name, route.gateway.gatewayUrl) },
         )
         live?.let { bot ->
             ModelSheet(
@@ -1049,6 +1066,16 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                             viewModel = koinViewModel(key = "config-${bot.name}"),
                         )
                     }
+                }
+            }
+            if (botScreenUi.screenOpen && botScreenUi.profile == bot.name) {
+                Box(Modifier.fillMaxSize().background(Theme[colors][background]).coverPointer()) {
+                    BotScreenPane(
+                        viewModel = botScreen,
+                        title = bot.label,
+                        fullScreenOverlay = true,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
             }
         }

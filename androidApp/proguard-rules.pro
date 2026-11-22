@@ -30,3 +30,9 @@
     public <init>();
     public java.lang.String executeMacro(org.scilab.forge.jlatexmath.TeXParser, java.lang.String[]);
 }
+
+# Bot Screen WebView JS bridge (BotScreenSurface.android.kt)
+-keepattributes JavascriptInterface
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}

@@ -104,6 +104,8 @@ data class BotMeta(
     val pinned: Boolean = false,
     /** When the bot was made, epoch milliseconds. */
     val createdMs: Double? = null,
+    /** Auto-open Bot Screen when a desktop/browser tool starts in this bot's chat. */
+    val screenAutoOpen: Boolean = false,
 ) {
     companion object {
         const val KEY = "hermes-bots"
@@ -114,6 +116,7 @@ data class BotMeta(
             fun flag(key: String) = (obj[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == true
             return BotMeta(title = text("title"), shape = text("shape"), color = text("color"), custom = flag("custom"), hidden = flag("hidden"), imageKind = text("imageKind"),
                 pinned = flag("pinned"), createdMs = (obj["created"] as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull,
+                screenAutoOpen = flag("screenAutoOpen"),
             )
         }
     }

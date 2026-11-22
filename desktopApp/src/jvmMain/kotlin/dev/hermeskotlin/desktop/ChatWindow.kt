@@ -42,8 +42,10 @@ import dev.hermeskotlin.core.settings.SettingsStore
 import dev.hermeskotlin.ui.LocalAppSettings
 import dev.hermeskotlin.ui.zoomAfter
 import dev.hermeskotlin.ui.DesktopBack
+import dev.hermeskotlin.ui.LocalCaptureAllKeys
 import dev.hermeskotlin.ui.LocalDesktopBack
 import dev.hermeskotlin.ui.LocalFocusHeld
+import dev.hermeskotlin.ui.isScreenCaptureReleaseChord
 import dev.hermeskotlin.ui.keepFocusHeld
 import dev.hermeskotlin.ui.LocalShortcuts
 import dev.hermeskotlin.ui.Shortcut
@@ -82,6 +84,7 @@ fun ChatWindow(
     raise: Int = 0,
 ) {
     val shortcuts = remember { ShortcutBus() }
+    val captureAllKeys = remember { mutableStateOf(false) }
     val back = remember { DesktopBack() }
     // As big as the last chat window was left; where is the system's to pick, so two chats don't open one on the other.
     val saved = remember { WindowMemory.read(koin.get(), WindowMemory.CHAT_KEY) }
@@ -98,7 +101,16 @@ fun ChatWindow(
         state = state,
         title = title,
         icon = icon,
-        onPreviewKeyEvent = { event -> Shortcut.of(event, mac)?.let(shortcuts::fire) ?: false },
+        onPreviewKeyEvent = { event ->
+            when {
+                captureAllKeys.value && isScreenCaptureReleaseChord(event) -> {
+                    captureAllKeys.value = false
+                    true
+                }
+                captureAllKeys.value -> false
+                else -> Shortcut.of(event, mac)?.let(shortcuts::fire) ?: false
+            }
+        },
         onKeyEvent = { event ->
             when {
                 event.type == KeyEventType.KeyDown && event.key == Key.Escape -> back.back() || shortcuts.fire(Shortcut.Escape)
@@ -138,6 +150,7 @@ fun ChatWindow(
             LocalViewModelStoreOwner provides owner,
             LocalShortcuts provides shortcuts,
             LocalFocusHeld provides focusHeld,
+            LocalCaptureAllKeys provides captureAllKeys,
             LocalDesktopBack provides back,
             LocalClipboard provides rememberPatientClipboard(),
         ) {
