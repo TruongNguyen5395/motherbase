@@ -30,10 +30,12 @@ import dev.hermeskotlin.core.tasks.DirectusConfigStatus
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DispatchCheckinSchedule
+import dev.hermeskotlin.core.tasks.MatrixLevel
 import dev.hermeskotlin.core.tasks.PlanAction
 import dev.hermeskotlin.core.tasks.StagedPlan
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
+import dev.hermeskotlin.core.tasks.TaskReplyStatus
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
@@ -72,7 +74,7 @@ class TasksPageUiTest {
         }
         waitForIdle()
         onNodeWithText("NEEDS ATTENTION (1)").assertIsDisplayed()
-        onNodeWithText("Waiting for approval (1)").assertIsDisplayed()
+        onNodeWithText("High impact & urgent (1)").assertIsDisplayed()
         onAllNodesWithText("Backend API").let { nodes ->
             assertEquals(2, nodes.fetchSemanticsNodes().size)
             nodes[0].assertIsDisplayed()
@@ -221,7 +223,7 @@ class TasksPageUiTest {
         waitForIdle()
 
         onNodeWithText("NEEDS ATTENTION (2)").assertIsDisplayed()
-        onNodeWithText("Blocked or overdue (2)").assertIsDisplayed()
+        onNodeWithText("High impact & urgent (2)").assertIsDisplayed()
         onNodeWithText("+2 more").performScrollTo().assertIsDisplayed()
         onNodeWithText("+2 more").performClick()
         waitForIdle()
@@ -256,7 +258,7 @@ class TasksPageUiTest {
             }
         }
         waitForIdle()
-        onNodeWithText("Needs attention (0) · No pending plans or blocked/overdue tasks").assertIsDisplayed()
+        onNodeWithText("Needs attention (0) · No unread replies or high-impact urgent tasks").assertIsDisplayed()
     }
 
     @Test
@@ -744,5 +746,137 @@ class TasksPageUiTest {
                 it.time == "20:00" && it.windowMinutes == 45 && it.instruction == "Verify sprint capacity" && it.enabled
             },
         )
+    }
+
+    @Test
+    fun attentionSurfacesAgentRepliesWithAckAndMatrixViewsRenderOnDesktopAndPhone() = runDesktopComposeUiTest(width = 1120, height = 760) {
+        val today = epochDayFromCivilIso("2026-11-18")!!
+        val proj = DirectusProject(id = "p1", name = "Core", sort = 1)
+        val unreadTask = DirectusTask(
+            id = "t-reply",
+            title = "Review agent summary",
+            priority = "low",
+            context = TaskContext(taskId = "t-reply", projectId = "p1", impact = "low", urgency = "low"),
+            replyStatus = TaskReplyStatus(hasUnreadReply = true, awaitingReply = true, lastReplyAt = 2000.0),
+        )
+        val doNowTask = DirectusTask(
+            id = "t-crit",
+            title = "Fix billing outage",
+            priority = "urgent",
+            context = TaskContext(taskId = "t-crit", projectId = "p1", impact = "high", urgency = "high"),
+        )
+
+        var ackedIds by mutableStateOf(emptySet<String>())
+        var updatedMatrix by mutableStateOf<Triple<String, MatrixLevel, MatrixLevel>?>(null)
+        var state by mutableStateOf(
+            TasksUiState(
+                config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+                projects = listOf(proj),
+                tasks = listOf(unreadTask, doNowTask),
+                todayEpochDay = today,
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onSetBoardViewMode = { mode -> state = state.copy(boardViewMode = mode) },
+                                onSelectTask = { id -> state = state.copy(selectedTaskId = id) },
+                                onAckTaskReply = { id ->
+                                    ackedIds = ackedIds + id
+                                    state = state.copy(localAckedTaskIds = state.localAckedTaskIds + id)
+                                },
+                                onUpdateTaskMatrix = { id, imp, urg ->
+                                    updatedMatrix = Triple(id, imp, urg)
+                                    state = state.copy(
+                                        tasks = state.tasks.map { t ->
+                                            if (t.id == id) {
+                                                t.copy(context = (t.context ?: TaskContext(taskId = id)).copy(impact = imp.wire, urgency = urg.wire))
+                                            } else {
+                                                t
+                                            }
+                                        },
+                                    )
+                                },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithText("NEEDS ATTENTION (2)").assertIsDisplayed()
+        onNodeWithText("Agent replies (1)").assertIsDisplayed()
+        onNodeWithText("High impact & urgent (1)").assertIsDisplayed()
+
+        // One-tap Ack clears the unread reply from Agent replies.
+        onNodeWithTag("task_pill_ack_t-reply").performClick()
+        waitForIdle()
+        assertTrue("t-reply" in ackedIds)
+        onNodeWithText("NEEDS ATTENTION (1)").assertIsDisplayed()
+
+        // Switch board to 2D Matrix view and verify all 4 Cartesian quadrants render.
+        onNodeWithText("Matrix").performClick()
+        waitForIdle()
+        onNodeWithTag("matrix_quadrant_do_now").assertIsDisplayed()
+        onNodeWithTag("matrix_quadrant_schedule").assertIsDisplayed()
+        onNodeWithTag("matrix_quadrant_delegate").assertIsDisplayed()
+        onNodeWithTag("matrix_quadrant_later").assertIsDisplayed()
+
+        // Open task detail and adjust position via the 3×3 interactive 2D pad.
+        onAllNodesWithText("Review agent summary")[0].performClick()
+        waitForIdle()
+        onNodeWithTag("task_matrix_picker_pill").performClick()
+        waitForIdle()
+        onNodeWithTag("matrix_pad_cell_high_high").performClick()
+        onNodeWithTag("matrix_pad_apply").performClick()
+        waitForIdle()
+        assertEquals(Triple("t-reply", MatrixLevel.HIGH, MatrixLevel.HIGH), updatedMatrix)
+    }
+
+    @Test
+    fun narrowPhoneMatrixViewRendersInteractiveMinimapWithoutTruncation() = runDesktopComposeUiTest(width = 360, height = 800) {
+        val today = epochDayFromCivilIso("2026-11-18")!!
+        val proj = DirectusProject(id = "p1", name = "Mobile", sort = 1)
+        val laterTask = DirectusTask(
+            id = "t-later",
+            title = "Clean up old feature flags",
+            priority = "low",
+            context = TaskContext(taskId = "t-later", projectId = "p1", impact = "low", urgency = "low"),
+        )
+        val state = TasksUiState(
+            config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+            projects = listOf(proj),
+            tasks = listOf(laterTask),
+            todayEpochDay = today,
+            boardViewMode = TasksBoardViewMode.MATRIX,
+            showPriorityStrip = false,
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides false) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithTag("matrix_minimap_do_now").assertIsDisplayed()
+        onNodeWithTag("matrix_minimap_later").performClick()
+        waitForIdle()
+        onNodeWithText("Clean up old feature flags").performScrollTo().assertIsDisplayed()
     }
 }

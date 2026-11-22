@@ -299,6 +299,69 @@ data class StagedPlan(
     @SerialName("approved_option") val approvedOption: String? = null,
 )
 
+/** Discrete 3-level axis for the 2D Impact × Urgency Dispatch priority matrix. */
+enum class MatrixLevel(val wire: String, val rank: Int) {
+    LOW("low", 1),
+    MEDIUM("medium", 2),
+    HIGH("high", 3),
+    ;
+
+    companion object {
+        fun fromWire(raw: String?): MatrixLevel? = when (raw?.trim()?.lowercase()) {
+            "low" -> LOW
+            "medium" -> MEDIUM
+            "high" -> HIGH
+            else -> null
+        }
+
+        fun fromRank(rank: Int): MatrixLevel = when {
+            rank >= 3 -> HIGH
+            rank == 2 -> MEDIUM
+            else -> LOW
+        }
+    }
+}
+
+/** 2×2 Eisenhower quadrant derived from (Impact, effective Urgency). */
+enum class EisenhowerQuadrant(
+    val defaultImpact: MatrixLevel,
+    val defaultUrgency: MatrixLevel,
+) {
+    DO_NOW(MatrixLevel.HIGH, MatrixLevel.HIGH),
+    SCHEDULE(MatrixLevel.HIGH, MatrixLevel.MEDIUM),
+    DELEGATE(MatrixLevel.MEDIUM, MatrixLevel.HIGH),
+    LATER(MatrixLevel.LOW, MatrixLevel.LOW),
+    ;
+
+    companion object {
+        fun of(impact: MatrixLevel, effectiveUrgency: MatrixLevel): EisenhowerQuadrant = when {
+            impact == MatrixLevel.HIGH && effectiveUrgency == MatrixLevel.HIGH -> DO_NOW
+            impact == MatrixLevel.HIGH -> SCHEDULE
+            effectiveUrgency == MatrixLevel.HIGH -> DELEGATE
+            else -> LATER
+        }
+    }
+}
+
+/** Maps a 2D (impact, urgency) cell back onto Directus's 1D `priority` field so external views stay aligned. */
+fun matrixSyncedPriority(impact: MatrixLevel, urgency: MatrixLevel): String = when {
+    impact == MatrixLevel.HIGH && urgency == MatrixLevel.HIGH -> "urgent"
+    impact == MatrixLevel.HIGH || (impact == MatrixLevel.MEDIUM && urgency == MatrixLevel.HIGH) -> "high"
+    impact == MatrixLevel.MEDIUM || urgency == MatrixLevel.HIGH -> "medium"
+    else -> "low"
+}
+
+/** Gateway-enriched reply & unread activity summary across a task's bound Session and Room channels. */
+@Serializable
+data class TaskReplyStatus(
+    @SerialName("has_unread_reply") val hasUnreadReply: Boolean = false,
+    @SerialName("awaiting_reply") val awaitingReply: Boolean = false,
+    @SerialName("last_reply_at") val lastReplyAt: Double? = null,
+    @SerialName("last_reply_channel_id") val lastReplyChannelId: String? = null,
+    @SerialName("last_reply_channel_type") val lastReplyChannelType: String? = null,
+    @SerialName("latest_room_seq") val latestRoomSeq: Int? = null,
+)
+
 /** Orchestration record from `mb_task_contexts`, kept separate from the base `tasks` schema. */
 @Serializable
 data class TaskContext(
@@ -311,6 +374,9 @@ data class TaskContext(
     @SerialName("staged_plan") val stagedPlan: StagedPlan? = null,
     @SerialName("plan_source_hash") val planSourceHash: String? = null,
     @SerialName("last_error") val lastError: String? = null,
+    val impact: String? = null,
+    val urgency: String? = null,
+    @SerialName("reply_acked_at") val replyAckedAt: String? = null,
 ) {
     val needsAttention: Boolean get() = agentState == STATE_NEEDS_YOU
     val isRunning: Boolean get() = agentState == STATE_RUNNING
@@ -340,12 +406,16 @@ data class DirectusTask(
     @SerialName("date_updated") val dateUpdated: String? = null,
     @SerialName("status_changed_at") val statusChangedAt: String? = null,
     val context: TaskContext? = null,
+    @SerialName("reply_status") val replyStatus: TaskReplyStatus? = null,
 ) {
     val agentState: String get() = context?.agentState ?: TaskContext.STATE_IDLE
     val projectId: String? get() = context?.projectId
     val assignedBots: List<String> get() = context?.assignedBots.orEmpty()
     val channels: List<TaskChannel> get() = context?.channels.orEmpty()
     val stagedPlan: StagedPlan? get() = context?.stagedPlan
+    val impact: String? get() = context?.impact
+    val urgency: String? get() = context?.urgency
+    val replyAckedAt: String? get() = context?.replyAckedAt
 
     companion object {
         const val STATUS_TODO = "todo"
@@ -373,6 +443,8 @@ data class CreateTaskRequest(
     @SerialName("parent_id") val parentId: String? = null,
     @SerialName("project_id") val projectId: String? = null,
     @SerialName("assigned_bots") val assignedBots: List<String> = emptyList(),
+    val impact: String? = null,
+    val urgency: String? = null,
 )
 
 @Serializable
@@ -393,6 +465,9 @@ data class UpsertContextRequest(
     @SerialName("agent_state") val agentState: String? = null,
     @SerialName("staged_plan") val stagedPlan: StagedPlan? = null,
     @SerialName("last_error") val lastError: String? = null,
+    val impact: String? = null,
+    val urgency: String? = null,
+    @SerialName("reply_acked_at") val replyAckedAt: String? = null,
 )
 
 @Serializable

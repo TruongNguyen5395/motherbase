@@ -2,6 +2,9 @@ package dev.hermeskotlin.ui.tasks
 
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
+import dev.hermeskotlin.core.tasks.EisenhowerQuadrant
+import dev.hermeskotlin.core.tasks.MatrixLevel
+import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.ui.components.TimeWords
 import dev.hermeskotlin.ui.components.fill
@@ -11,11 +14,30 @@ import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
 internal const val DEFAULT_PROJECT_PREVIEW_LIMIT = 5
-internal const val DEFAULT_ATTENTION_RISK_LIMIT = 5
+internal const val DEFAULT_ATTENTION_PRIORITY_LIMIT = 6
 internal const val UNASSIGNED_PROJECT_BUCKET_ID = "__unassigned__"
 internal const val STANDALONE_WORKSTREAM_KEY = "__standalone__"
 
-enum class TaskFocusGrouping { WORKSTREAM, STATUS }
+enum class TasksBoardViewMode { PROJECTS, MATRIX }
+
+enum class TaskFocusGrouping { WORKSTREAM, STATUS, MATRIX }
+
+/** Two-tier reply attention signal separating unseen replies from opened-but-unanswered replies. */
+enum class TaskReplyBadge(val rank: Int) {
+    NONE(0),
+    AWAITING_REPLY(1),
+    UNREAD(2),
+    WAITING_INPUT(3),
+}
+
+/** Resolved 2D matrix position for a task, preserving manual urgency while applying due-date elevation. */
+internal data class TaskMatrixPosition(
+    val impact: MatrixLevel,
+    val rawUrgency: MatrixLevel,
+    val effectiveUrgency: MatrixLevel,
+    val boostedByDue: Boolean,
+    val quadrant: EisenhowerQuadrant,
+)
 
 internal data class ProjectBucket(
     val key: String,
@@ -31,12 +53,12 @@ internal data class WorkstreamGroup(
 )
 
 internal data class AttentionSplit(
-    val plansReady: List<DirectusTask> = emptyList(),
-    val riskAlerts: List<DirectusTask> = emptyList(),
-    val extraRiskCount: Int = 0,
+    val agentReplies: List<DirectusTask> = emptyList(),
+    val highPriority: List<DirectusTask> = emptyList(),
+    val extraHighPriorityCount: Int = 0,
 ) {
-    val totalCount: Int get() = plansReady.size + riskAlerts.size + extraRiskCount
-    val isEmpty: Boolean get() = plansReady.isEmpty() && riskAlerts.isEmpty()
+    val totalCount: Int get() = agentReplies.size + highPriority.size + extraHighPriorityCount
+    val isEmpty: Boolean get() = agentReplies.isEmpty() && highPriority.isEmpty()
 }
 
 private val EXPLICIT_TZ_OFFSET_RE = Regex("""[+-]\d{2}:?\d{2}$""")
@@ -103,9 +125,87 @@ internal fun taskOverdueDays(task: DirectusTask, todayEpochDay: Long): Int {
     return (todayEpochDay - dueDay).toInt().coerceAtLeast(0)
 }
 
+internal fun taskDaysUntilDue(task: DirectusTask, todayEpochDay: Long): Int? {
+    if (task.status == DirectusTask.STATUS_DONE) return null
+    val dueDay = parseDueEpochDay(task.dueDate) ?: return null
+    return (dueDay - todayEpochDay).toInt()
+}
+
+internal fun inferImpactFromPriority(priority: String?): MatrixLevel = when (priority?.trim()?.lowercase()) {
+    "urgent", "high" -> MatrixLevel.HIGH
+    "medium" -> MatrixLevel.MEDIUM
+    "low" -> MatrixLevel.LOW
+    else -> MatrixLevel.MEDIUM
+}
+
+internal fun inferUrgencyFromPriority(priority: String?): MatrixLevel = when (priority?.trim()?.lowercase()) {
+    "urgent" -> MatrixLevel.HIGH
+    "high", "medium" -> MatrixLevel.MEDIUM
+    "low" -> MatrixLevel.LOW
+    else -> MatrixLevel.LOW
+}
+
+/**
+ * Resolves a task's 2D Impact × Urgency position. Stored manual [DirectusTask.urgency] is preserved,
+ * while effective urgency elevates automatically when blocked, overdue, or due within 1–2 days.
+ */
+internal fun resolveTaskMatrix(task: DirectusTask, todayEpochDay: Long): TaskMatrixPosition {
+    val impact = MatrixLevel.fromWire(task.impact) ?: inferImpactFromPriority(task.priority)
+    val rawUrgency = MatrixLevel.fromWire(task.urgency) ?: inferUrgencyFromPriority(task.priority)
+    val effectiveUrgency = if (task.status == DirectusTask.STATUS_DONE) {
+        rawUrgency
+    } else {
+        val overdue = taskOverdueDays(task, todayEpochDay)
+        val daysUntil = taskDaysUntilDue(task, todayEpochDay)
+        when {
+            task.status == DirectusTask.STATUS_BLOCKED || overdue > 0 || (daysUntil != null && daysUntil <= 1) -> MatrixLevel.HIGH
+            daysUntil == 2 && rawUrgency.rank < MatrixLevel.MEDIUM.rank -> MatrixLevel.MEDIUM
+            else -> rawUrgency
+        }
+    }
+    return TaskMatrixPosition(
+        impact = impact,
+        rawUrgency = rawUrgency,
+        effectiveUrgency = effectiveUrgency,
+        boostedByDue = effectiveUrgency.rank > rawUrgency.rank,
+        quadrant = EisenhowerQuadrant.of(impact, effectiveUrgency),
+    )
+}
+
+internal fun resolveTaskReplyBadge(
+    task: DirectusTask,
+    seenRoomSeqs: Map<String, Int> = emptyMap(),
+    waitingSessionIds: Set<String> = emptySet(),
+    localReadTaskIds: Set<String> = emptySet(),
+    localAckedTaskIds: Set<String> = emptySet(),
+    localUnreadTaskIds: Set<String> = emptySet(),
+): TaskReplyBadge {
+    if (task.status == DirectusTask.STATUS_DONE) return TaskReplyBadge.NONE
+    if (task.channels.any { it.isSession && it.id in waitingSessionIds }) return TaskReplyBadge.WAITING_INPUT
+    if (task.id in localAckedTaskIds) return TaskReplyBadge.NONE
+    if (task.id in localUnreadTaskIds) return TaskReplyBadge.UNREAD
+    val rs = task.replyStatus ?: return TaskReplyBadge.NONE
+    val roomUnread = rs.lastReplyChannelType == TaskChannel.TYPE_ROOM &&
+        rs.lastReplyChannelId != null &&
+        rs.latestRoomSeq != null &&
+        seenRoomSeqs[rs.lastReplyChannelId]?.let { seen -> rs.latestRoomSeq > seen } == true
+    val serverUnread = rs.hasUnreadReply || roomUnread
+    if (serverUnread && task.id !in localReadTaskIds) return TaskReplyBadge.UNREAD
+    if (rs.awaitingReply) return TaskReplyBadge.AWAITING_REPLY
+    return TaskReplyBadge.NONE
+}
+
 internal fun isAttentionRisk(task: DirectusTask, todayEpochDay: Long): Boolean =
     task.status != DirectusTask.STATUS_DONE &&
         (task.status == DirectusTask.STATUS_BLOCKED || taskOverdueDays(task, todayEpochDay) > 0)
+
+internal fun isHighPriorityAttention(task: DirectusTask, todayEpochDay: Long): Boolean {
+    if (task.status == DirectusTask.STATUS_DONE) return false
+    val matrix = resolveTaskMatrix(task, todayEpochDay)
+    return matrix.quadrant == EisenhowerQuadrant.DO_NOW ||
+        isAttentionRisk(task, todayEpochDay) ||
+        task.agentState == TaskContext.STATE_NEEDS_YOU
+}
 
 private fun priorityWeight(priority: String?): Int = when (priority?.lowercase()) {
     "urgent" -> 400
@@ -115,23 +215,38 @@ private fun priorityWeight(priority: String?): Int = when (priority?.lowercase()
     else -> 0
 }
 
-private fun taskUrgencyScore(task: DirectusTask, todayEpochDay: Long): Int {
+private fun taskUrgencyScore(
+    task: DirectusTask,
+    todayEpochDay: Long,
+    replyBadge: TaskReplyBadge = TaskReplyBadge.NONE,
+): Int {
     if (task.status == DirectusTask.STATUS_DONE) return -1_000 + priorityWeight(task.priority)
-    var score = priorityWeight(task.priority)
-    if (task.agentState == TaskContext.STATE_NEEDS_YOU) score += 10_000
-    if (task.status == DirectusTask.STATUS_BLOCKED) score += 5_000
+    val matrix = resolveTaskMatrix(task, todayEpochDay)
+    var score = matrix.impact.rank * 600 + matrix.effectiveUrgency.rank * 500 + priorityWeight(task.priority)
+    if (replyBadge == TaskReplyBadge.WAITING_INPUT) score += 14_000
+    if (replyBadge == TaskReplyBadge.UNREAD) score += 11_000
+    if (replyBadge == TaskReplyBadge.AWAITING_REPLY) score += 7_000
+    if (matrix.quadrant == EisenhowerQuadrant.DO_NOW) score += 6_000
+    if (task.status == DirectusTask.STATUS_BLOCKED) score += 4_500
     val overdue = taskOverdueDays(task, todayEpochDay)
     if (overdue > 0) score += 3_000 + minOf(overdue, 90) * 15
-    if (task.status == DirectusTask.STATUS_IN_PROGRESS) score += 1_200
-    if (task.agentState == TaskContext.STATE_RUNNING || task.agentState == TaskContext.STATE_QUEUED) score += 800
+    if (task.agentState == TaskContext.STATE_NEEDS_YOU) score += 2_000
+    if (task.status == DirectusTask.STATUS_IN_PROGRESS) score += 1_000
+    if (task.agentState == TaskContext.STATE_RUNNING || task.agentState == TaskContext.STATE_QUEUED) score += 600
     if (parseDueEpochDay(task.dueDate) != null) score += 20
     return score
 }
 
-internal fun sortTasksForBoard(tasks: List<DirectusTask>, todayEpochDay: Long): List<DirectusTask> =
+internal fun sortTasksForBoard(
+    tasks: List<DirectusTask>,
+    todayEpochDay: Long,
+    replyBadges: Map<String, TaskReplyBadge> = emptyMap(),
+): List<DirectusTask> =
     tasks.withIndex()
         .sortedWith(
-            compareByDescending<IndexedValue<DirectusTask>> { taskUrgencyScore(it.value, todayEpochDay) }
+            compareByDescending<IndexedValue<DirectusTask>> {
+                taskUrgencyScore(it.value, todayEpochDay, replyBadges[it.value.id] ?: TaskReplyBadge.NONE)
+            }
                 .thenBy { parseDueEpochDay(it.value.dueDate) ?: Long.MAX_VALUE }
                 .thenBy { it.index },
         )
@@ -140,33 +255,62 @@ internal fun sortTasksForBoard(tasks: List<DirectusTask>, todayEpochDay: Long): 
 internal fun buildAttentionSplit(
     tasks: List<DirectusTask>,
     todayEpochDay: Long,
-    riskLimit: Int = DEFAULT_ATTENTION_RISK_LIMIT,
+    replyBadges: Map<String, TaskReplyBadge> = emptyMap(),
+    priorityLimit: Int = DEFAULT_ATTENTION_PRIORITY_LIMIT,
 ): AttentionSplit {
-    val plansReady = sortTasksForBoard(
-        tasks.filter { it.agentState == TaskContext.STATE_NEEDS_YOU },
-        todayEpochDay,
-    )
-    val allRisks = tasks
-        .filter { it.agentState != TaskContext.STATE_NEEDS_YOU && isAttentionRisk(it, todayEpochDay) }
+    val active = tasks.filter { it.status != DirectusTask.STATUS_DONE }
+    val agentReplies = active
+        .filter { (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE }
         .withIndex()
         .sortedWith(
-            compareByDescending<IndexedValue<DirectusTask>> { if (it.value.status == DirectusTask.STATUS_BLOCKED) 1 else 0 }
-                .thenByDescending { taskOverdueDays(it.value, todayEpochDay) }
-                .thenByDescending { priorityWeight(it.value.priority) }
+            compareByDescending<IndexedValue<DirectusTask>> { (replyBadges[it.value.id] ?: TaskReplyBadge.NONE).rank }
+                .thenByDescending { taskUrgencyScore(it.value, todayEpochDay, replyBadges[it.value.id] ?: TaskReplyBadge.NONE) }
+                .thenByDescending { it.value.replyStatus?.lastReplyAt ?: 0.0 }
                 .thenBy { it.index },
         )
         .map { it.value }
+    val replyIds = agentReplies.mapTo(HashSet()) { it.id }
+
+    val allHighPriority = active
+        .filter { it.id !in replyIds && isHighPriorityAttention(it, todayEpochDay) }
+        .withIndex()
+        .sortedWith(
+            compareByDescending<IndexedValue<DirectusTask>> {
+                if (resolveTaskMatrix(it.value, todayEpochDay).quadrant == EisenhowerQuadrant.DO_NOW) 1 else 0
+            }
+                .thenByDescending { if (it.value.status == DirectusTask.STATUS_BLOCKED) 1 else 0 }
+                .thenByDescending { taskOverdueDays(it.value, todayEpochDay) }
+                .thenByDescending { taskUrgencyScore(it.value, todayEpochDay) }
+                .thenBy { parseDueEpochDay(it.value.dueDate) ?: Long.MAX_VALUE }
+                .thenBy { it.index },
+        )
+        .map { it.value }
+
     return AttentionSplit(
-        plansReady = plansReady,
-        riskAlerts = allRisks.take(riskLimit),
-        extraRiskCount = (allRisks.size - riskLimit).coerceAtLeast(0),
+        agentReplies = agentReplies,
+        highPriority = allHighPriority.take(priorityLimit),
+        extraHighPriorityCount = (allHighPriority.size - priorityLimit).coerceAtLeast(0),
     )
+}
+
+internal fun buildMatrixQuadrants(
+    tasks: List<DirectusTask>,
+    todayEpochDay: Long,
+    replyBadges: Map<String, TaskReplyBadge> = emptyMap(),
+): Map<EisenhowerQuadrant, List<DirectusTask>> {
+    val grouped = tasks
+        .filter { it.status != DirectusTask.STATUS_DONE }
+        .groupBy { resolveTaskMatrix(it, todayEpochDay).quadrant }
+    return EisenhowerQuadrant.entries.associateWith { quad ->
+        sortTasksForBoard(grouped[quad].orEmpty(), todayEpochDay, replyBadges)
+    }
 }
 
 internal fun buildProjectBuckets(
     projects: List<DirectusProject>,
     tasks: List<DirectusTask>,
     todayEpochDay: Long,
+    replyBadges: Map<String, TaskReplyBadge> = emptyMap(),
 ): List<ProjectBucket> {
     val activeProjects = projects.filterNot { it.archived }
     val projectById = activeProjects.associateBy { it.id }
@@ -177,7 +321,7 @@ internal fun buildProjectBuckets(
                 ProjectBucket(
                     key = project.id,
                     project = project,
-                    tasks = sortTasksForBoard(grouped[project.id].orEmpty(), todayEpochDay),
+                    tasks = sortTasksForBoard(grouped[project.id].orEmpty(), todayEpochDay, replyBadges),
                 ),
             )
         }
@@ -187,7 +331,7 @@ internal fun buildProjectBuckets(
                 ProjectBucket(
                     key = UNASSIGNED_PROJECT_BUCKET_ID,
                     project = null,
-                    tasks = sortTasksForBoard(unassigned, todayEpochDay),
+                    tasks = sortTasksForBoard(unassigned, todayEpochDay, replyBadges),
                 ),
             )
         }
@@ -229,6 +373,7 @@ internal fun buildWorkstreamGroups(
     tasks: List<DirectusTask>,
     todayEpochDay: Long,
     standaloneTitle: String,
+    replyBadges: Map<String, TaskReplyBadge> = emptyMap(),
 ): List<WorkstreamGroup> {
     if (tasks.isEmpty()) return emptyList()
     val taskById = tasks.associateBy { it.id }
@@ -264,8 +409,11 @@ internal fun buildWorkstreamGroups(
         val collected = mutableListOf<DirectusTask>()
         collectOwnedDescendants(root, collected)
         if (collected.isNotEmpty()) {
-            val sorted = sortTasksForBoard(collected, todayEpochDay)
-            val alerts = sorted.count { it.agentState == TaskContext.STATE_NEEDS_YOU || isAttentionRisk(it, todayEpochDay) }
+            val sorted = sortTasksForBoard(collected, todayEpochDay, replyBadges)
+            val alerts = sorted.count {
+                (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE ||
+                    isHighPriorityAttention(it, todayEpochDay)
+            }
             groups += WorkstreamGroup(
                 key = root.id,
                 title = root.title,
@@ -277,8 +425,11 @@ internal fun buildWorkstreamGroups(
 
     val standalone = tasks.filter { it.id !in assignedIds }
     if (standalone.isNotEmpty()) {
-        val sorted = sortTasksForBoard(standalone, todayEpochDay)
-        val alerts = sorted.count { it.agentState == TaskContext.STATE_NEEDS_YOU || isAttentionRisk(it, todayEpochDay) }
+        val sorted = sortTasksForBoard(standalone, todayEpochDay, replyBadges)
+        val alerts = sorted.count {
+            (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE ||
+                isHighPriorityAttention(it, todayEpochDay)
+        }
         groups += WorkstreamGroup(
             key = STANDALONE_WORKSTREAM_KEY,
             title = standaloneTitle,
@@ -290,6 +441,8 @@ internal fun buildWorkstreamGroups(
     return groups.sortedWith(
         compareBy<WorkstreamGroup> { if (it.key == STANDALONE_WORKSTREAM_KEY) 1 else 0 }
             .thenByDescending { it.alertCount }
-            .thenByDescending { grp -> grp.tasks.maxOfOrNull { taskUrgencyScore(it, todayEpochDay) } ?: 0 },
+            .thenByDescending { grp ->
+                grp.tasks.maxOfOrNull { taskUrgencyScore(it, todayEpochDay, replyBadges[it.id] ?: TaskReplyBadge.NONE) } ?: 0
+            },
     )
 }

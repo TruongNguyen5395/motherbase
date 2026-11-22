@@ -22,6 +22,7 @@ import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
+import dev.hermeskotlin.core.tasks.MatrixLevel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.ui.components.localMoment
@@ -1429,6 +1430,153 @@ class TasksViewModelTest {
                 }
             }
             assertFalse(h.vm.state.value.coordinatorOpen)
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun updateTaskMatrixPersistsImpactUrgencyAndSyncedPriority() = runTest(dispatcher) {
+        val contextBodies = mutableListOf<String>()
+        val taskPatchBodies = mutableListOf<String>()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    rec.path == "/api/plugins/directus-tasks/tasks/t2/context" && rec.method == HttpMethod.Put -> {
+                        rec.body?.let { contextBodies += it }
+                        HttpStatusCode.OK to """
+                            {
+                              "task": {
+                                "id":"t2",
+                                "title":"Rotate TLS certificates",
+                                "status":"in_progress",
+                                "priority":"medium",
+                                "context":{"id":"ctx-2","task_id":"t2","project_id":"proj-1","impact":"high","urgency":"high"}
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    rec.path == "/api/plugins/directus-tasks/tasks/t2" && rec.method == HttpMethod.Patch -> {
+                        rec.body?.let { taskPatchBodies += it }
+                        HttpStatusCode.OK to """
+                            {
+                              "task": {
+                                "id":"t2",
+                                "title":"Rotate TLS certificates",
+                                "status":"in_progress",
+                                "priority":"urgent",
+                                "context":{"id":"ctx-2","task_id":"t2","project_id":"proj-1","impact":"high","urgency":"high"}
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            h.vm.updateTaskMatrix("t2", MatrixLevel.HIGH, MatrixLevel.HIGH)
+
+            val updated = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    val t = st.tasks.firstOrNull { it.id == "t2" }
+                    t?.impact == "high" && t.urgency == "high" && t.priority == "urgent" && taskPatchBodies.isNotEmpty()
+                }
+            }
+            assertEquals("high", updated.tasks.first { it.id == "t2" }.impact)
+            assertEquals("high", updated.tasks.first { it.id == "t2" }.urgency)
+            assertTrue(contextBodies.any { it.contains("\"impact\":\"high\"") && it.contains("\"urgency\":\"high\"") })
+            assertTrue(taskPatchBodies.any { it.contains("\"priority\":\"urgent\"") })
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun ackTaskReplyClearsReplyBadgeAndPersistsReplyAckedAt() = runTest(dispatcher) {
+        val boardWithReply = """
+            {
+              "configured": true,
+              "projects": [{"id":"proj-1","name":"Ops","sort":1}],
+              "tasks": [
+                {
+                  "id":"t1",
+                  "title":"Check logs",
+                  "status":"in_progress",
+                  "priority":"medium",
+                  "context":{
+                    "id":"ctx-1",
+                    "task_id":"t1",
+                    "project_id":"proj-1",
+                    "channels":[{"type":"session","id":"sess-1","label":"Session (@ops)","profile":"ops"}]
+                  },
+                  "reply_status":{
+                    "has_unread_reply":true,
+                    "awaiting_reply":true,
+                    "last_reply_at":1700000000.0,
+                    "last_reply_channel_id":"sess-1",
+                    "last_reply_channel_type":"session"
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val ackBodies = mutableListOf<String>()
+        var markedSessionRead = false
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardWithReply
+                    rec.path == "/api/sessions/sess-1" && rec.method == HttpMethod.Patch -> {
+                        markedSessionRead = true
+                        HttpStatusCode.OK to """{}"""
+                    }
+                    rec.path == "/api/plugins/directus-tasks/tasks/t1/context" && rec.method == HttpMethod.Put -> {
+                        rec.body?.let { ackBodies += it }
+                        HttpStatusCode.OK to """
+                            {
+                              "task": {
+                                "id":"t1",
+                                "title":"Check logs",
+                                "status":"in_progress",
+                                "priority":"medium",
+                                "context":{"id":"ctx-1","task_id":"t1","project_id":"proj-1","reply_acked_at":"2026-11-22T07:00:00Z"},
+                                "reply_status":{"has_unread_reply":false,"awaiting_reply":false}
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            val initial = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            assertEquals(TaskReplyBadge.UNREAD, initial.replyBadges["t1"])
+            assertEquals(1, initial.attentionSplit.agentReplies.size)
+
+            h.vm.ackTaskReply("t1")
+
+            val cleared = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.replyBadges["t1"] == TaskReplyBadge.NONE &&
+                        ackBodies.isNotEmpty() &&
+                        markedSessionRead
+                }
+            }
+            assertEquals(0, cleared.attentionSplit.agentReplies.size)
+            assertTrue(ackBodies.any { it.contains("reply_acked_at") })
         } finally {
             h.connection.stop()
         }

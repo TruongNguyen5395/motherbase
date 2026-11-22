@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.bots.BotsApi
 import dev.hermeskotlin.core.chat.AttachmentKind
+import dev.hermeskotlin.core.chat.AttentionTracker
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.IMAGE_ONLY_FALLBACK_PROMPT
 import dev.hermeskotlin.core.chat.InputRequest
@@ -27,12 +28,14 @@ import dev.hermeskotlin.core.projects.ProjectsApi
 import dev.hermeskotlin.core.rooms.Room
 import dev.hermeskotlin.core.rooms.RoomLine
 import dev.hermeskotlin.core.rooms.RoomMemberInput
+import dev.hermeskotlin.core.rooms.RoomSeenStore
 import dev.hermeskotlin.core.rooms.RoomsApi
 import dev.hermeskotlin.core.rooms.roomLines
 import dev.hermeskotlin.core.rpc.GatewayEvent
 import dev.hermeskotlin.core.rpc.JsonRpcClient
 import dev.hermeskotlin.core.rpc.RpcException
 import dev.hermeskotlin.core.rpc.ServerRequest
+import dev.hermeskotlin.core.sessions.SeenStore
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.tasks.ApproveTaskRequest
 import dev.hermeskotlin.core.tasks.CreateProjectRequest
@@ -45,11 +48,14 @@ import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorUpdate
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
+import dev.hermeskotlin.core.tasks.MatrixLevel
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
+import dev.hermeskotlin.core.tasks.TaskReplyStatus
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.core.tasks.UpdateTaskRequest
 import dev.hermeskotlin.core.tasks.UpsertContextRequest
+import dev.hermeskotlin.core.tasks.matrixSyncedPriority
 import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.chat.PendingSwitch
 import dev.hermeskotlin.ui.components.localMoment
@@ -73,6 +79,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -113,11 +121,17 @@ data class TasksUiState(
     val botAvatars: Map<String, ByteArray> = emptyMap(),
     val includeDone: Boolean = false,
     val showPriorityStrip: Boolean = true,
+    val boardViewMode: TasksBoardViewMode = TasksBoardViewMode.PROJECTS,
     val focusedProjectId: String? = null,
     val focusGrouping: TaskFocusGrouping = TaskFocusGrouping.WORKSTREAM,
     val expandedProjectIds: Set<String> = emptySet(),
     val collapsedWorkstreamKeys: Set<String> = emptySet(),
     val todayEpochDay: Long = currentLocalEpochDay(),
+    val seenRoomSeqs: Map<String, Int> = emptyMap(),
+    val waitingSessionIds: Set<String> = emptySet(),
+    val localReadTaskIds: Set<String> = emptySet(),
+    val localAckedTaskIds: Set<String> = emptySet(),
+    val localUnreadTaskIds: Set<String> = emptySet(),
     val selectedTaskId: String? = null,
     val coordinatorOpen: Boolean = false,
     val resettingCoordinator: Boolean = false,
@@ -169,13 +183,25 @@ data class TasksUiState(
         }
 
     val priorityTasks: List<DirectusTask>
-        get() = tasks.filter { it.agentState == TaskContext.STATE_NEEDS_YOU }
+        get() = tasks.filter { isHighPriorityAttention(it, todayEpochDay) }
+
+    val replyBadges: Map<String, TaskReplyBadge>
+        get() = tasks.associate { task ->
+            task.id to resolveTaskReplyBadge(
+                task = task,
+                seenRoomSeqs = seenRoomSeqs,
+                waitingSessionIds = waitingSessionIds,
+                localReadTaskIds = localReadTaskIds,
+                localAckedTaskIds = localAckedTaskIds,
+                localUnreadTaskIds = localUnreadTaskIds,
+            )
+        }
 
     internal val attentionSplit: AttentionSplit
-        get() = buildAttentionSplit(tasks, todayEpochDay)
+        get() = buildAttentionSplit(tasks, todayEpochDay, replyBadges)
 }
 
-@OptIn(ExperimentalUuidApi::class)
+@OptIn(ExperimentalUuidApi::class, ExperimentalTime::class)
 class TasksViewModel(
     private val directusApi: DirectusTasksApi,
     private val sessionsApi: SessionsApi,
@@ -186,6 +212,9 @@ class TasksViewModel(
     private val dispatchStore: DispatchSessionsStore? = null,
     private val modelsApi: ModelsApi? = null,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val seenStore: SeenStore? = null,
+    private val roomSeenStore: RoomSeenStore? = null,
+    private val attentionTracker: AttentionTracker? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TasksUiState())
@@ -200,6 +229,7 @@ class TasksViewModel(
     private var lastStreamEventAtMs: Long = 0L
     private var turnPollJob: Job? = null
     private var modelsLoadJob: Job? = null
+    private var roomSeenJob: Job? = null
     private var pageVisible: Boolean = false
     private var lastAutoTriggeredSlot: String? = null
     private var dismissedCheckinSlot: String? = null
@@ -227,17 +257,26 @@ class TasksViewModel(
         viewModelScope.launch {
             connection.serverRequests.collect { request -> handleServerRequest(request) }
         }
+        if (attentionTracker != null) {
+            viewModelScope.launch {
+                attentionTracker.waiting.collect { waitingMap ->
+                    _state.update { it.copy(waitingSessionIds = waitingMap.keys) }
+                }
+            }
+        }
     }
 
     override fun onCleared() {
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
+        roomSeenJob?.cancel()
     }
 
     fun bind(gateway: SavedGateway) {
         if (boundGateway == gateway && _state.value.config != null) return
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
+        roomSeenJob?.cancel()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
         lastAutoTriggeredSlot = null
@@ -247,11 +286,22 @@ class TasksViewModel(
             TasksUiState(
                 loading = true,
                 showPriorityStrip = it.showPriorityStrip,
+                boardViewMode = it.boardViewMode,
                 includeDone = it.includeDone,
                 focusGrouping = it.focusGrouping,
                 todayEpochDay = currentLocalEpochDay(),
+                waitingSessionIds = it.waitingSessionIds,
                 gatewayConnected = connection.state.value is ConnectionState.Connected,
             )
+        }
+        if (roomSeenStore != null) {
+            roomSeenJob = viewModelScope.launch {
+                roomSeenStore.seen(gateway.gatewayUrl).collect { seenMap ->
+                    if (boundGateway == gateway) {
+                        _state.update { it.copy(seenRoomSeqs = seenMap) }
+                    }
+                }
+            }
         }
         refresh()
     }
@@ -334,6 +384,10 @@ class TasksViewModel(
                     val keptFocused = cur.focusedProjectId?.takeIf { fid ->
                         fid == UNASSIGNED_PROJECT_BUCKET_ID || board.projects.any { it.id == fid && !it.archived }
                     }
+                    val serverById = board.tasks.associateBy { it.id }
+                    val keptLocalRead = cur.localReadTaskIds.filterTo(HashSet()) { id ->
+                        serverById[id]?.replyStatus?.hasUnreadReply == true
+                    }
                     cur.copy(
                         loading = false,
                         error = null,
@@ -344,6 +398,8 @@ class TasksViewModel(
                         focusedProjectId = keptFocused,
                         selectedTaskId = if (cur.coordinatorOpen) null else keptSelected,
                         activeChannelIdx = safeChannelIdx,
+                        localReadTaskIds = keptLocalRead,
+                        localUnreadTaskIds = emptySet(),
                     )
                 }
                 _state.value.config?.coordinator?.let { coord ->
@@ -478,6 +534,10 @@ class TasksViewModel(
         _state.update { it.copy(showPriorityStrip = enabled) }
     }
 
+    fun setBoardViewMode(mode: TasksBoardViewMode) {
+        _state.update { it.copy(boardViewMode = mode) }
+    }
+
     fun toggleIncludeDone() {
         _state.update { it.copy(includeDone = !it.includeDone) }
         refresh()
@@ -510,11 +570,18 @@ class TasksViewModel(
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
+        val targetTask = taskId?.let { id -> _state.value.tasks.firstOrNull { it.id == id } }
+        val replyChannelId = targetTask?.replyStatus?.lastReplyChannelId
+        val preferredChannelIdx = if (targetTask != null && replyChannelId != null) {
+            targetTask.channels.indexOfFirst { it.id == replyChannelId }.takeIf { it >= 0 } ?: 0
+        } else {
+            0
+        }
         _state.update {
             it.copy(
                 selectedTaskId = taskId,
                 coordinatorOpen = false,
-                activeChannelIdx = 0,
+                activeChannelIdx = preferredChannelIdx,
                 channelMessages = emptyList(),
                 channelAttachments = emptyList(),
                 channelChatState = ChatState(),
@@ -527,7 +594,7 @@ class TasksViewModel(
         }
         val gateway = boundGateway ?: return
         val task = _state.value.selectedTask ?: return
-        viewModelScope.launch { loadChannelLog(gateway, task, 0) }
+        viewModelScope.launch { loadChannelLog(gateway, task, preferredChannelIdx) }
         if (task.channels.isEmpty()) loadModels(withPrices = false)
     }
 
@@ -1201,10 +1268,15 @@ class TasksViewModel(
         if (_state.value.channelMessages.isEmpty()) {
             _state.update { it.copy(channelLoading = true, channelError = null) }
         }
+        var latestRoomSeqLoaded: Int? = null
         val linesResult: Pair<List<ChannelChatLine>, String?> = if (channel.isRoom) {
             try {
                 val roomState = roomsApi.state(channel.id)
                 val page = roomsApi.log(channel.id, sinceSeq = 0, limit = 50)
+                latestRoomSeqLoaded = maxOf(
+                    roomState.room.latestSeq ?: 0,
+                    page.events.maxOfOrNull { it.seq } ?: 0,
+                ).takeIf { it > 0 }
                 val parsed = roomLines(page.events, roomState.room.members)
                     .filterIsInstance<RoomLine.Message>()
                     .takeLast(30)
@@ -1252,8 +1324,11 @@ class TasksViewModel(
                 channelLoading = false,
                 channelMessages = merged,
                 channelError = if (merged.isEmpty()) linesResult.second else null,
+                localReadTaskIds = cur.localReadTaskIds + task.id,
+                localUnreadTaskIds = cur.localUnreadTaskIds - task.id,
             )
         }
+        markChannelSeen(gateway, channel, latestRoomSeqLoaded ?: task.replyStatus?.latestRoomSeq)
         if (attachSession && !channel.isRoom) {
             attachSessionChannel(channel)
         }
@@ -1365,6 +1440,130 @@ class TasksViewModel(
         }
     }
 
+    fun updateTaskMatrix(taskId: String, impact: MatrixLevel, urgency: MatrixLevel) {
+        val gateway = boundGateway ?: return
+        val previous = _state.value.tasks.firstOrNull { it.id == taskId } ?: return
+        val syncedPriority = matrixSyncedPriority(impact, urgency)
+        val optimistic = previous.copy(
+            priority = syncedPriority,
+            context = (previous.context ?: TaskContext(taskId = taskId)).copy(
+                impact = impact.wire,
+                urgency = urgency.wire,
+            ),
+        )
+        replaceTask(optimistic)
+        viewModelScope.launch {
+            val ctxRes = directusApi.upsertContext(
+                gateway.gatewayUrl,
+                taskId,
+                UpsertContextRequest(impact = impact.wire, urgency = urgency.wire),
+            )
+            if (boundGateway != gateway) return@launch
+            when (ctxRes) {
+                is ApiResult.Success -> {
+                    val saved = ctxRes.value
+                    val priorityRes = if (saved.priority != syncedPriority) {
+                        directusApi.updateTask(gateway.gatewayUrl, taskId, UpdateTaskRequest(priority = syncedPriority))
+                    } else {
+                        null
+                    }
+                    val finalTask = (priorityRes as? ApiResult.Success)?.value ?: saved.copy(priority = syncedPriority)
+                    replaceTask(
+                        if (finalTask.replyStatus == null && previous.replyStatus != null) {
+                            finalTask.copy(replyStatus = previous.replyStatus)
+                        } else {
+                            finalTask
+                        },
+                    )
+                }
+                is ApiResult.Failed -> {
+                    replaceTask(previous)
+                    _state.update { it.copy(actionFeedback = ctxRes.message) }
+                }
+                is ApiResult.Unavailable -> {
+                    replaceTask(previous)
+                    _state.update { it.copy(actionFeedback = ctxRes.message) }
+                }
+                is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited -> {
+                    replaceTask(previous)
+                    _state.update { it.copy(sessionExpired = true) }
+                }
+            }
+        }
+    }
+
+    fun ackTaskReply(taskId: String) {
+        val gateway = boundGateway ?: return
+        val previous = _state.value.tasks.firstOrNull { it.id == taskId } ?: return
+        val ackedIso = Instant.fromEpochMilliseconds(nowMs()).toString()
+        _state.update { cur ->
+            cur.copy(
+                localAckedTaskIds = cur.localAckedTaskIds + taskId,
+                localReadTaskIds = cur.localReadTaskIds + taskId,
+                localUnreadTaskIds = cur.localUnreadTaskIds - taskId,
+            )
+        }
+        replaceTask(
+            previous.copy(
+                context = (previous.context ?: TaskContext(taskId = taskId)).copy(replyAckedAt = ackedIso),
+                replyStatus = previous.replyStatus?.copy(hasUnreadReply = false, awaitingReply = false)
+                    ?: TaskReplyStatus(hasUnreadReply = false, awaitingReply = false),
+            ),
+        )
+        viewModelScope.launch {
+            previous.channels.forEach { ch ->
+                markChannelSeen(gateway, ch, previous.replyStatus?.latestRoomSeq)
+            }
+            val res = directusApi.upsertContext(
+                gateway.gatewayUrl,
+                taskId,
+                UpsertContextRequest(replyAckedAt = ackedIso),
+            )
+            if (boundGateway != gateway) return@launch
+            when (res) {
+                is ApiResult.Success -> {
+                    _state.update { cur -> cur.copy(localAckedTaskIds = cur.localAckedTaskIds - taskId) }
+                    replaceTask(res.value)
+                }
+                is ApiResult.Failed -> {
+                    _state.update { cur ->
+                        cur.copy(
+                            localAckedTaskIds = cur.localAckedTaskIds - taskId,
+                            actionFeedback = res.message,
+                        )
+                    }
+                    replaceTask(previous)
+                }
+                is ApiResult.Unavailable -> {
+                    _state.update { cur ->
+                        cur.copy(
+                            localAckedTaskIds = cur.localAckedTaskIds - taskId,
+                            actionFeedback = res.message,
+                        )
+                    }
+                    replaceTask(previous)
+                }
+                is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited -> {
+                    _state.update { it.copy(sessionExpired = true) }
+                }
+            }
+        }
+    }
+
+    private fun markChannelSeen(gateway: SavedGateway, channel: TaskChannel, latestRoomSeq: Int?) {
+        val nowSec = nowMs() / 1000.0
+        viewModelScope.launch {
+            if (channel.isRoom) {
+                if (latestRoomSeq != null && latestRoomSeq > 0) {
+                    runCatching { roomSeenStore?.markSeen(gateway.gatewayUrl, channel.id, latestRoomSeq) }
+                }
+            } else {
+                runCatching { seenStore?.markLooked(gateway.gatewayUrl, channel.id, nowSec, channel.profile) }
+                runCatching { sessionsApi.setUnread(gateway.gatewayUrl, channel.id, unread = false, profile = channel.profile) }
+            }
+        }
+    }
+
     fun openOrCreateSessionChannel(task: DirectusTask, profile: String?) {
         val gateway = boundGateway ?: return
         viewModelScope.launch {
@@ -1436,12 +1635,17 @@ class TasksViewModel(
         _state.update { cur ->
             val sameChat = cur.selectedTaskId == task.id
             cur.copy(
+                tasks = cur.tasks.map { t ->
+                    if (t.id == task.id) t.copy(replyStatus = TaskReplyStatus(hasUnreadReply = false, awaitingReply = false)) else t
+                },
                 sendingToChannel = true,
                 channelError = null,
                 channelAttachments = emptyList(),
                 channelMessages = if (sameChat) cur.channelMessages + optimisticLine else cur.channelMessages,
                 channelTurnRunning = if (sameChat) true else cur.channelTurnRunning,
                 channelTurnStatus = if (sameChat) null else cur.channelTurnStatus,
+                localReadTaskIds = cur.localReadTaskIds + task.id,
+                localUnreadTaskIds = cur.localUnreadTaskIds - task.id,
             )
         }
         viewModelScope.launch {
@@ -1473,6 +1677,7 @@ class TasksViewModel(
                     )
                 }
                 lastStreamEventAtMs = nowMs()
+                markChannelSeen(gateway, channel, latestTask.replyStatus?.latestRoomSeq)
                 dispatchMessage(channel, visibleText, attachments)
                 startTurnFallbackPoll(gateway, channel = channel, task = latestTask, channelIdx = idx)
             } catch (e: CancellationException) {
@@ -1956,10 +2161,16 @@ class TasksViewModel(
         if (res !is ApiResult.Success || boundGateway != gateway) return
         val board = res.value
         _state.update { cur ->
+            val serverById = board.tasks.associateBy { it.id }
+            val keptLocalRead = cur.localReadTaskIds.filterTo(HashSet()) { id ->
+                serverById[id]?.replyStatus?.hasUnreadReply == true
+            }
             cur.copy(
                 projects = board.projects,
                 tasks = board.tasks,
                 todayEpochDay = currentLocalEpochDay(),
+                localReadTaskIds = keptLocalRead,
+                localUnreadTaskIds = emptySet(),
             )
         }
         dispatchStore?.syncBoard(gateway.gatewayUrl, board.tasks, includeDone = includeDone)

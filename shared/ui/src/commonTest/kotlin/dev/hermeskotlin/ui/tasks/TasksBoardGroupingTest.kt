@@ -2,7 +2,11 @@ package dev.hermeskotlin.ui.tasks
 
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
+import dev.hermeskotlin.core.tasks.EisenhowerQuadrant
+import dev.hermeskotlin.core.tasks.MatrixLevel
+import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
+import dev.hermeskotlin.core.tasks.TaskReplyStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -22,6 +26,10 @@ class TasksBoardGroupingTest {
         parentId: String? = null,
         projectId: String? = "p1",
         agentState: String = TaskContext.STATE_IDLE,
+        impact: String? = null,
+        urgency: String? = null,
+        channels: List<TaskChannel> = emptyList(),
+        replyStatus: TaskReplyStatus? = null,
     ) = DirectusTask(
         id = id,
         title = title,
@@ -29,7 +37,15 @@ class TasksBoardGroupingTest {
         priority = priority,
         dueDate = dueDate,
         parentId = parentId,
-        context = TaskContext(taskId = id, projectId = projectId, agentState = agentState),
+        context = TaskContext(
+            taskId = id,
+            projectId = projectId,
+            agentState = agentState,
+            channels = channels,
+            impact = impact,
+            urgency = urgency,
+        ),
+        replyStatus = replyStatus,
     )
 
     @Test
@@ -48,24 +64,89 @@ class TasksBoardGroupingTest {
     }
 
     @Test
-    fun attentionSplitSeparatesPlansFromRisksAndCapsRisksAtFive() {
-        val planTask = task("plan", agentState = TaskContext.STATE_NEEDS_YOU)
-        val highOnTime = task("high-ok", priority = "high", dueDate = "2026-11-25")
+    fun matrixAutoBoostsEffectiveUrgencyNearOrPastDueDateWhilePreservingRawUrgency() {
+        val manualLowFuture = task("future", impact = "high", urgency = "low", dueDate = "2026-11-28")
+        val manualLowDueTomorrow = task("tomorrow", impact = "high", urgency = "low", dueDate = "2026-11-19")
+        val manualLowDueInTwoDays = task("two-days", impact = "medium", urgency = "low", dueDate = "2026-11-20")
+
+        val pFuture = resolveTaskMatrix(manualLowFuture, today)
+        assertEquals(MatrixLevel.HIGH, pFuture.impact)
+        assertEquals(MatrixLevel.LOW, pFuture.rawUrgency)
+        assertEquals(MatrixLevel.LOW, pFuture.effectiveUrgency)
+        assertFalse(pFuture.boostedByDue)
+        assertEquals(EisenhowerQuadrant.SCHEDULE, pFuture.quadrant)
+
+        val pTomorrow = resolveTaskMatrix(manualLowDueTomorrow, today)
+        assertEquals(MatrixLevel.LOW, pTomorrow.rawUrgency)
+        assertEquals(MatrixLevel.HIGH, pTomorrow.effectiveUrgency)
+        assertTrue(pTomorrow.boostedByDue)
+        assertEquals(EisenhowerQuadrant.DO_NOW, pTomorrow.quadrant)
+
+        val pTwoDays = resolveTaskMatrix(manualLowDueInTwoDays, today)
+        assertEquals(MatrixLevel.LOW, pTwoDays.rawUrgency)
+        assertEquals(MatrixLevel.MEDIUM, pTwoDays.effectiveUrgency)
+        assertTrue(pTwoDays.boostedByDue)
+        assertEquals(EisenhowerQuadrant.LATER, pTwoDays.quadrant)
+    }
+
+    @Test
+    fun attentionSplitSurfacesAgentRepliesAndHighImpactUrgentTasksWithoutRequiringPlan() {
+        val unreadReply = task(
+            "reply-unread",
+            priority = "low",
+            replyStatus = TaskReplyStatus(hasUnreadReply = true, awaitingReply = true, lastReplyAt = 2000.0),
+        )
+        val awaitingReply = task(
+            "reply-awaiting",
+            priority = "low",
+            replyStatus = TaskReplyStatus(hasUnreadReply = false, awaitingReply = true, lastReplyAt = 1800.0),
+        )
+        val doNowNoPlan = task("do-now", impact = "high", urgency = "high")
+        val highOnTime = task("high-ok", impact = "high", urgency = "low", dueDate = "2026-11-25")
         val blocked = task("blocked", status = DirectusTask.STATUS_BLOCKED)
         val overdueTasks = (1..6).map { idx ->
             task("late-$idx", dueDate = "2026-11-1${idx}T12:00:00")
         }
 
+        val all = listOf(highOnTime, awaitingReply, unreadReply, doNowNoPlan, blocked) + overdueTasks
+        val badges = all.associate { it.id to resolveTaskReplyBadge(it) }
+
         val split = buildAttentionSplit(
-            tasks = listOf(highOnTime, planTask, blocked) + overdueTasks,
+            tasks = all,
             todayEpochDay = today,
+            replyBadges = badges,
+            priorityLimit = 6,
         )
 
-        assertEquals(listOf("plan"), split.plansReady.map { it.id })
-        assertEquals(5, split.riskAlerts.size)
-        assertEquals("blocked", split.riskAlerts.first().id)
-        assertEquals(2, split.extraRiskCount)
-        assertFalse(split.riskAlerts.any { it.id == "high-ok" })
+        assertEquals(listOf("reply-unread", "reply-awaiting"), split.agentReplies.map { it.id })
+        assertEquals(6, split.highPriority.size)
+        assertEquals("do-now", split.highPriority.first().id)
+        assertEquals(2, split.extraHighPriorityCount)
+        assertFalse(split.highPriority.any { it.id == "high-ok" })
+    }
+
+    @Test
+    fun replyBadgeSeparatesUnreadAwaitingAndClearedAfterLocalReadOrAck() {
+        val roomTask = task(
+            "r1",
+            channels = listOf(TaskChannel(type = TaskChannel.TYPE_ROOM, id = "room-1", label = "Room")),
+            replyStatus = TaskReplyStatus(
+                hasUnreadReply = false,
+                awaitingReply = true,
+                lastReplyChannelId = "room-1",
+                lastReplyChannelType = TaskChannel.TYPE_ROOM,
+                latestRoomSeq = 9,
+            ),
+        )
+        assertEquals(TaskReplyBadge.UNREAD, resolveTaskReplyBadge(roomTask, seenRoomSeqs = mapOf("room-1" to 5)))
+        assertEquals(
+            TaskReplyBadge.AWAITING_REPLY,
+            resolveTaskReplyBadge(roomTask, seenRoomSeqs = mapOf("room-1" to 5), localReadTaskIds = setOf("r1")),
+        )
+        assertEquals(
+            TaskReplyBadge.NONE,
+            resolveTaskReplyBadge(roomTask, seenRoomSeqs = mapOf("room-1" to 5), localAckedTaskIds = setOf("r1")),
+        )
     }
 
     @Test
