@@ -8,12 +8,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -49,7 +45,7 @@ class DisplayStoreTest {
         }
         val conn = gateway.start()
         val store = DisplayStore(DisplayApi(conn), conn, backgroundScope)
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(store.observeScreen("default").isSuccess)
         assertTrue(store.acquireLease("default").isSuccess)
@@ -59,13 +55,13 @@ class DisplayStoreTest {
 
         // Older epoch lease broadcast must be ignored
         gateway.socket.push(event("display.lease", payload = """{"profile_key":"/opt/data","lease":{"holder":"agent","viewer_hash":null,"epoch":2}}"""))
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(store.stateOf("default").iHoldLease)
         assertEquals(3, store.stateOf("default").status?.lease?.epoch)
 
         // Newer epoch lease broadcast applies
         gateway.socket.push(event("display.lease", payload = """{"profile_key":"/opt/data","lease":{"holder":"agent","viewer_hash":null,"epoch":4}}"""))
-        advanceUntilIdle()
+        store.profiles.first { it["default"]?.status?.lease?.epoch == 4 }
         assertFalse(store.stateOf("default").iHoldLease)
         assertEquals(LeaseHolder.Agent, store.stateOf("default").status?.lease?.holder)
     }
@@ -82,17 +78,17 @@ class DisplayStoreTest {
         }
         val conn = gateway.start()
         val store = DisplayStore(DisplayApi(conn), conn, backgroundScope)
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(store.startInstall("default").isSuccess)
         gateway.socket.push(event("display.install.log", payload = """{"profile_key":"/opt/data","line":"Reading package lists..."}"""))
         gateway.socket.push("""{"jsonrpc":"2.0","id":"sudo-1","method":"display.install.sudo","params":{"session_id":"","profile_key":"/opt/data"}}""")
-        advanceUntilIdle()
+        store.profiles.first { it["default"]?.installSudoRequestId == "sudo-1" && it["default"]?.installLogs?.isNotEmpty() == true }
         assertEquals(listOf("Reading package lists..."), store.stateOf("default").installLogs)
         assertEquals("sudo-1", store.stateOf("default").installSudoRequestId)
 
         store.respondInstallSudo("default", "my-sudo-pw")
-        advanceUntilIdle()
+        runCurrent()
         assertNull(store.stateOf("default").installSudoRequestId)
         val sudoReply = gateway.socket.sent.value.last().toString()
         assertTrue(sudoReply.contains("my-sudo-pw"))
@@ -104,11 +100,11 @@ class DisplayStoreTest {
         gateway.ready = { FakeGateway.QUIET_READY }
         val conn = gateway.start()
         val store = DisplayStore(DisplayApi(conn), conn, backgroundScope)
-        advanceUntilIdle()
+        runCurrent()
 
         val raised = async(start = CoroutineStart.UNDISPATCHED) { store.autoRaise.first() }
         gateway.socket.push(event("tool.start", sessionId = "s-1", payload = """{"tool":"browser_navigate"}"""))
-        advanceUntilIdle()
+        runCurrent()
         val ev = raised.await()
         assertEquals("s-1", ev.sessionId)
         assertEquals("browser_navigate", ev.toolName)
@@ -121,7 +117,7 @@ class DisplayStoreTest {
         gateway.answer = { "error:-32601" }
         val conn = gateway.start()
         val store = DisplayStore(DisplayApi(conn), conn, backgroundScope)
-        advanceUntilIdle()
+        runCurrent()
 
         val res = store.refreshStatus("default")
         assertTrue(res.isFailure)
