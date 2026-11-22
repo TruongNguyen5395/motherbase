@@ -106,7 +106,9 @@ class DisplayStore(
             connectedClients.collectLatest { client ->
                 if (client == null) return@collectLatest
                 launch {
-                    client.events.collect { ev -> handleEvent(ev.type, ev.payload, ev.sessionId) }
+                    client.events.collect { ev ->
+                        handleEvent(ev.type, ev.payload as? JsonObject ?: JsonObject(emptyMap()), ev.sessionId)
+                    }
                 }
                 launch {
                     client.serverRequests.collect { req ->
