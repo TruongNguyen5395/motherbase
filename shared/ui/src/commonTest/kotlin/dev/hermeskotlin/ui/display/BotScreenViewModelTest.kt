@@ -26,11 +26,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
@@ -100,7 +100,7 @@ class BotScreenViewModelTest {
         val client = createHttpClient(
             MockEngine(
                 MockEngineConfig().apply {
-                    dispatcher = StandardTestDispatcher(testScheduler)
+                    dispatcher = mainDispatcher
                     addHandler { req ->
                         if (req.url.encodedPath == "/api/auth/ws-ticket") {
                             respond("""{"ticket":"ws-tkt","ttl_seconds":30}""", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
@@ -130,7 +130,7 @@ class BotScreenViewModelTest {
     }
 
     @Test
-    fun openTakeOverCloseConfirmationAndOtpBackgroundPreserveLease() = runTest {
+    fun openTakeOverCloseConfirmationAndOtpBackgroundPreserveLease() = runTest(mainDispatcher) {
         val viewerId = "vw-android-1"
         val viewerHash = DisplayApi.viewerHashOf(viewerId)
         val gwUrl = GatewayUrl.parse("https://hermes.example.com")
@@ -189,7 +189,7 @@ class BotScreenViewModelTest {
     }
 
     @Test
-    fun autoRaiseRespectsToggleSessionCooldownAndManualDismiss() = runTest {
+    fun autoRaiseRespectsToggleSessionCooldownAndManualDismiss() = runTest(mainDispatcher) {
         var fakeNow = 100_000L
         val gwUrl = GatewayUrl.parse("https://hermes.example.com")
         val (vm, transport, _) = harness(now = { fakeNow }) { method, _ ->
@@ -201,19 +201,23 @@ class BotScreenViewModelTest {
         }
 
         vm.bindChatContext("bot1", gwUrl, sessionId = "s-1", autoOpenEnabled = true)
+        runCurrent()
         advanceUntilIdle()
         assertFalse(vm.ui.value.screenOpen)
 
         // Matching session tool.start raises screen
         transport.pushEvent("tool.start", sessionId = "s-1", payload = """{"tool":"computer_use_click"}""")
+        runCurrent()
         advanceUntilIdle()
         assertTrue(vm.ui.value.screenOpen)
 
         // Manual close sets manualDismissed -> suppresses next tool.start in same chat
         vm.closeScreen(handBackFirst = false)
+        runCurrent()
         advanceUntilIdle()
         fakeNow += 60_000L
         transport.pushEvent("tool.start", sessionId = "s-1", payload = """{"tool":"browser_navigate"}""")
+        runCurrent()
         advanceUntilIdle()
         assertFalse(vm.ui.value.screenOpen)
     }

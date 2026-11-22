@@ -387,74 +387,80 @@ actual class DisplayRelay actual constructor(
     ) {
         var fragmentOpcode = OP_BINARY
         val fragmentBuffer = ByteArrayOutputStream()
-        while (scope.isActive && !active.localSocket.isClosed) {
-            val b0 = input.read()
-            if (b0 < 0) break
-            val b1 = input.read()
-            if (b1 < 0) break
-            val fin = (b0 and 0x80) != 0
-            val opcode = b0 and 0x0F
-            val masked = (b1 and 0x80) != 0
-            var len = (b1 and 0x7F).toLong()
-            if (len == 126L) {
-                val hi = input.read()
-                val lo = input.read()
-                if (hi < 0 || lo < 0) break
-                len = ((hi shl 8) or lo).toLong()
-            } else if (len == 127L) {
-                val lenBytes = readExact(input, 8)
-                len = 0L
-                for (b in lenBytes) {
-                    len = (len shl 8) or (b.toLong() and 0xFFL)
+        try {
+            while (scope.isActive && !active.localSocket.isClosed) {
+                val b0 = input.read()
+                if (b0 < 0) break
+                val b1 = input.read()
+                if (b1 < 0) break
+                val fin = (b0 and 0x80) != 0
+                val opcode = b0 and 0x0F
+                val masked = (b1 and 0x80) != 0
+                var len = (b1 and 0x7F).toLong()
+                if (len == 126L) {
+                    val hi = input.read()
+                    val lo = input.read()
+                    if (hi < 0 || lo < 0) break
+                    len = ((hi shl 8) or lo).toLong()
+                } else if (len == 127L) {
+                    val lenBytes = readExact(input, 8)
+                    len = 0L
+                    for (b in lenBytes) {
+                        len = (len shl 8) or (b.toLong() and 0xFFL)
+                    }
                 }
-            }
-            if (len < 0 || len > MAX_WS_FRAME_BYTES) break
-            val maskKey = if (masked) readExact(input, 4) else null
-            val payload = if (len > 0) readExact(input, len.toInt()) else ByteArray(0)
-            if (maskKey != null) {
-                for (i in payload.indices) {
-                    payload[i] = (payload[i].toInt() xor maskKey[i and 3].toInt()).toByte()
+                if (len < 0 || len > MAX_WS_FRAME_BYTES) break
+                val maskKey = if (masked) readExact(input, 4) else null
+                val payload = if (len > 0) readExact(input, len.toInt()) else ByteArray(0)
+                if (maskKey != null) {
+                    for (i in payload.indices) {
+                        payload[i] = (payload[i].toInt() xor maskKey[i and 3].toInt()).toByte()
+                    }
                 }
-            }
 
-            when (opcode) {
-                OP_PING -> writeWsFrame(output, writeLock, fin = true, opcode = OP_PONG, payload = payload)
-                OP_PONG -> Unit
-                OP_CLOSE -> {
-                    val code = if (payload.size >= 2) {
-                        ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)
-                    } else {
-                        DisplayCloseCodes.CLEAN
+                when (opcode) {
+                    OP_PING -> writeWsFrame(output, writeLock, fin = true, opcode = OP_PONG, payload = payload)
+                    OP_PONG -> Unit
+                    OP_CLOSE -> {
+                        val code = if (payload.size >= 2) {
+                            ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF)
+                        } else {
+                            DisplayCloseCodes.CLEAN
+                        }
+                        val reason = if (payload.size > 2) payload.decodeToString(2, payload.size) else ""
+                        if (active.preserveLeaseOnClose.get()) {
+                            upstream.close(CloseReason(DisplayCloseCodes.BACKGROUNDED.toShort(), "background"))
+                        } else {
+                            upstream.close(CloseReason(code.toShort(), reason))
+                        }
+                        break
                     }
-                    val reason = if (payload.size > 2) payload.decodeToString(2, payload.size) else ""
-                    if (active.preserveLeaseOnClose.get()) {
-                        upstream.close(CloseReason(DisplayCloseCodes.BACKGROUNDED.toShort(), "background"))
-                    } else {
-                        upstream.close(CloseReason(code.toShort(), reason))
+                    OP_TEXT, OP_BINARY -> {
+                        if (fin) {
+                            val frame = if (opcode == OP_TEXT) Frame.Text(true, payload) else Frame.Binary(true, payload)
+                            upstream.send(frame)
+                        } else {
+                            fragmentOpcode = opcode
+                            fragmentBuffer.reset()
+                            fragmentBuffer.write(payload)
+                        }
                     }
-                    break
-                }
-                OP_TEXT, OP_BINARY -> {
-                    if (fin) {
-                        val frame = if (opcode == OP_TEXT) Frame.Text(true, payload) else Frame.Binary(true, payload)
-                        upstream.send(frame)
-                    } else {
-                        fragmentOpcode = opcode
-                        fragmentBuffer.reset()
+                    OP_CONT -> {
+                        if (fragmentBuffer.size() + payload.size > MAX_WS_FRAME_BYTES) break
                         fragmentBuffer.write(payload)
-                    }
-                }
-                OP_CONT -> {
-                    if (fragmentBuffer.size() + payload.size > MAX_WS_FRAME_BYTES) break
-                    fragmentBuffer.write(payload)
-                    if (fin) {
-                        val combined = fragmentBuffer.toByteArray()
-                        fragmentBuffer.reset()
-                        val frame = if (fragmentOpcode == OP_TEXT) Frame.Text(true, combined) else Frame.Binary(true, combined)
-                        upstream.send(frame)
+                        if (fin) {
+                            val combined = fragmentBuffer.toByteArray()
+                            fragmentBuffer.reset()
+                            val frame = if (fragmentOpcode == OP_TEXT) Frame.Text(true, combined) else Frame.Binary(true, combined)
+                            upstream.send(frame)
+                        }
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Local socket closed or upstream closed while reading
         }
     }
 

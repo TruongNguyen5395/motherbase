@@ -1,11 +1,15 @@
 package dev.hermeskotlin.core.display
 
+import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.rpc.FakeGateway
 import dev.hermeskotlin.core.rpc.event
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -81,7 +85,7 @@ class DisplayStoreTest {
         assertTrue(sudoReply.contains("my-sudo-pw"))
 
         // tool.start triggers autoRaise for computer_use and browser_ tools
-        val raised = async { store.autoRaise.first() }
+        val raised = async(start = CoroutineStart.UNDISPATCHED) { store.autoRaise.first() }
         gateway.socket.push(event("tool.start", sessionId = "s-1", payload = """{"tool":"browser_navigate"}"""))
         advanceUntilIdle()
         val ev = raised.await()
@@ -104,8 +108,11 @@ class DisplayStoreTest {
 
         // Gateway upgrades and reconnects -> unavailable resets
         gateway.answer = { """{"profile":"default","profile_key":"/opt/data","supported":true,"installed":true,"running":false}""" }
-        gateway.socket.close(4000, "restart")
-        advanceUntilIdle()
+        val before = (conn.state.value as ConnectionState.Connected).client
+        gateway.socket.serverClose(1006, "restart")
+        advanceTimeBy(2_000)
+        conn.state.first { it is ConnectionState.Connected && it.client !== before }
+        runCurrent()
         assertFalse(store.stateOf("default").unavailable)
         assertTrue(store.refreshStatus("default").isSuccess)
     }

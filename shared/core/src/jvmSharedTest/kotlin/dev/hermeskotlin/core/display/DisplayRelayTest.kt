@@ -4,6 +4,7 @@ import dev.hermeskotlin.core.gateway.GatewayUrl
 import dev.hermeskotlin.core.network.createHttpClient
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -27,6 +28,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DisplayRelayTest {
@@ -35,43 +37,49 @@ class DisplayRelayTest {
     fun servesStaticAssetsRejectsBadHostsAndBridgesBinaryRfbFrames() = runBlocking {
         val upstreamReqPath = CompletableDeferred<String>()
         val upstreamClosedCode = CompletableDeferred<Int?>()
+        val upstreamError = CompletableDeferred<Throwable?>()
         val upstreamServer = ServerSocket(0, 4, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
         val upstreamThread = thread(isDaemon = true) {
-            upstreamServer.accept().use { sock ->
-                val input = BufferedInputStream(sock.getInputStream())
-                val output = sock.getOutputStream()
-                val reqLine = readLine(input)
-                upstreamReqPath.complete(reqLine.substringBetween(" ", " "))
-                var key = ""
-                while (true) {
-                    val line = readLine(input)
-                    if (line.isEmpty()) break
-                    if (line.lowercase().startsWith("sec-websocket-key:")) {
-                        key = line.substringAfter(':').trim()
+            try {
+                upstreamServer.accept().use { sock ->
+                    val input = BufferedInputStream(sock.getInputStream())
+                    val output = sock.getOutputStream()
+                    val reqLine = readLine(input)
+                    upstreamReqPath.complete(reqLine.substringBetween(" ", " "))
+                    var key = ""
+                    while (true) {
+                        val line = readLine(input)
+                        if (line.isEmpty()) break
+                        if (line.lowercase().startsWith("sec-websocket-key:")) {
+                            key = line.substringAfter(':').trim()
+                        }
                     }
+                    val accept = Base64.getEncoder().encodeToString(
+                        MessageDigest.getInstance("SHA-1").digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray()),
+                    )
+                    output.write(
+                        ("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $accept\r\n\r\n")
+                            .toByteArray(),
+                    )
+                    output.flush()
+
+                    // Send server banner (RFB 003.008) as binary frame
+                    writeUnmaskedFrame(output, 0x2, "RFB 003.008\n".toByteArray())
+
+                    // Expect client binary echo back, then read close
+                    val frame = readWsFrame(input)
+                    assertEquals(0x2, frame.first)
+                    assertContentEquals("HELLO-RFB".toByteArray(), frame.second)
+                    // Send close 4000 (evicted)
+                    val closePayload = byteArrayOf(((4000 ushr 8) and 0xFF).toByte(), (4000 and 0xFF).toByte())
+                    writeUnmaskedFrame(output, 0x8, closePayload)
+                    val reply = runCatching { readWsFrame(input) }.getOrNull()
+                    val code = reply?.second?.takeIf { it.size >= 2 }?.let { ((it[0].toInt() and 0xFF) shl 8) or (it[1].toInt() and 0xFF) }
+                    upstreamClosedCode.complete(code ?: 4000)
                 }
-                val accept = Base64.getEncoder().encodeToString(
-                    MessageDigest.getInstance("SHA-1").digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray()),
-                )
-                output.write(
-                    ("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $accept\r\n\r\n")
-                        .toByteArray(),
-                )
-                output.flush()
-
-                // Send server banner (RFB 003.008) as binary frame
-                writeUnmaskedFrame(output, 0x2, "RFB 003.008\n".toByteArray())
-
-                // Expect client binary echo back, then read close
-                val frame = readWsFrame(input)
-                assertEquals(0x2, frame.first)
-                assertContentEquals("HELLO-RFB".toByteArray(), frame.second)
-                // Send close 4000 (evicted)
-                val closePayload = byteArrayOf(((4000 ushr 8) and 0xFF).toByte(), (4000 and 0xFF).toByte())
-                writeUnmaskedFrame(output, 0x8, closePayload)
-                val reply = runCatching { readWsFrame(input) }.getOrNull()
-                val code = reply?.second?.takeIf { it.size >= 2 }?.let { ((it[0].toInt() and 0xFF) shl 8) or (it[1].toInt() and 0xFF) }
-                upstreamClosedCode.complete(code ?: 4000)
+                upstreamError.complete(null)
+            } catch (t: Throwable) {
+                upstreamError.complete(t)
             }
         }
 
@@ -110,7 +118,7 @@ class DisplayRelayTest {
             }
 
             // Connect local browser socket to ws://...
-            val disconnectedEvent = async {
+            val disconnectedEvent = async(start = CoroutineStart.UNDISPATCHED) {
                 withTimeout(5_000) {
                     relay.events.first { it is RelayEvent.WsDisconnected } as RelayEvent.WsDisconnected
                 }
@@ -149,6 +157,7 @@ class DisplayRelayTest {
             assertEquals(4000, ev.code)
             assertFalse(ev.clean)
             assertEquals("/api/display/ws?display_ticket=tkt-999", withTimeout(5_000) { upstreamReqPath.await() })
+            assertNull(upstreamError.await())
         } finally {
             relay.shutdownForTests()
             relayScope.cancel()

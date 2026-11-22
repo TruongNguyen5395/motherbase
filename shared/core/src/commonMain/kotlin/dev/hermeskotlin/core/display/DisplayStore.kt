@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -103,23 +102,19 @@ class DisplayStore(
         }
 
         scope.launch {
-            connectedClients.collectLatest { client ->
-                if (client == null) return@collectLatest
-                launch {
-                    client.events.collect { ev ->
-                        handleEvent(ev.type, ev.payload as? JsonObject ?: JsonObject(emptyMap()), ev.sessionId)
-                    }
-                }
-                launch {
-                    client.serverRequests.collect { req ->
-                        if (req.method == "display.install.sudo") {
-                            val profileKey = (req.params?.get("profile_key") as? JsonPrimitive)?.contentOrNull.orEmpty()
-                            val targetId = resolveProfileForKey(profileKey)
-                                ?: _profiles.value.entries.firstOrNull { it.value.installing }?.key
-                                ?: ProfileScreenState.DEFAULT_PROFILE
-                            updateProfile(targetId) { it.copy(installSudoRequestId = req.id) }
-                        }
-                    }
+            connection.events.collect { ev ->
+                handleEvent(ev.type, ev.payload as? JsonObject ?: JsonObject(emptyMap()), ev.sessionId)
+            }
+        }
+
+        scope.launch {
+            connection.serverRequests.collect { req ->
+                if (req.method == "display.install.sudo") {
+                    val profileKey = (req.params["profile_key"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                    val targetId = resolveProfileForKey(profileKey)
+                        ?: _profiles.value.entries.firstOrNull { it.value.installing }?.key
+                        ?: ProfileScreenState.DEFAULT_PROFILE
+                    updateProfile(targetId) { it.copy(installSudoRequestId = req.id) }
                 }
             }
         }
@@ -303,7 +298,7 @@ class DisplayStore(
     suspend fun respondInstallSudo(profile: String?, password: String?) {
         val pid = normalizeProfile(profile)
         val reqId = stateOf(pid).installSudoRequestId ?: return
-        val client = connectedClients.value ?: return
+        val client = (connection.state.value as? ConnectionState.Connected)?.client ?: connectedClients.value ?: return
         updateProfile(pid) { it.copy(installSudoRequestId = null) }
         client.respond(
             reqId,
