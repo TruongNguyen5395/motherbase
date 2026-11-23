@@ -451,8 +451,11 @@ private fun CefClient.lockDownRelay(
             browser: CefBrowser, frame: CefFrame, request: CefRequest, isNavigation: Boolean, isDownload: Boolean,
             requestInitiator: String?, disableDefaultHandling: BoolRef,
         ): CefResourceRequestHandler = object : CefResourceRequestHandlerAdapter() {
-            override fun onBeforeResourceLoad(browser: CefBrowser, frame: CefFrame, request: CefRequest): Boolean =
-                !isRelaySameEndpoint(request.url, relayOrigin)
+            override fun onBeforeResourceLoad(browser: CefBrowser, frame: CefFrame, request: CefRequest): Boolean {
+                val target = request.url
+                val inlineOk = target.startsWith("data:") || target.startsWith("blob:") || target == "about:blank"
+                return !(inlineOk || isRelaySameEndpoint(target, relayOrigin))
+            }
         }
 
         override fun onRenderProcessTerminated(browser: CefBrowser, status: CefRequestHandler.TerminationStatus, errorCode: Int, errorString: String?) {

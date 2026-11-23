@@ -48,6 +48,7 @@
     const viewportEl = document.getElementById('viewport');
 
     let rfb = null;
+    let activeWsUrl = null;
     let cursorX = 0.5;
     let cursorY = 0.5;
     let activeButtons = 0;
@@ -127,8 +128,17 @@
 
     const api = {
       connect(wsUrl, optsJson = '{}') {
-        api.disconnect();
         const opts = typeof optsJson === 'string' ? JSON.parse(optsJson || '{}') : (optsJson || {});
+        if (rfb && activeWsUrl === wsUrl) {
+          rfb.viewOnly = opts.viewOnly !== false;
+          rfb.qualityLevel = typeof opts.qualityLevel === 'number' ? opts.qualityLevel : 6;
+          rfb.compressionLevel = typeof opts.compressionLevel === 'number' ? opts.compressionLevel : 2;
+          rfb.focusOnClick = opts.focusOnClick !== false;
+          rfb.showDotCursor = !!opts.showDotCursor;
+          return;
+        }
+        api.disconnect();
+        activeWsUrl = wsUrl;
         const instance = new RFB(screenEl, wsUrl, { shared: true });
         instance.viewOnly = opts.viewOnly !== false;
         instance.scaleViewport = opts.scaleViewport !== false;
@@ -169,6 +179,7 @@
           try { rfb.disconnect(); } catch (_) {}
           rfb = null;
         }
+        activeWsUrl = null;
         activeButtons = 0;
         screenEl.innerHTML = '';
       },
@@ -341,6 +352,11 @@
 
     window.mbScreenApi = api;
     window.addEventListener('resize', () => setTimeout(reportDesktopSize, 50));
+    if (Array.isArray(window.__mbPendingConnect)) {
+      const [pendingWs, pendingOpts] = window.__mbPendingConnect;
+      window.__mbPendingConnect = null;
+      api.connect(pendingWs, pendingOpts);
+    }
     postEvent('ready');
   </script>
 </body>

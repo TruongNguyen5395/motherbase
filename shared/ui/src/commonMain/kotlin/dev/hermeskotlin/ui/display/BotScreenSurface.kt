@@ -73,7 +73,8 @@ internal object ScreenScriptBuilder {
         mobileTouch: Boolean,
     ): String {
         val opts = """{"viewOnly":${!interactive},"scaleViewport":true,"qualityLevel":${quality.qualityLevel},"compressionLevel":${quality.compressionLevel},"showDotCursor":$showDotCursor,"focusOnClick":${!mobileTouch}}"""
-        return "window.mbScreenApi&&window.mbScreenApi.connect(${jsString(wsUrl)},$opts);"
+        val escapedWs = jsString(wsUrl)
+        return "if(window.mbScreenApi){window.mbScreenApi.connect($escapedWs,$opts);}else{window.__mbPendingConnect=[$escapedWs,$opts];}"
     }
 
     fun updateOptions(interactive: Boolean, quality: ScreenQuality, showDotCursor: Boolean): String =

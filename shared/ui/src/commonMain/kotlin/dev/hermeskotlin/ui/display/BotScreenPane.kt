@@ -37,8 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -97,7 +100,10 @@ import dev.hermeskotlin.designsystem.warning
 import dev.hermeskotlin.designsystem.warningSoft
 import dev.hermeskotlin.designsystem.well
 import dev.hermeskotlin.ui.LocalCaptureAllKeys
+import dev.hermeskotlin.ui.LocalWindowControls
 import dev.hermeskotlin.ui.PlatformBackHandler
+import dev.hermeskotlin.ui.WindowControls
+import dev.hermeskotlin.ui.clearOfWindowControls
 import dev.hermeskotlin.ui.isDesktop
 import dev.hermeskotlin.ui.rememberChangingConfigurations
 import dev.hermeskotlin.ui.resources.*
@@ -166,7 +172,13 @@ fun BotScreenPane(
     }
 
     BoxWithConstraints(safeModifier) {
-        val compactToolbar = maxWidth < 480.dp
+        val toolbar = computeScreenToolbarLayout(
+            maxWidth = maxWidth,
+            fullScreenOverlay = fullScreenOverlay,
+            controls = LocalWindowControls.current,
+            density = LocalDensity.current,
+        )
+        val compactToolbar = toolbar.compactToolbar
 
         Column(Modifier.fillMaxSize()) {
             ScreenHeaderBar(
@@ -177,6 +189,7 @@ fun BotScreenPane(
                 actionBusy = screenState.actionBusy,
                 quality = ui.quality,
                 compactToolbar = compactToolbar,
+                showLeaseAction = !toolbar.leaseActionInDock,
                 fullScreenOverlay = fullScreenOverlay,
                 landscape = ui.landscapeFullscreen,
                 keyboardBarOpen = ui.keyboardBarOpen,
@@ -344,15 +357,21 @@ fun BotScreenPane(
                 }
             }
 
-            if ((compactToolbar || !isDesktop || ui.keyboardBarOpen) && status?.running == true && ui.bridge != null) {
+            if ((compactToolbar || !isDesktop || ui.keyboardBarOpen) && status?.running == true && (ui.bridge != null || toolbar.leaseActionInDock)) {
                 MobileControlDock(
                     interactive = interactive,
+                    otherHolds = otherHolds,
+                    actionBusy = screenState.actionBusy,
                     compactToolbar = compactToolbar,
+                    showLeaseAction = toolbar.leaseActionInDock,
                     quality = ui.quality,
                     touchMode = ui.touchMode,
                     dragLocked = ui.dragLocked,
                     keyboardOpen = ui.keyboardBarOpen,
                     controller = controller,
+                    onTakeOver = viewModel::takeOver,
+                    onHandBack = { viewModel.handBack(force = false) },
+                    onForceHandBack = { viewModel.handBack(force = true) },
                     onCycleQuality = viewModel::cycleQuality,
                     onStop = viewModel::requestStopScreen,
                     onSelectTouchMode = viewModel::setTouchMode,
@@ -406,8 +425,69 @@ fun BotScreenPane(
     )
 }
 
+internal data class ScreenToolbarLayout(
+    val compactToolbar: Boolean,
+    val leaseActionInDock: Boolean,
+)
+
+internal fun computeScreenToolbarLayout(
+    maxWidth: Dp,
+    fullScreenOverlay: Boolean,
+    controls: WindowControls,
+    density: Density,
+): ScreenToolbarLayout {
+    val reserved = if (controls.height == 0) {
+        0.dp
+    } else {
+        with(density) { (if (fullScreenOverlay) controls.start + controls.end else controls.end).toDp() }
+    }
+    val available = (maxWidth - reserved).coerceAtLeast(0.dp)
+    val compact = available < 460.dp
+    return ScreenToolbarLayout(
+        compactToolbar = compact,
+        leaseActionInDock = compact && available < 300.dp,
+    )
+}
+
 @Composable
-private fun ScreenHeaderBar(
+private fun LeaseActionButton(
+    interactive: Boolean,
+    otherHolds: Boolean,
+    actionBusy: Boolean,
+    onTakeOver: () -> Unit,
+    onHandBack: () -> Unit,
+    onForceHandBack: () -> Unit,
+) {
+    when {
+        interactive -> Button(
+            text = stringResource(Res.string.screen_hand_back),
+            onClick = onHandBack,
+            variant = ButtonVariant.Inverse,
+            size = ButtonSize.Small,
+            enabled = !actionBusy,
+            loading = actionBusy,
+        )
+        otherHolds -> Button(
+            text = stringResource(Res.string.screen_force_hand_back),
+            onClick = onForceHandBack,
+            variant = ButtonVariant.Outline,
+            size = ButtonSize.Small,
+            enabled = !actionBusy,
+            loading = actionBusy,
+        )
+        else -> Button(
+            text = stringResource(Res.string.screen_take_over),
+            onClick = onTakeOver,
+            variant = ButtonVariant.Primary,
+            size = ButtonSize.Small,
+            enabled = !actionBusy,
+            loading = actionBusy,
+        )
+    }
+}
+
+@Composable
+internal fun ScreenHeaderBar(
     title: String,
     running: Boolean,
     interactive: Boolean,
@@ -415,6 +495,7 @@ private fun ScreenHeaderBar(
     actionBusy: Boolean,
     quality: ScreenQuality,
     compactToolbar: Boolean,
+    showLeaseAction: Boolean,
     fullScreenOverlay: Boolean,
     landscape: Boolean,
     keyboardBarOpen: Boolean,
@@ -432,6 +513,7 @@ private fun ScreenHeaderBar(
             .fillMaxWidth()
             .background(Theme[colors][surface])
             .border(1.dp, Theme[colors][stroke])
+            .clearOfWindowControls()
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -467,30 +549,14 @@ private fun ScreenHeaderBar(
         }
 
         if (running) {
-            when {
-                interactive -> Button(
-                    text = stringResource(Res.string.screen_hand_back),
-                    onClick = onHandBack,
-                    variant = ButtonVariant.Inverse,
-                    size = ButtonSize.Small,
-                    enabled = !actionBusy,
-                    loading = actionBusy,
-                )
-                otherHolds -> Button(
-                    text = stringResource(Res.string.screen_force_hand_back),
-                    onClick = onForceHandBack,
-                    variant = ButtonVariant.Outline,
-                    size = ButtonSize.Small,
-                    enabled = !actionBusy,
-                    loading = actionBusy,
-                )
-                else -> Button(
-                    text = stringResource(Res.string.screen_take_over),
-                    onClick = onTakeOver,
-                    variant = ButtonVariant.Primary,
-                    size = ButtonSize.Small,
-                    enabled = !actionBusy,
-                    loading = actionBusy,
+            if (showLeaseAction) {
+                LeaseActionButton(
+                    interactive = interactive,
+                    otherHolds = otherHolds,
+                    actionBusy = actionBusy,
+                    onTakeOver = onTakeOver,
+                    onHandBack = onHandBack,
+                    onForceHandBack = onForceHandBack,
                 )
             }
 
@@ -558,14 +624,20 @@ private fun QualityBadge(quality: ScreenQuality, onClick: () -> Unit) {
 }
 
 @Composable
-private fun MobileControlDock(
+internal fun MobileControlDock(
     interactive: Boolean,
+    otherHolds: Boolean,
+    actionBusy: Boolean,
     compactToolbar: Boolean,
+    showLeaseAction: Boolean,
     quality: ScreenQuality,
     touchMode: TouchControlMode,
     dragLocked: Boolean,
     keyboardOpen: Boolean,
     controller: BotScreenController,
+    onTakeOver: () -> Unit,
+    onHandBack: () -> Unit,
+    onForceHandBack: () -> Unit,
     onCycleQuality: () -> Unit,
     onStop: () -> Unit,
     onSelectTouchMode: (TouchControlMode) -> Unit,
@@ -644,12 +716,22 @@ private fun MobileControlDock(
             }
         }
 
-        // Row 1: Pointer Mode, Quality, Zoom Reset, Stop
+        // Row 1: Lease Action (when narrow under window controls), Pointer Mode, Quality, Zoom Reset, Stop
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (showLeaseAction) {
+                LeaseActionButton(
+                    interactive = interactive,
+                    otherHolds = otherHolds,
+                    actionBusy = actionBusy,
+                    onTakeOver = onTakeOver,
+                    onHandBack = onHandBack,
+                    onForceHandBack = onForceHandBack,
+                )
+            }
             if (!isDesktop && interactive) {
                 KeyChip(
                     label = stringResource(Res.string.screen_touch_trackpad),

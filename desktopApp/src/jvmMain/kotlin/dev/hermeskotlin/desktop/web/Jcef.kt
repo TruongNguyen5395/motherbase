@@ -81,11 +81,13 @@ internal object Jcef {
         }
         CefApp.addAppHandler(object : CefAppHandlerAdapter(args) {
             override fun onBeforeCommandLineProcessing(processType: String?, commandLine: CefCommandLine) {
-                // WebRTC may only go through a proxy, and the proxy leads nowhere: past it, only the gateways. Loopback
-                // isn't let past on its own (`<-loopback>`), only a gateway's own port on it.
+                // WebRTC may only go through a proxy, and the proxy leads nowhere: past it, only the gateways.
+                // `<-loopback>` must lead because Chromium evaluates bypass rules last-match-wins (reverse order):
+                // placing it after explicit loopback ports (like `DisplayRelay`) would override them and route them
+                // into the dead proxy (`ERR_PROXY_CONNECTION_FAILED`).
                 commandLine.appendSwitchWithValue("force-webrtc-ip-handling-policy", "disable_non_proxied_udp")
                 commandLine.appendSwitchWithValue("proxy-server", NOWHERE)
-                commandLine.appendSwitchWithValue("proxy-bypass-list", (gateways + "<-loopback>").joinToString(";"))
+                commandLine.appendSwitchWithValue("proxy-bypass-list", proxyBypassList(gateways))
                 // No Google sign-in, sync, translation or spelling service: nothing here talks to Google.
                 commandLine.appendSwitch("disable-sync")
                 commandLine.appendSwitch("disable-component-update")
@@ -114,6 +116,14 @@ internal fun hostPort(url: String): String? {
     }
     return "$host:${uri.port.takeIf { it != -1 } ?: default}"
 }
+
+/**
+ * Formats Chromium's `--proxy-bypass-list`: subtractive `<-loopback>` must come first because
+ * `net::ProxyBypassRules` evaluates rules in reverse (last-match-wins), so explicit gateway and local
+ * `DisplayRelay` entries placed after `<-loopback>` bypass the dead proxy while other loopback ports remain blocked.
+ */
+internal fun proxyBypassList(gateways: Collection<String>): String =
+    (listOf("<-loopback>") + gateways).joinToString(";")
 
 /**
  * [url] as a [URI], or, where Chromium leaves characters `URI` refuses (`{`, `|` and the like in a query), its

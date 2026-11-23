@@ -229,5 +229,9 @@ class BotScreenViewModelTest {
         assertTrue(script.startsWith("window.mbScreenApi&&window.mbScreenApi.typeText(\""))
         assertTrue(script.contains("\\n"))
         assertTrue(script.contains("\\\""))
+
+        val connect = ScreenScriptBuilder.connect("ws://127.0.0.1:9999/sec/ws", interactive = false, quality = ScreenQuality.Balanced, showDotCursor = false, mobileTouch = false)
+        assertTrue(connect.contains("window.__mbPendingConnect="))
+        assertTrue(connect.contains("window.mbScreenApi.connect(\"ws://127.0.0.1:9999/sec/ws\""))
     }
 }

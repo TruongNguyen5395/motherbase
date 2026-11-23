@@ -14,6 +14,13 @@ import kotlin.test.assertTrue
 class ChromiumRulesTest {
 
     @Test
+    fun bypassListPlacesSubtractiveLoopbackBeforeGateways() {
+        val list = proxyBypassList(listOf("hermes.example.com:443", "127.0.0.1:54321"))
+        assertEquals("<-loopback>;hermes.example.com:443;127.0.0.1:54321", list)
+        assertEquals("<-loopback>", proxyBypassList(emptyList()))
+    }
+
+    @Test
     fun aGatewayIsItsHostAndPort() {
         assertEquals("hermes.example.com:443", hostPort("https://Hermes.example.com/plugins/kanban"))
         assertEquals("hermes.example.com:80", hostPort("http://hermes.example.com"))
