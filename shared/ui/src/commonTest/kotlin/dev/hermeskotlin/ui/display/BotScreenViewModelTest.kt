@@ -8,6 +8,7 @@ import dev.hermeskotlin.core.display.DisplayApi
 import dev.hermeskotlin.core.display.DisplayRelay
 import dev.hermeskotlin.core.display.DisplayStore
 import dev.hermeskotlin.core.display.LeaseHolder
+import dev.hermeskotlin.core.display.ScreenQuality
 import dev.hermeskotlin.core.gateway.GatewayRepository
 import dev.hermeskotlin.core.gateway.GatewayUrl
 import dev.hermeskotlin.core.network.createHttpClient
