@@ -63,6 +63,7 @@ import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.Circle
 import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Clock
+import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.ListTodo
 import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.PanelRight
@@ -803,45 +804,45 @@ private fun CalendarTopBar(
             expanded = viewMenuOpen,
             onExpandedChange = { viewMenuOpen = it },
             items = {
-                MenuChoice(stringResource(Res.string.cal_view_day), Lucide.Calendar, viewMode == CalendarViewMode.DAY) {
+                MenuChoice(stringResource(Res.string.cal_view_day), Lucide.Calendar, viewMode == CalendarViewMode.DAY, onClick = {
                     viewMenuOpen = false; onSetViewMode(CalendarViewMode.DAY)
-                }
-                MenuChoice(stringResource(Res.string.cal_view_three_days), Lucide.CalendarDays, viewMode == CalendarViewMode.THREE_DAYS) {
+                })
+                MenuChoice(stringResource(Res.string.cal_view_three_days), Lucide.CalendarDays, viewMode == CalendarViewMode.THREE_DAYS, onClick = {
                     viewMenuOpen = false; onSetViewMode(CalendarViewMode.THREE_DAYS)
-                }
-                MenuChoice(stringResource(Res.string.cal_view_four_days), Lucide.CalendarDays, viewMode == CalendarViewMode.FOUR_DAYS) {
+                })
+                MenuChoice(stringResource(Res.string.cal_view_four_days), Lucide.CalendarDays, viewMode == CalendarViewMode.FOUR_DAYS, onClick = {
                     viewMenuOpen = false; onSetViewMode(CalendarViewMode.FOUR_DAYS)
-                }
-                MenuChoice(stringResource(Res.string.cal_view_week), Lucide.CalendarDays, viewMode == CalendarViewMode.WEEK) {
+                })
+                MenuChoice(stringResource(Res.string.cal_view_week), Lucide.CalendarDays, viewMode == CalendarViewMode.WEEK, onClick = {
                     viewMenuOpen = false; onSetViewMode(CalendarViewMode.WEEK)
-                }
-                MenuChoice(stringResource(Res.string.cal_view_month), Lucide.Calendar, viewMode == CalendarViewMode.MONTH) {
+                })
+                MenuChoice(stringResource(Res.string.cal_view_month), Lucide.Calendar, viewMode == CalendarViewMode.MONTH, onClick = {
                     viewMenuOpen = false; onSetViewMode(CalendarViewMode.MONTH)
-                }
-                MenuChoice(stringResource(Res.string.cal_view_schedule), Lucide.ListTodo, viewMode == CalendarViewMode.SCHEDULE) {
+                })
+                MenuChoice(stringResource(Res.string.cal_view_schedule), Lucide.ListTodo, viewMode == CalendarViewMode.SCHEDULE, onClick = {
                     viewMenuOpen = false; onSetViewMode(CalendarViewMode.SCHEDULE)
-                }
+                })
                 Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(Theme[colors][stroke]))
-                MenuChoice(stringResource(Res.string.cal_show_weekends), Lucide.Check, showWeekends) {
+                MenuChoice(stringResource(Res.string.cal_show_weekends), Lucide.Check, showWeekends, onClick = {
                     viewMenuOpen = false; onToggleWeekends()
-                }
-                MenuChoice(stringResource(Res.string.cal_show_declined), Lucide.Check, showDeclined) {
+                })
+                MenuChoice(stringResource(Res.string.cal_show_declined), Lucide.Check, showDeclined, onClick = {
                     viewMenuOpen = false; onToggleDeclined()
-                }
-                MenuChoice(stringResource(Res.string.cal_show_completed_tasks), Lucide.Check, showCompletedTasks) {
+                })
+                MenuChoice(stringResource(Res.string.cal_show_completed_tasks), Lucide.Check, showCompletedTasks, onClick = {
                     viewMenuOpen = false; onToggleCompletedTasks()
-                }
+                })
                 if (compact) {
                     Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(Theme[colors][stroke]))
-                    MenuChoice(stringResource(Res.string.cal_today), Lucide.Clock, false) {
+                    MenuChoice(stringResource(Res.string.cal_today), Lucide.Clock, false, onClick = {
                         viewMenuOpen = false; onGoToday()
-                    }
-                    MenuChoice(stringResource(Res.string.cal_sync_now), Lucide.RefreshCw, false) {
+                    })
+                    MenuChoice(stringResource(Res.string.cal_sync_now), Lucide.RefreshCw, false, onClick = {
                         viewMenuOpen = false; onSyncNow()
-                    }
-                    MenuChoice(stringResource(Res.string.cal_settings_title), Lucide.Settings2, false) {
+                    })
+                    MenuChoice(stringResource(Res.string.cal_settings_title), Lucide.Settings2, false, onClick = {
                         viewMenuOpen = false; onOpenSettings()
-                    }
+                    })
                 }
             },
         ) {

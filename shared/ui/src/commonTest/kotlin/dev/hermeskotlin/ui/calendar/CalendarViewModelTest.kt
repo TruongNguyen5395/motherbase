@@ -106,6 +106,7 @@ class CalendarViewModelTest {
         httpRespond: (RecordedHttp) -> Pair<HttpStatusCode, String>,
         rpcAnswer: suspend (String, JsonObject) -> String = { method, _ ->
             when (method) {
+                "profiles.list" -> """{"profiles":[]}"""
                 "session.resume" -> """{"session_id":"rt-1"}"""
                 "session.start" -> """{"session_id":"rt-new","stored_session_id":"sess-new"}"""
                 "prompt.submit" -> """{"ok":true}"""
@@ -142,7 +143,7 @@ class CalendarViewModelTest {
             cacheStore = cache,
             directusApi = DirectusTasksApi(client),
             sessionsApi = SessionsApi(client),
-            botsApi = BotsApi(client),
+            botsApi = BotsApi(connection),
             nowMs = { 1_795_680_000_000L },
         )
         return Harness(vm, requests, socket, cache)

@@ -48,6 +48,7 @@ import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ArrowRight
 import com.composables.icons.lucide.Circle
 import com.composables.icons.lucide.CircleCheck
+import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Sparkles
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon

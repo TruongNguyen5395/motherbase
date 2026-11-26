@@ -504,14 +504,14 @@ class CalendarViewModel(
                 calendarApi.dispatchOverview(gateway.gatewayUrl, includeDone = _state.value.showCompletedTasks)
             }
             val proposalsDeferred = async { calendarApi.listProposals(gateway.gatewayUrl) }
-            val botsDeferred = async { botsApi?.list(gateway.gatewayUrl) }
+            val botsDeferred = async { runCatching { botsApi?.roster()?.bots }.getOrNull() }
             val cfgDeferred = async { directusApi?.getConfig(gateway.gatewayUrl) }
 
             val accountsRes = accountsDeferred.await()
             val eventsRes = eventsDeferred.await()
             val dispatchRes = dispatchDeferred.await()
             val proposalsRes = proposalsDeferred.await()
-            val botsRes = botsDeferred.await()
+            val nextBots = botsDeferred.await() ?: _state.value.bots
             val cfgRes = cfgDeferred.await()
 
             if (boundGateway != gateway) return@coroutineScope
@@ -520,7 +520,6 @@ class CalendarViewModel(
             val nextEvents = (eventsRes as? ApiResult.Success)?.value ?: _state.value.events
             val nextDispatch = (dispatchRes as? ApiResult.Success)?.value ?: _state.value.dispatchOverview
             val nextProposals = (proposalsRes as? ApiResult.Success)?.value ?: _state.value.proposals
-            val nextBots = (botsRes as? ApiResult.Success)?.value?.bots ?: _state.value.bots
             val coordCfg = (cfgRes as? ApiResult.Success)?.value?.coordinator
             proposalCoordinator.seedFromProposals(nextProposals)
 

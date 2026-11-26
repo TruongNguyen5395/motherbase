@@ -43,6 +43,7 @@ import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.KeyRound
 import com.composables.icons.lucide.Link
+import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MapPin
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Trash2
