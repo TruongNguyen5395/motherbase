@@ -1867,7 +1867,7 @@ class TasksViewModel(
                     lastStreamEventAtMs = nowMs()
                     dispatchMessage(active, outboundText)
                     if (keptOnBoard) {
-                        loadChannelLog(gateway, latest, idx)
+                        loadChannelLog(gateway, latest, idx, attachSession = false)
                         startTurnFallbackPoll(gateway, channel = active, task = latest, channelIdx = idx)
                     }
                 }
