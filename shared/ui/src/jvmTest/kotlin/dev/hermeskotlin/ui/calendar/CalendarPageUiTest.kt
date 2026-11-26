@@ -3,6 +3,7 @@ package dev.hermeskotlin.ui.calendar
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
@@ -97,11 +98,12 @@ class CalendarPageUiTest {
         waitForIdle()
 
         onNodeWithText("November 2026").assertIsDisplayed()
-        onNodeWithText("Company Offsite").assertExists()
+        onNodeWithText("Engineering Standup").assertExists()
 
-        // Narrow toolbar `+` button works on 360dp
+        // Narrow toolbar uses `+` icon button cleanly without overflowing
         onNodeWithText("Create").assertDoesNotExist()
-        createClicked = false
-        assertTrue(!createClicked)
+        onNodeWithContentDescription("Create").performClick()
+        waitForIdle()
+        assertTrue(createClicked)
     }
 }

@@ -62,7 +62,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -211,7 +210,6 @@ class CalendarViewModel(
 
     private var boundGateway: SavedGateway? = null
     private var visible: Boolean = false
-    private var clockJob: Job? = null
     private var refreshEventsJob: Job? = null
     private var coordinatorRuntimeId: String? = null
     private var fallbackPollJob: Job? = null
@@ -273,7 +271,11 @@ class CalendarViewModel(
     }
 
     override fun onCleared() {
-        clockJob?.cancel()
+        refreshEventsJob?.cancel()
+        fallbackPollJob?.cancel()
+    }
+
+    internal fun stopForTest() {
         refreshEventsJob?.cancel()
         fallbackPollJob?.cancel()
     }
@@ -281,7 +283,7 @@ class CalendarViewModel(
     fun bind(gateway: SavedGateway, isVisible: Boolean) {
         val prevGateway = boundGateway
         visible = isVisible
-        if (isVisible) ensureClockRunning() else clockJob?.cancel()
+        if (isVisible) tickClock()
         if (prevGateway == gateway) {
             if (isVisible && _state.value.health == null && !_state.value.loading) {
                 viewModelScope.launch { refreshAll(gateway, syncRemote = false) }
@@ -331,17 +333,11 @@ class CalendarViewModel(
         }
     }
 
-    private fun ensureClockRunning() {
-        if (clockJob?.isActive == true) return
-        clockJob = viewModelScope.launch {
-            while (isActive) {
-                val tz = _state.value.settings.timezone.ifBlank { null }
-                val nowMoment = calendarNowZoned(tz)
-                _state.update { cur ->
-                    cur.copy(todayDate = nowMoment.date, currentMinuteOfDay = nowMoment.minuteOfDay)
-                }
-                delay(30_000L)
-            }
+    fun tickClock() {
+        val tz = _state.value.settings.timezone.ifBlank { null }
+        val nowMoment = calendarNowZoned(tz)
+        _state.update { cur ->
+            cur.copy(todayDate = nowMoment.date, currentMinuteOfDay = nowMoment.minuteOfDay)
         }
     }
 

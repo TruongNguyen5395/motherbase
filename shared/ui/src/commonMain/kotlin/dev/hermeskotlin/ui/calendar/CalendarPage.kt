@@ -174,6 +174,8 @@ import dev.hermeskotlin.ui.resources.cal_view_schedule
 import dev.hermeskotlin.ui.resources.cal_view_settings
 import dev.hermeskotlin.ui.resources.cal_view_three_days
 import dev.hermeskotlin.ui.resources.cal_view_week
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -196,6 +198,13 @@ internal fun CalendarPage(
 
     LaunchedEffect(gateway, visible) {
         viewModel.bind(gateway, visible)
+    }
+    LaunchedEffect(visible) {
+        if (!visible) return@LaunchedEffect
+        while (isActive) {
+            delay(30_000L)
+            viewModel.tickClock()
+        }
     }
     LaunchedEffect(state.sessionExpired) {
         if (state.sessionExpired) onSessionExpired()

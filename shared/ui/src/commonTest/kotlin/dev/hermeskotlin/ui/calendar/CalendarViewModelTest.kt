@@ -100,6 +100,7 @@ class CalendarViewModelTest {
         val requests: MutableList<RecordedHttp>,
         val socket: CalendarRpcTransport,
         val cacheStore: CalendarCacheStore,
+        val connection: GatewayConnection,
     )
 
     private suspend fun TestScope.buildHarness(
@@ -146,7 +147,7 @@ class CalendarViewModelTest {
             botsApi = BotsApi(connection),
             nowMs = { 1_795_680_000_000L },
         )
-        return Harness(vm, requests, socket, cache)
+        return Harness(vm, requests, socket, cache, connection)
     }
 
     private fun defaultRespond(rec: RecordedHttp): Pair<HttpStatusCode, String> = when {
@@ -234,20 +235,25 @@ class CalendarViewModelTest {
     @Test
     fun bindLoadsWorkspaceAndPopulatesOfflineCache() = runTest(dispatcher) {
         val h = buildHarness(::defaultRespond)
-        h.vm.bind(gateway, isVisible = true)
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            val s = withTimeout(5_000) { h.vm.state.first { !it.loading && it.calendars.isNotEmpty() } }
 
-        val s = h.vm.state.value
-        assertFalse(s.loading)
-        assertEquals(2, s.calendars.size)
-        assertEquals(1, s.events.size)
-        assertEquals("Standup", s.events.first().title)
-        assertEquals(1, s.proposals.size)
-        assertTrue(s.health?.hasHermesGoogleToken == true)
+            assertFalse(s.loading)
+            assertEquals(2, s.calendars.size)
+            assertEquals(1, s.events.size)
+            assertEquals("Standup", s.events.first().title)
+            assertEquals(1, s.proposals.size)
+            assertTrue(s.health?.hasHermesGoogleToken == true)
 
-        val cached = h.cacheStore.load(gateway.gatewayUrl)
-        assertNotNull(cached)
-        assertEquals(2, cached.calendars.size)
-        assertEquals("Standup", cached.events.first().title)
+            val cached = h.cacheStore.load(gateway.gatewayUrl)
+            assertNotNull(cached)
+            assertEquals(2, cached.calendars.size)
+            assertEquals("Standup", cached.events.first().title)
+        } finally {
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
     }
 
     @Test
@@ -274,30 +280,42 @@ class CalendarViewModelTest {
                 else -> defaultRespond(rec)
             }
         })
-        h.vm.bind(gateway, isVisible = true)
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading } }
 
-        h.vm.applyProposal("prop-1", listOf("op-1"), force = false)
-        assertNotNull(h.vm.state.value.pendingConflict)
+            h.vm.applyProposal("prop-1", listOf("op-1"), force = false)
+            withTimeout(5_000) { h.vm.state.first { it.pendingConflict != null } }
 
-        h.vm.confirmForceApplyProposal()
-        assertNull(h.vm.state.value.pendingConflict)
-        assertEquals(1, forceCount)
-        assertEquals(ScheduleProposal.STATUS_APPLIED, h.vm.state.value.proposalStatuses["prop-1"])
+            h.vm.confirmForceApplyProposal()
+            withTimeout(5_000) { h.vm.state.first { it.proposalStatuses["prop-1"] == ScheduleProposal.STATUS_APPLIED } }
+            assertNull(h.vm.state.value.pendingConflict)
+            assertEquals(1, forceCount)
 
-        h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"type":"plugin.motherbase-calendar.calendar.proposal_updated","payload":{"proposal_id":"prop-1","status":"reverted"}}}""")
-        assertEquals(ScheduleProposal.STATUS_REVERTED, h.vm.state.value.proposalStatuses["prop-1"])
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"type":"plugin.motherbase-calendar.calendar.proposal_updated","payload":{"proposal_id":"prop-1","status":"reverted"}}}""")
+            withTimeout(5_000) { h.vm.state.first { it.proposalStatuses["prop-1"] == ScheduleProposal.STATUS_REVERTED } }
+        } finally {
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
     }
 
     @Test
     fun askCoordinatorResumesSessionAndSubmitsPrompt() = runTest(dispatcher) {
         val h = buildHarness(::defaultRespond)
-        h.vm.bind(gateway, isVisible = true)
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.coordinatorSessionId != null } }
 
-        h.vm.askCoordinator("Plan my afternoon tasks")
+            h.vm.askCoordinator("Plan my afternoon tasks")
 
-        assertTrue(h.socket.calls.any { it.first == "session.resume" && it.second["session_id"]?.jsonPrimitive?.content == "coord-1" })
-        assertTrue(h.socket.calls.any { it.first == "prompt.submit" && it.second["text"]?.jsonPrimitive?.content == "Plan my afternoon tasks" })
-        assertTrue(h.vm.state.value.agentTurnRunning)
+            withTimeout(5_000) { h.vm.state.first { it.agentTurnRunning } }
+            assertTrue(h.socket.calls.any { it.first == "session.resume" && it.second["session_id"]?.jsonPrimitive?.content == "coord-1" })
+            assertTrue(h.socket.calls.any { it.first == "prompt.submit" && it.second["text"]?.jsonPrimitive?.content == "Plan my afternoon tasks" })
+        } finally {
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
     }
 
     @Test
@@ -311,14 +329,20 @@ class CalendarViewModelTest {
                 else -> defaultRespond(rec)
             }
         })
-        h.vm.bind(gateway, isVisible = true)
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.calendars.isNotEmpty() } }
 
-        val cal = h.vm.state.value.calendars.first { it.id == "cal-1" }
-        h.vm.toggleCalendarVisible(cal)
-        assertFalse(h.vm.state.value.calendars.first { it.id == "cal-1" }.visible)
+            val cal = h.vm.state.value.calendars.first { it.id == "cal-1" }
+            h.vm.toggleCalendarVisible(cal)
+            assertFalse(h.vm.state.value.calendars.first { it.id == "cal-1" }.visible)
 
-        h.vm.toggleTaskDone("task-1", true)
-        assertEquals("done", h.vm.state.value.dispatchOverview.tasks.first { it.id == "task-1" }.status)
-        assertTrue(h.requests.any { it.path.endsWith("/dispatch/tasks/task-1/toggle-done") })
+            h.vm.toggleTaskDone("task-1", true)
+            assertEquals("done", h.vm.state.value.dispatchOverview.tasks.first { it.id == "task-1" }.status)
+            assertTrue(h.requests.any { it.path.endsWith("/dispatch/tasks/task-1/toggle-done") })
+        } finally {
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
     }
 }
