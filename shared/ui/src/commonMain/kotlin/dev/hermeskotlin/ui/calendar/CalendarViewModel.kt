@@ -1141,10 +1141,10 @@ class CalendarViewModel(
                     }
                     val boardTask = (boardRes as? ApiResult.Success)?.value?.tasks?.firstOrNull { it.id == taskId }
                     if (boardTask != null) {
-                        title = boardTask.title
-                        channels = boardTask.channels
-                        assignedBots = boardTask.assignedBots
-                        projectId = boardTask.projectId
+                        title = boardTask.title.ifBlank { title }
+                        if (boardTask.channels.isNotEmpty()) channels = boardTask.channels
+                        if (boardTask.assignedBots.isNotEmpty()) assignedBots = boardTask.assignedBots
+                        if (boardTask.projectId != null) projectId = boardTask.projectId
                         _state.update { cur ->
                             val ov = cur.dispatchOverview
                             cur.copy(

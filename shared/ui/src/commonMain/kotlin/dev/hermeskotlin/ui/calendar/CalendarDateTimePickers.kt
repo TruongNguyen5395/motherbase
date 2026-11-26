@@ -115,8 +115,13 @@ internal fun CalendarDatePickerTrigger(
 ) {
     val parsed = remember(valueIso) { calendarDateFromIso(valueIso) }
     val display = remember(parsed, valueIso) {
-        if (parsed != null) "${dowShortName(parsed.dayOfWeek)}, ${monthShortName(parsed.month)} ${parsed.day}, ${parsed.year}"
-        else valueIso.ifBlank { "—" }
+        if (parsed != null) {
+            val rawDow = dowShortName(parsed.dayOfWeek)
+            val dow = if (rawDow.length > 1) rawDow.take(1) + rawDow.drop(1).lowercase() else rawDow
+            "$dow, ${monthShortName(parsed.month)} ${parsed.day}, ${parsed.year}"
+        } else {
+            valueIso.ifBlank { "—" }
+        }
     }
     PickerTriggerBox(
         label = label,
