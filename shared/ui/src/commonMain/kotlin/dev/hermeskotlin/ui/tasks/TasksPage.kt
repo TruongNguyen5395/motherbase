@@ -1,7 +1,10 @@
 package dev.hermeskotlin.ui.tasks
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -194,6 +197,7 @@ import dev.hermeskotlin.designsystem.userBubble
 import dev.hermeskotlin.designsystem.warning
 import dev.hermeskotlin.designsystem.warningSoft
 import dev.hermeskotlin.designsystem.well
+import dev.hermeskotlin.ui.LocalAppSettings
 import dev.hermeskotlin.ui.PlatformBackHandler
 import dev.hermeskotlin.ui.bots.BotAvatar
 import dev.hermeskotlin.ui.chat.AttachButton
@@ -202,7 +206,6 @@ import dev.hermeskotlin.ui.chat.AttachmentPicker
 import dev.hermeskotlin.ui.chat.ComposerKey
 import dev.hermeskotlin.ui.chat.ComposerTextInput
 import dev.hermeskotlin.ui.chat.ComposerTray
-import dev.hermeskotlin.ui.chat.DEFAULT_RAIL_WIDTH
 import dev.hermeskotlin.ui.chat.DictationButton
 import dev.hermeskotlin.ui.chat.DockShadow
 import dev.hermeskotlin.ui.chat.InputRequestPanel
@@ -248,6 +251,7 @@ import kotlinx.serialization.json.JsonObject
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import kotlin.math.roundToInt
 
 internal data class TasksBoardActions(
     val onRefresh: () -> Unit = {},
@@ -294,6 +298,7 @@ internal data class TasksBoardActions(
     val onDismissFeedback: () -> Unit = {},
 )
 
+private val DEFAULT_DISPATCH_RAIL_WIDTH = 460.dp
 private val BENTO_TWO_COL_THRESHOLD = 620.dp
 private val KANBAN_THREE_COL_THRESHOLD = 840.dp
 private val PRIORITY_OPTIONS = listOf("low", "medium", "high", "urgent")
@@ -566,10 +571,21 @@ internal fun TasksBoardContent(
         )
     }
 
+    val persistedRailWidth = LocalAppSettings.current.dispatchRailWidth.dp
+    var localRailWidth by remember(persistedRailWidth) { mutableStateOf(persistedRailWidth) }
+    val resizeHandler = remember(actions) {
+        { width: Dp ->
+            localRailWidth = width
+            actions.onUpdateSettings { it.copy(dispatchRailWidth = width.value.roundToInt()) }
+        }
+    }
+
     CompositionLocalProvider(LocalModelPillBounds provides modelPillBounds) {
     RightRailLayout(
         state = railState,
-        railWidth = DEFAULT_RAIL_WIDTH,
+        railWidth = localRailWidth,
+        defaultRailWidth = DEFAULT_DISPATCH_RAIL_WIDTH,
+        onRailWidthChange = resizeHandler.takeIf { isDesktop },
         swipeEnabled = !isDesktop && railOpenTarget,
         dockOnWide = true,
         onDismiss = {
@@ -2556,6 +2572,7 @@ private fun TaskDetailInspector(
 ) {
     val steerState = rememberTextFieldState("")
     LaunchedEffect(task.id) { steerState.clearText() }
+    var detailsExpanded by remember(task.id) { mutableStateOf(false) }
     var descExpanded by remember(task.id) { mutableStateOf(false) }
     var matrixPadOpen by remember(task.id) { mutableStateOf(false) }
     val matrixPos = remember(task, todayEpochDay) { resolveTaskMatrix(task, todayEpochDay) }
@@ -2564,15 +2581,25 @@ private fun TaskDetailInspector(
     val plan = task.stagedPlan
     val metaScroll = rememberScrollState()
     var planSheetOpen by remember(task.id) { mutableStateOf(false) }
+    var openPlanOnArrival by remember(task.id) { mutableStateOf(false) }
+    var lastSeenPlanStamp by remember(task.id) { mutableStateOf(plan?.generatedAt to plan?.summary) }
 
-    // Auto-slide the plan sheet up from the bottom when opening a task with a pending
-    // unapproved plan, or when a newly prepared plan arrives.
-    LaunchedEffect(task.id, plan?.generatedAt, plan?.approvedAt, plan?.summary) {
-        val shouldAutoOpen = plan != null && plan.approvedAt == null && channelInputRequests.isEmpty()
-        planSheetOpen = shouldAutoOpen
+    // Keep the proposal sheet collapsed when entering a task so the chat log stays visible;
+    // auto-open only when a newly prepared/refreshed plan arrives after an explicit trigger.
+    LaunchedEffect(task.id, plan?.generatedAt, plan?.summary) {
+        val currentStamp = plan?.generatedAt to plan?.summary
+        if (plan != null && openPlanOnArrival && currentStamp != lastSeenPlanStamp && channelInputRequests.isEmpty()) {
+            planSheetOpen = true
+            openPlanOnArrival = false
+        }
+        lastSeenPlanStamp = currentStamp
     }
     LaunchedEffect(channelInputRequests.isNotEmpty()) {
         if (channelInputRequests.isNotEmpty()) planSheetOpen = false
+    }
+    val triggerPreparePlan: () -> Unit = {
+        openPlanOnArrival = true
+        onPreparePlan()
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -2581,7 +2608,7 @@ private fun TaskDetailInspector(
             Modifier
                 .fillMaxWidth()
                 .clearOfWindowControls()
-                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -2600,112 +2627,178 @@ private fun TaskDetailInspector(
             )
         }
 
-        // Compact metadata & linked channels (staged plan lives in the slide-up drawer docked above the composer).
-        Column(
+        // Single-line compact metadata bar + collapsible Details drawer so live chat gets full height by default.
+        val matrixCode = "${matrixLevelShortCode(matrixPos.impact)}/${matrixLevelShortCode(matrixPos.effectiveUrgency)}"
+        val summaryText = "$currentProjectLabel · ${taskStatusLabel(task.status)} · ${quadrantTitle(matrixPos.quadrant)} $matrixCode"
+        val toggleShape = RoundedCornerShape(Theme[radii][radiusSmall])
+        Row(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = 170.dp)
-                .scrollbar(metaScroll)
-                .verticalScroll(metaScroll)
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(start = 16.dp, end = 12.dp, top = 2.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!task.description.isNullOrBlank()) {
-                val descShape = RoundedCornerShape(Theme[radii][radiusMedium])
+            Row(
+                Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(
                     Modifier
-                        .fillMaxWidth()
-                        .clip(descShape)
-                        .background(Theme[colors][surface])
-                        .border(1.dp, Theme[colors][stroke], descShape)
-                        .clickable { descExpanded = !descExpanded }
-                        .handCursor()
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(quadrantAccentColor(matrixPos.quadrant)),
+                )
+                Text(
+                    summaryText,
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textSecondary],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                Modifier
+                    .testTag("task_inspector_details_toggle")
+                    .clip(toggleShape)
+                    .background(if (detailsExpanded) Theme[colors][accentSoft] else Theme[colors][surface])
+                    .border(
+                        1.dp,
+                        if (detailsExpanded) Theme[colors][accent].copy(alpha = 0.45f) else Theme[colors][strokeStrong],
+                        toggleShape,
+                    )
+                    .clickable(role = Role.Button) { detailsExpanded = !detailsExpanded }
+                    .handCursor()
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(Res.string.tasks_inspector_details),
+                    style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
+                    color = if (detailsExpanded) Theme[colors][accentText] else Theme[colors][textColor],
+                    maxLines = 1,
+                )
+                UnstyledIcon(
+                    if (detailsExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                    contentDescription = null,
+                    tint = if (detailsExpanded) Theme[colors][accentText] else Theme[colors][textTertiary],
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
+
+        if (replyBadge == TaskReplyBadge.UNREAD || replyBadge == TaskReplyBadge.AWAITING_REPLY) {
+            val isUnread = replyBadge == TaskReplyBadge.UNREAD
+            val bannerShape = RoundedCornerShape(Theme[radii][radiusMedium])
+            val bannerAccent = if (isUnread) Theme[colors][accentText] else Theme[colors][warning]
+            val bannerBg = if (isUnread) Theme[colors][accentSoft] else Theme[colors][warningSoft]
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
+                    .clip(bannerShape)
+                    .background(bannerBg.compositeOver(Theme[colors][surface]))
+                    .border(1.dp, bannerAccent.copy(alpha = 0.45f), bannerShape)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    MarkdownText(
-                        text = task.description.orEmpty(),
-                        textStyle = Theme[typography][bodySmall].copy(color = Theme[colors][textSecondary]),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (descExpanded) Modifier else Modifier.heightIn(max = 72.dp).clipToBounds()),
+                    UnstyledIcon(Lucide.MessageSquareReply, contentDescription = null, tint = bannerAccent, modifier = Modifier.size(13.dp))
+                    Text(
+                        stringResource(if (isUnread) Res.string.tasks_reply_banner_unread else Res.string.tasks_reply_banner_awaiting),
+                        style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                        color = bannerAccent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Row(
+                    Modifier
+                        .testTag("inspector_ack_reply")
+                        .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                        .background(Theme[colors][surface])
+                        .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(Theme[radii][radiusSmall]))
+                        .clickable(role = Role.Button, onClick = onAckReply)
+                        .handCursor()
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UnstyledIcon(Lucide.Check, contentDescription = null, tint = Theme[colors][textSecondary], modifier = Modifier.size(11.dp))
+                    Text(
+                        stringResource(Res.string.tasks_reply_ack),
+                        style = Theme[typography][caption],
+                        color = Theme[colors][textColor],
                     )
                 }
             }
+        }
 
-            TaskMetadataPickers(
-                currentProjectId = task.projectId,
-                currentProjectLabel = currentProjectLabel,
-                projects = projects,
-                unassignedLabel = unassignedLabel,
-                currentStatus = task.status,
-                matrixPosition = matrixPos,
-                onAssignProject = onAssignProject,
-                onUpdateStatus = onUpdateStatus,
-                onOpenMatrixPad = { matrixPadOpen = true },
-            )
-
-            if (replyBadge == TaskReplyBadge.UNREAD || replyBadge == TaskReplyBadge.AWAITING_REPLY) {
-                val isUnread = replyBadge == TaskReplyBadge.UNREAD
-                val bannerShape = RoundedCornerShape(Theme[radii][radiusMedium])
-                val bannerAccent = if (isUnread) Theme[colors][accentText] else Theme[colors][warning]
-                val bannerBg = if (isUnread) Theme[colors][accentSoft] else Theme[colors][warningSoft]
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(bannerShape)
-                        .background(bannerBg.compositeOver(Theme[colors][surface]))
-                        .border(1.dp, bannerAccent.copy(alpha = 0.45f), bannerShape)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        UnstyledIcon(Lucide.MessageSquareReply, contentDescription = null, tint = bannerAccent, modifier = Modifier.size(13.dp))
-                        Text(
-                            stringResource(if (isUnread) Res.string.tasks_reply_banner_unread else Res.string.tasks_reply_banner_awaiting),
-                            style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
-                            color = bannerAccent,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Row(
+        AnimatedVisibility(
+            visible = detailsExpanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+                    .scrollbar(metaScroll)
+                    .verticalScroll(metaScroll)
+                    .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!task.description.isNullOrBlank()) {
+                    val descShape = RoundedCornerShape(Theme[radii][radiusMedium])
+                    Box(
                         Modifier
-                            .testTag("inspector_ack_reply")
-                            .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                            .fillMaxWidth()
+                            .clip(descShape)
                             .background(Theme[colors][surface])
-                            .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(Theme[radii][radiusSmall]))
-                            .clickable(role = Role.Button, onClick = onAckReply)
+                            .border(1.dp, Theme[colors][stroke], descShape)
+                            .clickable { descExpanded = !descExpanded }
                             .handCursor()
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
                     ) {
-                        UnstyledIcon(Lucide.Check, contentDescription = null, tint = Theme[colors][textSecondary], modifier = Modifier.size(11.dp))
-                        Text(
-                            stringResource(Res.string.tasks_reply_ack),
-                            style = Theme[typography][caption],
-                            color = Theme[colors][textColor],
+                        MarkdownText(
+                            text = task.description.orEmpty(),
+                            textStyle = Theme[typography][bodySmall].copy(color = Theme[colors][textSecondary]),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (descExpanded) Modifier else Modifier.heightIn(max = 96.dp).clipToBounds()),
                         )
                     }
                 }
-            }
 
-            TaskChannelsSection(
-                channels = task.channels,
-                activeIdx = activeChannelIdx,
-                busy = busy,
-                onSelectChannel = onSelectChannel,
-                onOpenPickSession = onOpenPickSession,
-                onOpenPickRoom = onOpenPickRoom,
-            )
+                TaskMetadataPickers(
+                    currentProjectId = task.projectId,
+                    currentProjectLabel = currentProjectLabel,
+                    projects = projects,
+                    unassignedLabel = unassignedLabel,
+                    currentStatus = task.status,
+                    matrixPosition = matrixPos,
+                    onAssignProject = onAssignProject,
+                    onUpdateStatus = onUpdateStatus,
+                    onOpenMatrixPad = { matrixPadOpen = true },
+                )
+
+                TaskChannelsSection(
+                    channels = task.channels,
+                    activeIdx = activeChannelIdx,
+                    busy = busy,
+                    onSelectChannel = onSelectChannel,
+                    onOpenPickSession = onOpenPickSession,
+                    onOpenPickRoom = onOpenPickRoom,
+                )
+            }
         }
 
-        Spacer(Modifier.height(4.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
 
         // Live chat stream fills remaining inspector height; staged plan slides up over its bottom edge.
@@ -2730,7 +2823,7 @@ private fun TaskDetailInspector(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            androidx.compose.animation.AnimatedVisibility(
+            AnimatedVisibility(
                 visible = plan != null && planSheetOpen,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
@@ -2744,10 +2837,14 @@ private fun TaskDetailInspector(
                         task = task,
                         busy = busy,
                         maxSheetHeight = sheetMaxHeight,
-                        onCollapse = { planSheetOpen = false },
-                        onPreparePlan = onPreparePlan,
+                        onCollapse = {
+                            planSheetOpen = false
+                            openPlanOnArrival = false
+                        },
+                        onPreparePlan = triggerPreparePlan,
                         onApprovePlan = { opt, selectedParams, tweaks ->
                             planSheetOpen = false
+                            openPlanOnArrival = false
                             onApprovePlan(opt, selectedParams, tweaks)
                         },
                     )
@@ -2780,7 +2877,7 @@ private fun TaskDetailInspector(
             busy = busy,
             onClick = {
                 if (plan == null) {
-                    onPreparePlan()
+                    triggerPreparePlan()
                 } else {
                     planSheetOpen = !planSheetOpen
                 }

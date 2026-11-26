@@ -624,10 +624,9 @@ class TasksViewModelTest {
                 }
             }
             assertTrue(started.channelTurnRunning)
-            assertTrue(
-                h.socket.calls.first { it.first == "prompt.submit" }.second["text"]?.jsonPrimitive?.content.orEmpty()
-                    .contains("directus_stage_plan"),
-            )
+            val planSubmit = h.socket.calls.first { it.first == "prompt.submit" }.second
+            assertTrue(planSubmit["text"]?.jsonPrimitive?.content.orEmpty().contains("directus_stage_plan"))
+            assertEquals("hidden", planSubmit["display_kind"]?.jsonPrimitive?.content)
             h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"rt-plan","type":"message.complete","payload":{}}}""")
             withTimeout(5_000) { h.vm.state.first { !it.channelTurnRunning } }
         } finally {
@@ -1582,6 +1581,92 @@ class TasksViewModelTest {
             assertTrue(ackBodies.any { it.contains("reply_acked_at") })
             assertTrue(markedSessionRead)
         } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun approveStagedPlanOnSessionDispatchesConciseSummaryAndShowsOptimisticBubble() = runTest(dispatcher) {
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to boardJson
+                    "/api/plugins/directus-tasks/tasks/t1/approve" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "task": {
+                                "id":"t1",
+                                "title":"Prune backup snapshots",
+                                "status":"in_progress",
+                                "context":{
+                                  "id":"ctx-1",
+                                  "task_id":"t1",
+                                  "project_id":"proj-1",
+                                  "agent_state":"running",
+                                  "channels":[
+                                    {"type":"room","id":"task-t1","label":"Room (@ops, @reviewer)"},
+                                    {"type":"session","id":"sess-t1","label":"Session (@ops)","profile":"ops"}
+                                  ],
+                                  "staged_plan":{
+                                    "summary":"Prune old snapshots.",
+                                    "approved_at":"2026-11-26T08:00:00Z",
+                                    "approved_option":"Run cleanup"
+                                  }
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    "/api/sessions/sess-t1/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-t1","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "groups.state" -> """{"room":{"room_id":"task-t1","name":"Prune backup snapshots","members":[],"latest_seq":0}}"""
+                    "groups.log" -> """{"events":[],"cursor":0,"latest_seq":0,"has_more":false}"""
+                    "session.resume" -> """{"session_id":"rt-t1","stored_session_id":"sess-t1","running":false,"open_requests":[]}"""
+                    "prompt.submit" -> """{"accepted":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            h.vm.selectTask("t1")
+            h.vm.selectChannel(1)
+            withTimeout(5_000) { h.vm.state.first { it.activeChannelIdx == 1 && !it.channelLoading } }
+
+            val task = h.vm.state.value.selectedTask!!
+            h.vm.approveStagedPlan(
+                task = task,
+                option = ReplyInteraction.Option(
+                    label = "Run cleanup",
+                    value = "Call directus_log_context with detailed cleanup SQL and prune all stale backups older than retention",
+                ),
+                selectedParams = mapOf("retention" to "14 days"),
+                tweaks = emptyList(),
+            )
+
+            val settled = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.tasks.firstOrNull { it.id == "t1" }?.agentState == TaskContext.STATE_RUNNING &&
+                        h.socket.calls.any { it.first == "prompt.submit" } &&
+                        "t1" !in st.busyTaskIds
+                }
+            }
+            val submitText = h.socket.calls.last { it.first == "prompt.submit" }.second["text"]?.jsonPrimitive?.content.orEmpty()
+            assertEquals("Run cleanup (Keep: 14 days)", submitText)
+            assertTrue(settled.channelTurnRunning)
+            assertEquals("Run cleanup (Keep: 14 days)", settled.channelMessages.last().text)
+        } finally {
+            h.vm.selectTask(null)
             h.connection.stop()
         }
     }

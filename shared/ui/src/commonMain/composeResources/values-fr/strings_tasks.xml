@@ -151,4 +151,5 @@
     <string name="tasks_matrix_empty_quadrant">Aucune tâche dans ce quadrant</string>
     <string name="tasks_matrix_drag_hint">Glissez la poignée entre les quadrants ou touchez le badge pour la grille 3×3.</string>
     <string name="tasks_matrix_apply">Appliquer</string>
+    <string name="tasks_inspector_details">Détails</string>
 </resources>

@@ -213,6 +213,8 @@ data class AppSettings(
     val sidebarWidth: Int = 304,
     /** Desktop: the right artifact/preview rail's width in dp, as its edge was last dragged to. */
     val railWidth: Int = 420,
+    /** Desktop: the Dispatch right inspector rail's width in dp, as its edge was last dragged to. */
+    val dispatchRailWidth: Int = 460,
 )
 
 /** The Pebble's prompts until they're edited. */

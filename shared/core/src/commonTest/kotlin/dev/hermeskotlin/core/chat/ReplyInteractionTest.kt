@@ -193,6 +193,10 @@ class ReplyInteractionTest {
             "Execute plan (Runner: @architect, Scope: Prototype)",
             formatActionCardReply(card.options.first(), card.params, selected),
         )
+        assertEquals(
+            "Approve & Run (Runner: @architect, Scope: Prototype)",
+            formatActionCardSummary(card.options.first(), card.params, selected),
+        )
         val tweaks = computeActionTweaks(card.params, selected)
         assertEquals(1, tweaks.size)
         assertEquals("bot", tweaks.single().paramKey)

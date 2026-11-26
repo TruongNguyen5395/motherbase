@@ -15,8 +15,12 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.composeunstyled.theme.ColorScheme
 import dev.hermeskotlin.core.chat.ChatState
@@ -27,6 +31,7 @@ import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.models.ModelCatalog
 import dev.hermeskotlin.core.models.ModelOption
 import dev.hermeskotlin.core.models.ModelProvider
+import dev.hermeskotlin.core.settings.AppSettings
 import dev.hermeskotlin.core.tasks.DirectusConfigStatus
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
@@ -40,6 +45,7 @@ import dev.hermeskotlin.core.tasks.TaskReplyStatus
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
+import dev.hermeskotlin.ui.LocalAppSettings
 import dev.hermeskotlin.ui.LocalWindowControls
 import dev.hermeskotlin.ui.WindowControls
 import dev.hermeskotlin.ui.chat.ModelPickerState
@@ -129,9 +135,18 @@ class TasksPageUiTest {
         onAllNodesWithText("Prune aged backup snapshots")[0].performClick()
         waitForIdle()
 
-        // Both linked Room and Session chips appear inside the Right-Rail inspector.
+        // Details and Action Proposal stay collapsed on initial task open so LIVE CHAT LOG is unobstructed.
+        onNodeWithTag("task_plan_sheet").assertDoesNotExist()
+        onNodeWithTag("task_inspector_details_toggle").performClick()
+        waitForIdle()
+
+        // Both linked Room and Session chips appear inside the expanded Details drawer.
         onNodeWithText("Room (@ops, @reviewer)").assertIsDisplayed()
         onNodeWithText("Session (@ops)").assertIsDisplayed()
+
+        // Clicking Action proposal opens the staged plan sheet.
+        onNodeWithTag("task_plan_dock_button").performClick()
+        waitForIdle()
         onNodeWithText("Scanned backup volumes; 18 snapshots eligible for pruning.").assertIsDisplayed()
 
         // Tweak retention chip (7 days -> 14 days -> 30 days) then trigger action button.
@@ -430,6 +445,8 @@ class TasksPageUiTest {
         waitForIdle()
 
         onNodeWithText("Dispatch").assertIsDisplayed()
+        onNodeWithTag("task_inspector_details_toggle").performClick()
+        waitForIdle()
         waitUntil(timeoutMillis = 3_000) {
             onAllNodesWithText("Target goal: /srv/docs/README.md", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
@@ -538,6 +555,8 @@ class TasksPageUiTest {
         )
 
         // Switching to a multi-bot Room channel hides the session-only model pill while keeping +.
+        onNodeWithTag("task_inspector_details_toggle").performClick()
+        waitForIdle()
         onNodeWithText("Room (@ops, @dev)").performClick()
         waitForIdle()
         onNodeWithContentDescription("Change model", substring = true).assertDoesNotExist()
@@ -545,7 +564,7 @@ class TasksPageUiTest {
     }
 
     @Test
-    fun slideUpPlanDrawerAutoOpensForPendingPlanAndStartsCollapsedForApprovedOrEmptyTasks() = runDesktopComposeUiTest(width = 1080, height = 760) {
+    fun slideUpPlanDrawerStartsCollapsedOnTaskOpenAndAutoOpensOnlyWhenNewlyPrepared() = runDesktopComposeUiTest(width = 1080, height = 760) {
         val pendingTask = DirectusTask(
             id = "t-pending",
             title = "Pending proposal task",
@@ -613,8 +632,11 @@ class TasksPageUiTest {
         }
         waitForIdle()
 
-        // 1. Clicking a task with an unapproved plan auto-slides the plan sheet up from the bottom.
+        // 1. Opening a task with an unapproved plan keeps the sheet collapsed until tapped.
         onAllNodesWithText("Pending proposal task")[0].performClick()
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertDoesNotExist()
+        onNodeWithTag("task_plan_dock_button").performClick()
         waitForIdle()
         onNodeWithTag("task_plan_sheet").assertIsDisplayed()
         onNodeWithText("Ready for review before execution.").assertIsDisplayed()
@@ -627,7 +649,7 @@ class TasksPageUiTest {
         waitForIdle()
         onNodeWithTag("task_plan_sheet").assertIsDisplayed()
 
-        // 2. Clicking a task with an already-approved plan keeps the sheet collapsed until tapped.
+        // 2. Clicking a task with an already-approved plan also keeps the sheet collapsed until tapped.
         onAllNodesWithText("Already approved task")[0].performClick()
         waitForIdle()
         onNodeWithTag("task_plan_sheet").assertDoesNotExist()
@@ -636,7 +658,7 @@ class TasksPageUiTest {
         onNodeWithTag("task_plan_sheet").assertIsDisplayed()
         onNodeWithText("Previously approved rollout plan.").assertIsDisplayed()
 
-        // 3. Clicking a task without a plan shows the docked Prepare plan button and triggers immediately.
+        // 3. Triggering Prepare plan on an empty task auto-opens the sheet once the new plan arrives.
         onAllNodesWithText("Unplanned task")[0].performClick()
         waitForIdle()
         onNodeWithTag("task_plan_sheet").assertDoesNotExist()
@@ -644,6 +666,21 @@ class TasksPageUiTest {
         onNodeWithTag("task_plan_dock_button").performClick()
         waitForIdle()
         assertEquals("t-empty", preparedFor)
+
+        val generatedPlan = StagedPlan(
+            summary = "Freshly staged plan from agent.",
+            actions = listOf(PlanAction(label = "Start work", instruction = "Begin step 1")),
+            generatedAt = "2026-11-26T08:05:00Z",
+        )
+        state = state.copy(
+            tasks = state.tasks.map { t ->
+                if (t.id == "t-empty") t.copy(context = t.context?.copy(agentState = TaskContext.STATE_NEEDS_YOU, stagedPlan = generatedPlan))
+                else t
+            },
+        )
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertIsDisplayed()
+        onNodeWithText("Freshly staged plan from agent.").assertIsDisplayed()
     }
 
     @Test
@@ -830,8 +867,10 @@ class TasksPageUiTest {
         onNodeWithTag("matrix_quadrant_delegate").assertIsDisplayed()
         onNodeWithTag("matrix_quadrant_later").assertIsDisplayed()
 
-        // Open task detail and adjust position via the 3×3 interactive 2D pad.
+        // Open task detail, expand Details, and adjust position via the 3×3 interactive 2D pad.
         onAllNodesWithText("Review agent summary")[0].performClick()
+        waitForIdle()
+        onNodeWithTag("task_inspector_details_toggle").performClick()
         waitForIdle()
         onNodeWithTag("task_matrix_picker_pill").performClick()
         waitForIdle()
@@ -879,5 +918,45 @@ class TasksPageUiTest {
         onNodeWithTag("matrix_minimap_later").performClick()
         waitForIdle()
         onNodeWithText("Clean up old feature flags").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun desktopInspectorRailIsResizableViaEdgeHandleAndPersistsWidth() = runDesktopComposeUiTest(width = 1280, height = 800) {
+        var appSettings by mutableStateOf(AppSettings())
+        val state = PageSamples.tasks(selectedTaskId = "t-2")
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(
+                    LocalDesktopLayout provides true,
+                    LocalAppSettings provides appSettings,
+                ) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onUpdateSettings = { transform -> appSettings = transform(appSettings) },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithTag("right_rail_resize_handle").assertExists()
+        onNodeWithTag("right_rail_resize_handle").performTouchInput {
+            swipeLeft(startX = centerX, endX = centerX - 180f)
+        }
+        waitForIdle()
+        assertTrue(
+            appSettings.dispatchRailWidth > 460,
+            "Expected dispatchRailWidth to widen after dragging left, got ${appSettings.dispatchRailWidth}",
+        )
+
+        onNodeWithTag("right_rail_resize_handle").performMouseInput { doubleClick(center) }
+        waitForIdle()
+        assertEquals(460, appSettings.dispatchRailWidth)
     }
 }

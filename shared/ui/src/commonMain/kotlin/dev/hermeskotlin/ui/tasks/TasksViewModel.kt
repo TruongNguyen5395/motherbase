@@ -16,6 +16,7 @@ import dev.hermeskotlin.core.chat.attachToSession
 import dev.hermeskotlin.core.chat.detachSessionImages
 import dev.hermeskotlin.core.chat.splitAttachmentRefs
 import dev.hermeskotlin.core.chat.formatActionCardReply
+import dev.hermeskotlin.core.chat.formatActionCardSummary
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.SavedGateway
@@ -1736,7 +1737,7 @@ class TasksViewModel(
                     _state.update { it.copy(activeChannelIdx = idx, channelTurnRunning = true, channelTurnStatus = null) }
                 }
                 lastStreamEventAtMs = nowMs()
-                dispatchMessage(channel, prompt)
+                dispatchMessage(channel, prompt, displayKind = "hidden")
                 loadChannelLog(gateway, latestTask, idx, attachSession = false)
                 startTurnFallbackPoll(gateway, channel = channel, task = latestTask, channelIdx = idx)
             } catch (e: CancellationException) {
@@ -1778,6 +1779,7 @@ class TasksViewModel(
         val plan = task.stagedPlan ?: return
         val params = plan.params.map { ReplyInteraction.Param(it.key, it.label, it.options, it.default) }
         val directive = formatActionCardReply(option, params, selectedParams)
+        val conciseSummary = formatActionCardSummary(option, params, selectedParams)
         val requestedStatus = selectedParams["status"] ?: selectedParams["target_status"]
         val normalizedStatus = requestedStatus?.lowercase()?.replace(' ', '_')
             ?.takeIf { it in setOf(DirectusTask.STATUS_TODO, DirectusTask.STATUS_IN_PROGRESS, DirectusTask.STATUS_BLOCKED, DirectusTask.STATUS_DONE) }
@@ -1798,6 +1800,7 @@ class TasksViewModel(
 
         viewModelScope.launch {
             markBusy(task.id, true)
+            var optimisticKey: String? = null
             try {
                 val active = _state.value.activeChannel?.takeIf { task.channels.any { ch -> ch.id == it.id } }
                     ?: createSessionChannel(gateway, optimistic, chosenBot ?: nextBots.firstOrNull())?.second
@@ -1832,15 +1835,40 @@ class TasksViewModel(
                 }
 
                 if (active != null) {
-                    dispatchMessage(active, "[Task: ${task.title}] $directive")
                     val latest = _state.value.tasks.firstOrNull { it.id == task.id }
                         ?: (approveRes as? ApiResult.Success)?.value
                         ?: optimistic
                     val idx = latest.channels.indexOfFirst { it.id == active.id }.coerceAtLeast(0)
-                    if (latest.id !in _state.value.tasks.map { it.id }) {
-                        // Task completed and hidden from active board; skip channel log reload.
+                    val keptOnBoard = _state.value.tasks.any { it.id == latest.id }
+                    // Session turns receive the full instruction via directus-tasks pre_llm_call context,
+                    // so the visible chat bubble stays concise. Rooms and failed-approve fallbacks carry the full text.
+                    val outboundText = if (!active.isRoom && approveRes is ApiResult.Success) {
+                        conciseSummary
                     } else {
+                        "[Task: ${task.title}] $directive"
+                    }
+                    if (keptOnBoard && _state.value.selectedTaskId == latest.id) {
+                        val key = "user-${Uuid.random()}"
+                        optimisticKey = key
+                        _state.update { cur ->
+                            cur.copy(
+                                activeChannelIdx = idx,
+                                channelMessages = cur.channelMessages + ChannelChatLine(
+                                    key = key,
+                                    speaker = null,
+                                    text = outboundText,
+                                    fromUser = true,
+                                ),
+                                channelTurnRunning = true,
+                                channelTurnStatus = null,
+                            )
+                        }
+                    }
+                    lastStreamEventAtMs = nowMs()
+                    dispatchMessage(active, outboundText)
+                    if (keptOnBoard) {
                         loadChannelLog(gateway, latest, idx)
+                        startTurnFallbackPoll(gateway, channel = active, task = latest, channelIdx = idx)
                     }
                 }
                 if (approveRes is ApiResult.Success && boundGateway == gateway) {
@@ -1849,7 +1877,14 @@ class TasksViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(actionFeedback = e.message ?: "Approval failed") }
+                _state.update { cur ->
+                    cur.copy(
+                        channelMessages = if (optimisticKey != null) cur.channelMessages.filterNot { it.key == optimisticKey } else cur.channelMessages,
+                        channelTurnRunning = false,
+                        channelTurnStatus = null,
+                        actionFeedback = e.message ?: "Approval failed",
+                    )
+                }
                 refresh()
             } finally {
                 markBusy(task.id, false)
@@ -2296,6 +2331,7 @@ class TasksViewModel(
         channel: TaskChannel,
         text: String,
         attachments: List<OutgoingAttachment> = emptyList(),
+        displayKind: String? = null,
     ) {
         if (channel.isRoom) {
             val uploaded = attachments.map { file ->
@@ -2336,6 +2372,7 @@ class TasksViewModel(
                 buildJsonObject {
                     put("session_id", runtimeId)
                     put("text", payloadText)
+                    displayKind?.let { put("display_kind", it) }
                 },
             )
         } catch (e: CancellationException) {

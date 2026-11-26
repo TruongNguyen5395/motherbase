@@ -151,4 +151,5 @@
     <string name="tasks_matrix_empty_quadrant">Keine Aufgaben in diesem Quadranten</string>
     <string name="tasks_matrix_drag_hint">Griff ziehen zum Verschieben oder Abzeichen für 3×3-Feinauswahl tippen.</string>
     <string name="tasks_matrix_apply">Übernehmen</string>
+    <string name="tasks_inspector_details">Details</string>
 </resources>

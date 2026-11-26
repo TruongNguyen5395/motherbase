@@ -151,4 +151,5 @@
     <string name="tasks_matrix_empty_quadrant">此象限暂无任务</string>
     <string name="tasks_matrix_drag_hint">拖动把手在象限间移动，或点击徽章进行 3×3 精细调整。</string>
     <string name="tasks_matrix_apply">应用</string>
+    <string name="tasks_inspector_details">详情</string>
 </resources>

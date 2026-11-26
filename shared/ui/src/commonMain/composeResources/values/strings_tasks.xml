@@ -151,4 +151,5 @@
     <string name="tasks_matrix_empty_quadrant">No tasks in this quadrant</string>
     <string name="tasks_matrix_drag_hint">Drag grip to move between quadrants, or tap badge for 3×3 precision.</string>
     <string name="tasks_matrix_apply">Apply</string>
+    <string name="tasks_inspector_details">Details</string>
 </resources>

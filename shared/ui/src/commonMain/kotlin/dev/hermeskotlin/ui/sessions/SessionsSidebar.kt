@@ -857,7 +857,8 @@ fun SessionsSidebar(
             val key = pageKey
             // Scheduled, Config, and Tasks lay a list beside what's open in it, so they take a wider page.
             val wide = key == "scheduled" || key == "config" || key == "tasks" || key?.startsWith("routines:") == true
-            if (key != null) mainPage.show(key, { latest() }, close = { closePages() }, wide = wide)
+            val fullWidth = key == "tasks"
+            if (key != null) mainPage.show(key, { latest() }, close = { closePages() }, wide = wide, fullWidth = fullWidth)
             onDispose { if (key != null) mainPage.clear(key) }
         }
     }

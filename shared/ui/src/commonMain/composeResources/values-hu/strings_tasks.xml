@@ -151,4 +151,5 @@
     <string name="tasks_matrix_empty_quadrant">Nincs feladat ebben a negyedben</string>
     <string name="tasks_matrix_drag_hint">Húzd a fogantyút a negyedek között, vagy koppints a jelvényre a 3×3 rácshoz.</string>
     <string name="tasks_matrix_apply">Alkalmaz</string>
+    <string name="tasks_inspector_details">Részletek</string>
 </resources>

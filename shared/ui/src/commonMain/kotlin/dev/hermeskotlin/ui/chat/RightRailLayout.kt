@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +45,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -123,6 +125,7 @@ internal fun rememberRightRailState(): RightRailState = remember { RightRailStat
 internal fun RightRailLayout(
     state: RightRailState,
     railWidth: Dp = DEFAULT_RAIL_WIDTH,
+    defaultRailWidth: Dp = DEFAULT_RAIL_WIDTH,
     onRailWidthChange: ((Dp) -> Unit)? = null,
     swipeEnabled: Boolean = !isDesktop,
     dockOnWide: Boolean = isDesktop,
@@ -141,6 +144,8 @@ internal fun RightRailLayout(
         val p = state.fraction
         val widthPx = with(density) { width.toPx().coerceAtLeast(1f) }
         val scope = rememberCoroutineScope()
+        val latestOnRailWidthChange by rememberUpdatedState(onRailWidthChange)
+        val latestDefaultRailWidth by rememberUpdatedState(defaultRailWidth)
 
         val hidden = if (!state.isOpen) {
             Modifier
@@ -216,12 +221,13 @@ internal fun RightRailLayout(
                         Box(
                             Modifier
                                 .align(Alignment.TopEnd)
+                                .zIndex(1f)
                                 .offset(x = -(width - EDGE_GRIP / 2))
                                 .width(EDGE_GRIP)
                                 .fillMaxHeight()
                                 .pointerHoverIcon(ResizeHorizontalPointer)
-                                .pointerInput(onRailWidthChange) {
-                                    detectTapGestures(onDoubleTap = { onRailWidthChange(DEFAULT_RAIL_WIDTH) })
+                                .pointerInput(Unit) {
+                                    detectTapGestures(onDoubleTap = { latestOnRailWidthChange?.invoke(latestDefaultRailWidth) })
                                 }
                                 .draggable(
                                     state = rememberDraggableState { delta ->
@@ -230,11 +236,11 @@ internal fun RightRailLayout(
                                     orientation = Orientation.Horizontal,
                                     onDragStarted = { dragged = width },
                                     onDragStopped = {
-                                        dragged?.let(onRailWidthChange)
+                                        dragged?.let { latestOnRailWidthChange?.invoke(it) }
                                         dragged = null
                                     },
                                 )
-                                .clearAndSetSemantics { },
+                                .clearAndSetSemantics { testTag = "right_rail_resize_handle" },
                         )
                     }
                 }

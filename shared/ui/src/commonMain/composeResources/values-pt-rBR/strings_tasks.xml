@@ -151,4 +151,5 @@
     <string name="tasks_matrix_empty_quadrant">Nenhuma tarefa neste quadrante</string>
     <string name="tasks_matrix_drag_hint">Arraste a alça entre quadrantes ou toque no selo para precisão 3×3.</string>
     <string name="tasks_matrix_apply">Aplicar</string>
+    <string name="tasks_inspector_details">Detalhes</string>
 </resources>

@@ -151,4 +151,5 @@
     <string name="tasks_matrix_empty_quadrant">No hay tareas en este cuadrante</string>
     <string name="tasks_matrix_drag_hint">Arrastra el tirador entre cuadrantes o toca la insignia para ajuste 3×3.</string>
     <string name="tasks_matrix_apply">Aplicar</string>
+    <string name="tasks_inspector_details">Detalles</string>
 </resources>

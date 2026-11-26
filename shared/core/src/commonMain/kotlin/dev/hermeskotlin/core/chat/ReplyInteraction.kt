@@ -254,8 +254,23 @@ fun formatActionCardReply(
     option: ReplyInteraction.Option,
     params: List<ReplyInteraction.Param>,
     selected: Map<String, String>,
+): String = appendActionParams(option.value.trim().ifEmpty { option.label.trim() }, params, selected)
+
+/**
+ * Formats a concise user-facing summary of an [ReplyInteraction.ActionCard] choice using [option.label]
+ * (falling back to [option.value]) plus active inline parameter values.
+ */
+fun formatActionCardSummary(
+    option: ReplyInteraction.Option,
+    params: List<ReplyInteraction.Param>,
+    selected: Map<String, String>,
+): String = appendActionParams(option.label.trim().ifEmpty { option.value.trim() }, params, selected)
+
+private fun appendActionParams(
+    base: String,
+    params: List<ReplyInteraction.Param>,
+    selected: Map<String, String>,
 ): String {
-    val base = option.value.trim().ifEmpty { option.label.trim() }
     if (base.isEmpty()) return ""
     if (params.isEmpty()) return base
     val paramSummary = params.mapNotNull { param ->

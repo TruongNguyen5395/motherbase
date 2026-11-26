@@ -839,7 +839,12 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                 ) {
                     // By its kind alone: a bot's routines are "routines", not the bot's name.
                     key(mainPage.key) { TimeOpening(mainPage.key?.substringBefore(':') ?: "page") }
-                    Box(Modifier.widthIn(max = if (mainPage.wide) WIDE_PAGE_WIDTH else MAIN_PAGE_WIDTH).fillMaxSize()) { page() }
+                    val pageBoxModifier = when {
+                        mainPage.fullWidth -> Modifier.fillMaxSize()
+                        mainPage.wide -> Modifier.widthIn(max = WIDE_PAGE_WIDTH).fillMaxSize()
+                        else -> Modifier.widthIn(max = MAIN_PAGE_WIDTH).fillMaxSize()
+                    }
+                    Box(pageBoxModifier) { page() }
                 }
                 openRoom != null -> RoomScreen(
                     viewModel = rooms,

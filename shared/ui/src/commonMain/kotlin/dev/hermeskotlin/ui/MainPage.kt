@@ -24,16 +24,27 @@ class MainPageSlot {
     var wide by mutableStateOf(false)
         private set
 
+    /** The page uses the full viewport width without centering or capping (e.g., Dispatch board + resizable rail). */
+    var fullWidth by mutableStateOf(false)
+        private set
+
     /** Which page [content] is: "scheduled", "config", "routines:<bot>"… */
     var key: String? = null
         private set
     private var onClose: (() -> Unit)? = null
 
     /** Shows [page] (named [key]); [close] is how the sidebar puts it away. */
-    fun show(key: String, page: @Composable () -> Unit, close: () -> Unit, wide: Boolean = false) {
+    fun show(
+        key: String,
+        page: @Composable () -> Unit,
+        close: () -> Unit,
+        wide: Boolean = false,
+        fullWidth: Boolean = false,
+    ) {
         this.key = key
         onClose = close
         this.wide = wide
+        this.fullWidth = fullWidth
         content = page
     }
 
@@ -42,6 +53,8 @@ class MainPageSlot {
         if (this.key != key) return
         this.key = null
         onClose = null
+        this.wide = false
+        this.fullWidth = false
         content = null
     }
 
