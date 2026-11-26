@@ -259,8 +259,23 @@ class CalendarViewModelTest {
     @Test
     fun proposalApplyHandlesConflictThenForceAppliesAndLiveEventUpdates() = runTest(dispatcher) {
         var forceCount = 0
+        var proposalStatus = ScheduleProposal.STATUS_STAGED
         val h = buildHarness({ rec ->
             when {
+                rec.path.endsWith("/proposals") -> HttpStatusCode.OK to """
+                    {
+                      "proposals": [
+                        {
+                          "id": "prop-1",
+                          "title": "Plan Afternoon",
+                          "status": "$proposalStatus",
+                          "operations": [
+                            {"op_id":"op-1","kind":"schedule_task","title":"Write docs","task_id":"task-1","start_at":"2026-11-26T08:00:00Z","end_at":"2026-11-26T08:45:00Z","selected":true}
+                          ]
+                        }
+                      ]
+                    }
+                """
                 rec.path.endsWith("/proposals/prop-1/apply") -> {
                     val isForce = rec.body?.contains("\"force\":true") == true
                     if (!isForce) {
@@ -272,6 +287,7 @@ class CalendarViewModelTest {
                         """
                     } else {
                         forceCount++
+                        proposalStatus = ScheduleProposal.STATUS_APPLIED
                         HttpStatusCode.OK to """
                             {"proposal":{"id":"prop-1","title":"Plan Afternoon","status":"applied","operations":[]}}
                         """
@@ -292,6 +308,7 @@ class CalendarViewModelTest {
             assertNull(h.vm.state.value.pendingConflict)
             assertEquals(1, forceCount)
 
+            proposalStatus = ScheduleProposal.STATUS_REVERTED
             h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"type":"plugin.motherbase-calendar.calendar.proposal_updated","payload":{"proposal_id":"prop-1","status":"reverted"}}}""")
             withTimeout(5_000) { h.vm.state.first { it.proposalStatuses["prop-1"] == ScheduleProposal.STATUS_REVERTED } }
         } finally {
@@ -320,12 +337,24 @@ class CalendarViewModelTest {
 
     @Test
     fun toggleCalendarVisibilityAndTaskDoneCallApiOptimistically() = runTest(dispatcher) {
+        var taskDone = false
         val h = buildHarness({ rec ->
             when {
                 rec.path.endsWith("/calendars/cal-1") -> HttpStatusCode.OK to """
                     {"calendar":{"id":"cal-1","account_id":"acc-1","name":"Primary","color_hex":"#E67C73","is_primary":true,"writable":true,"visible":false}}
                 """
-                rec.path.endsWith("/dispatch/tasks/task-1/toggle-done") -> HttpStatusCode.OK to """{"ok":true}"""
+                rec.path.endsWith("/dispatch/tasks/task-1/toggle-done") -> {
+                    taskDone = true
+                    HttpStatusCode.OK to """{"ok":true}"""
+                }
+                rec.path.endsWith("/dispatch/overview") -> HttpStatusCode.OK to """
+                    {
+                      "configured": true,
+                      "projects": [{"id":"proj-1","name":"Core","color":"#0284C7"}],
+                      "tasks": [{"id":"task-1","title":"Write docs","status":"${if (taskDone) "done" else "todo"}","estimated_minutes":45}],
+                      "time_blocks": []
+                    }
+                """
                 else -> defaultRespond(rec)
             }
         })

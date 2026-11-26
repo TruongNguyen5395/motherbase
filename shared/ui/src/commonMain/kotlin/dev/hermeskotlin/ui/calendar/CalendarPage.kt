@@ -750,145 +750,178 @@ private fun CalendarTopBar(
 ) {
     var viewMenuOpen by remember { mutableStateOf(false) }
 
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .background(Theme[colors][surface])
-            .clearOfWindowControls()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clearOfWindowControls(),
     ) {
-        if (onToggleSidebar != null) {
-            IconButton(Lucide.PanelLeft, contentDescription = stringResource(Res.string.cal_back), onClick = onToggleSidebar)
-        } else {
-            IconButton(Lucide.ArrowLeft, contentDescription = stringResource(Res.string.cal_back), onClick = onBack)
-        }
-        IconButton(Lucide.CalendarDays, contentDescription = stringResource(Res.string.cal_toggle_calendars), onClick = onToggleCalendarsPanel)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = if (compact) 6.dp else 8.dp, vertical = if (compact) 4.dp else 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onToggleSidebar != null) {
+                IconButton(Lucide.PanelLeft, contentDescription = stringResource(Res.string.cal_back), onClick = onToggleSidebar)
+            } else {
+                IconButton(Lucide.ArrowLeft, contentDescription = stringResource(Res.string.cal_back), onClick = onBack)
+            }
 
-        if (!compact) {
-            Button(
-                text = stringResource(Res.string.cal_today),
-                onClick = onGoToday,
-                variant = ButtonVariant.Outline,
-                size = ButtonSize.Small,
+            if (!compact) {
+                IconButton(Lucide.CalendarDays, contentDescription = stringResource(Res.string.cal_toggle_calendars), onClick = onToggleCalendarsPanel)
+                Button(
+                    text = stringResource(Res.string.cal_today),
+                    onClick = onGoToday,
+                    variant = ButtonVariant.Outline,
+                    size = ButtonSize.Small,
+                )
+                IconButton(Lucide.ArrowLeft, contentDescription = stringResource(Res.string.cal_previous), onClick = { onStepPeriod(-1) })
+                IconButton(Lucide.ArrowRight, contentDescription = stringResource(Res.string.cal_next), onClick = { onStepPeriod(1) })
+            }
+
+            Text(
+                rangeTitle,
+                style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold, fontSize = if (compact) 14.sp else 16.sp),
+                color = Theme[colors][textColor],
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
             )
-            IconButton(Lucide.ArrowLeft, contentDescription = stringResource(Res.string.cal_previous), onClick = { onStepPeriod(-1) })
-            IconButton(Lucide.ArrowRight, contentDescription = stringResource(Res.string.cal_next), onClick = { onStepPeriod(1) })
-        }
 
-        Text(
-            rangeTitle,
-            style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold, fontSize = if (compact) 14.sp else 16.sp),
-            color = Theme[colors][textColor],
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-        )
+            if (compact) {
+                IconButton(Lucide.Plus, contentDescription = stringResource(Res.string.cal_create), onClick = onOpenCreate)
+            } else {
+                Box(contentAlignment = Alignment.Center) {
+                    if (syncing) {
+                        Spinner(Modifier.padding(10.dp).size(18.dp))
+                    } else {
+                        IconButton(Lucide.RefreshCw, contentDescription = stringResource(Res.string.cal_sync_now), onClick = onSyncNow)
+                    }
+                }
+            }
+
+            val currentViewLabel = when (viewMode) {
+                CalendarViewMode.DAY -> stringResource(Res.string.cal_view_day)
+                CalendarViewMode.THREE_DAYS -> stringResource(Res.string.cal_view_three_days)
+                CalendarViewMode.FOUR_DAYS -> stringResource(Res.string.cal_view_four_days)
+                CalendarViewMode.WEEK -> stringResource(Res.string.cal_view_week)
+                CalendarViewMode.MONTH -> stringResource(Res.string.cal_view_month)
+                CalendarViewMode.SCHEDULE -> stringResource(Res.string.cal_view_schedule)
+            }
+
+            DropdownMenu(
+                expanded = viewMenuOpen,
+                onExpandedChange = { viewMenuOpen = it },
+                items = {
+                    MenuChoice(stringResource(Res.string.cal_view_day), Lucide.Calendar, viewMode == CalendarViewMode.DAY, onClick = {
+                        viewMenuOpen = false; onSetViewMode(CalendarViewMode.DAY)
+                    })
+                    MenuChoice(stringResource(Res.string.cal_view_three_days), Lucide.CalendarDays, viewMode == CalendarViewMode.THREE_DAYS, onClick = {
+                        viewMenuOpen = false; onSetViewMode(CalendarViewMode.THREE_DAYS)
+                    })
+                    MenuChoice(stringResource(Res.string.cal_view_four_days), Lucide.CalendarDays, viewMode == CalendarViewMode.FOUR_DAYS, onClick = {
+                        viewMenuOpen = false; onSetViewMode(CalendarViewMode.FOUR_DAYS)
+                    })
+                    MenuChoice(stringResource(Res.string.cal_view_week), Lucide.CalendarDays, viewMode == CalendarViewMode.WEEK, onClick = {
+                        viewMenuOpen = false; onSetViewMode(CalendarViewMode.WEEK)
+                    })
+                    MenuChoice(stringResource(Res.string.cal_view_month), Lucide.Calendar, viewMode == CalendarViewMode.MONTH, onClick = {
+                        viewMenuOpen = false; onSetViewMode(CalendarViewMode.MONTH)
+                    })
+                    MenuChoice(stringResource(Res.string.cal_view_schedule), Lucide.ListTodo, viewMode == CalendarViewMode.SCHEDULE, onClick = {
+                        viewMenuOpen = false; onSetViewMode(CalendarViewMode.SCHEDULE)
+                    })
+                    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(Theme[colors][stroke]))
+                    MenuChoice(stringResource(Res.string.cal_show_weekends), Lucide.Check, showWeekends, onClick = {
+                        viewMenuOpen = false; onToggleWeekends()
+                    })
+                    MenuChoice(stringResource(Res.string.cal_show_declined), Lucide.Check, showDeclined, onClick = {
+                        viewMenuOpen = false; onToggleDeclined()
+                    })
+                    MenuChoice(stringResource(Res.string.cal_show_completed_tasks), Lucide.Check, showCompletedTasks, onClick = {
+                        viewMenuOpen = false; onToggleCompletedTasks()
+                    })
+                    if (compact) {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(Theme[colors][stroke]))
+                        MenuChoice(stringResource(Res.string.cal_today), Lucide.Clock, false, onClick = {
+                            viewMenuOpen = false; onGoToday()
+                        })
+                        MenuChoice(stringResource(Res.string.cal_sync_now), Lucide.RefreshCw, false, onClick = {
+                            viewMenuOpen = false; onSyncNow()
+                        })
+                        MenuChoice(stringResource(Res.string.cal_settings_title), Lucide.Settings2, false, onClick = {
+                            viewMenuOpen = false; onOpenSettings()
+                        })
+                    }
+                },
+            ) {
+                Row(
+                    Modifier
+                        .clip(CircleShape)
+                        .background(Theme[colors][surface2])
+                        .border(1.dp, Theme[colors][strokeStrong], CircleShape)
+                        .clickable(role = Role.Button) { viewMenuOpen = true }
+                        .handCursor()
+                        .padding(horizontal = if (compact) 10.dp else 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (compact) currentViewLabel.take(3) else currentViewLabel,
+                        style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                        color = Theme[colors][textColor],
+                        maxLines = 1,
+                    )
+                    UnstyledIcon(Lucide.ChevronDown, contentDescription = stringResource(Res.string.cal_view_settings), tint = Theme[colors][textSecondary], modifier = Modifier.size(14.dp))
+                }
+            }
+
+            if (!compact) {
+                IconButton(Lucide.Settings2, contentDescription = stringResource(Res.string.cal_settings_title), onClick = onOpenSettings)
+            }
+
+            Box(contentAlignment = Alignment.TopEnd) {
+                IconButton(Lucide.PanelRight, contentDescription = stringResource(Res.string.cal_dispatch_panel_toggle), onClick = onToggleRightPanel)
+                if (stagedCount > 0) {
+                    Box(
+                        Modifier
+                            .padding(6.dp)
+                            .size(8.dp)
+                            .background(Theme[colors][accent], CircleShape),
+                    )
+                }
+            }
+        }
 
         if (compact) {
-            IconButton(Lucide.ArrowLeft, contentDescription = stringResource(Res.string.cal_previous), onClick = { onStepPeriod(-1) })
-            IconButton(Lucide.ArrowRight, contentDescription = stringResource(Res.string.cal_next), onClick = { onStepPeriod(1) })
-            IconButton(Lucide.Plus, contentDescription = stringResource(Res.string.cal_create), onClick = onOpenCreate)
-        } else {
-            Box(contentAlignment = Alignment.Center) {
-                if (syncing) {
-                    Spinner(Modifier.padding(10.dp).size(18.dp))
-                } else {
-                    IconButton(Lucide.RefreshCw, contentDescription = stringResource(Res.string.cal_sync_now), onClick = onSyncNow)
-                }
-            }
-        }
-
-        val currentViewLabel = when (viewMode) {
-            CalendarViewMode.DAY -> stringResource(Res.string.cal_view_day)
-            CalendarViewMode.THREE_DAYS -> stringResource(Res.string.cal_view_three_days)
-            CalendarViewMode.FOUR_DAYS -> stringResource(Res.string.cal_view_four_days)
-            CalendarViewMode.WEEK -> stringResource(Res.string.cal_view_week)
-            CalendarViewMode.MONTH -> stringResource(Res.string.cal_view_month)
-            CalendarViewMode.SCHEDULE -> stringResource(Res.string.cal_view_schedule)
-        }
-
-        DropdownMenu(
-            expanded = viewMenuOpen,
-            onExpandedChange = { viewMenuOpen = it },
-            items = {
-                MenuChoice(stringResource(Res.string.cal_view_day), Lucide.Calendar, viewMode == CalendarViewMode.DAY, onClick = {
-                    viewMenuOpen = false; onSetViewMode(CalendarViewMode.DAY)
-                })
-                MenuChoice(stringResource(Res.string.cal_view_three_days), Lucide.CalendarDays, viewMode == CalendarViewMode.THREE_DAYS, onClick = {
-                    viewMenuOpen = false; onSetViewMode(CalendarViewMode.THREE_DAYS)
-                })
-                MenuChoice(stringResource(Res.string.cal_view_four_days), Lucide.CalendarDays, viewMode == CalendarViewMode.FOUR_DAYS, onClick = {
-                    viewMenuOpen = false; onSetViewMode(CalendarViewMode.FOUR_DAYS)
-                })
-                MenuChoice(stringResource(Res.string.cal_view_week), Lucide.CalendarDays, viewMode == CalendarViewMode.WEEK, onClick = {
-                    viewMenuOpen = false; onSetViewMode(CalendarViewMode.WEEK)
-                })
-                MenuChoice(stringResource(Res.string.cal_view_month), Lucide.Calendar, viewMode == CalendarViewMode.MONTH, onClick = {
-                    viewMenuOpen = false; onSetViewMode(CalendarViewMode.MONTH)
-                })
-                MenuChoice(stringResource(Res.string.cal_view_schedule), Lucide.ListTodo, viewMode == CalendarViewMode.SCHEDULE, onClick = {
-                    viewMenuOpen = false; onSetViewMode(CalendarViewMode.SCHEDULE)
-                })
-                Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(Theme[colors][stroke]))
-                MenuChoice(stringResource(Res.string.cal_show_weekends), Lucide.Check, showWeekends, onClick = {
-                    viewMenuOpen = false; onToggleWeekends()
-                })
-                MenuChoice(stringResource(Res.string.cal_show_declined), Lucide.Check, showDeclined, onClick = {
-                    viewMenuOpen = false; onToggleDeclined()
-                })
-                MenuChoice(stringResource(Res.string.cal_show_completed_tasks), Lucide.Check, showCompletedTasks, onClick = {
-                    viewMenuOpen = false; onToggleCompletedTasks()
-                })
-                if (compact) {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(Theme[colors][stroke]))
-                    MenuChoice(stringResource(Res.string.cal_today), Lucide.Clock, false, onClick = {
-                        viewMenuOpen = false; onGoToday()
-                    })
-                    MenuChoice(stringResource(Res.string.cal_sync_now), Lucide.RefreshCw, false, onClick = {
-                        viewMenuOpen = false; onSyncNow()
-                    })
-                    MenuChoice(stringResource(Res.string.cal_settings_title), Lucide.Settings2, false, onClick = {
-                        viewMenuOpen = false; onOpenSettings()
-                    })
-                }
-            },
-        ) {
             Row(
                 Modifier
-                    .clip(CircleShape)
-                    .background(Theme[colors][surface2])
-                    .border(1.dp, Theme[colors][strokeStrong], CircleShape)
-                    .clickable(role = Role.Button) { viewMenuOpen = true }
-                    .handCursor()
-                    .padding(horizontal = if (compact) 10.dp else 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    if (compact) currentViewLabel.take(3) else currentViewLabel,
-                    style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
-                    color = Theme[colors][textColor],
-                    maxLines = 1,
+                IconButton(Lucide.CalendarDays, contentDescription = stringResource(Res.string.cal_toggle_calendars), onClick = onToggleCalendarsPanel)
+                Button(
+                    text = stringResource(Res.string.cal_today),
+                    onClick = onGoToday,
+                    variant = ButtonVariant.Outline,
+                    size = ButtonSize.Small,
                 )
-                UnstyledIcon(Lucide.ChevronDown, contentDescription = stringResource(Res.string.cal_view_settings), tint = Theme[colors][textSecondary], modifier = Modifier.size(14.dp))
-            }
-        }
-
-        if (!compact) {
-            IconButton(Lucide.Settings2, contentDescription = stringResource(Res.string.cal_settings_title), onClick = onOpenSettings)
-        }
-
-        Box(contentAlignment = Alignment.TopEnd) {
-            IconButton(Lucide.PanelRight, contentDescription = stringResource(Res.string.cal_dispatch_panel_toggle), onClick = onToggleRightPanel)
-            if (stagedCount > 0) {
-                Box(
-                    Modifier
-                        .padding(6.dp)
-                        .size(8.dp)
-                        .background(Theme[colors][accent], CircleShape),
-                )
+                IconButton(Lucide.ArrowLeft, contentDescription = stringResource(Res.string.cal_previous), onClick = { onStepPeriod(-1) })
+                IconButton(Lucide.ArrowRight, contentDescription = stringResource(Res.string.cal_next), onClick = { onStepPeriod(1) })
+                Spacer(Modifier.weight(1f))
+                IconButton(Lucide.Settings2, contentDescription = stringResource(Res.string.cal_settings_title), onClick = onOpenSettings)
+                Box(contentAlignment = Alignment.Center) {
+                    if (syncing) {
+                        Spinner(Modifier.padding(10.dp).size(18.dp))
+                    } else {
+                        IconButton(Lucide.RefreshCw, contentDescription = stringResource(Res.string.cal_sync_now), onClick = onSyncNow)
+                    }
+                }
             }
         }
     }

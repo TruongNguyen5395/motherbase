@@ -3,6 +3,7 @@ package dev.hermeskotlin.ui.calendar
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -41,12 +42,12 @@ class CalendarPageUiTest {
         }
         waitForIdle()
 
-        onNodeWithText("November 2026").assertIsDisplayed()
+        onAllNodesWithText("November 2026")[0].assertIsDisplayed()
         onNodeWithText("Work Primary").assertIsDisplayed()
         onNodeWithText("MotherBase").assertIsDisplayed()
         onNodeWithText("Company Offsite").assertIsDisplayed()
         onNodeWithText("Engineering Standup").assertExists()
-        onNodeWithText("Review Gateway Schema PR").assertExists()
+        assertTrue(onAllNodesWithText("Review Gateway Schema PR").fetchSemanticsNodes().size >= 2)
 
         // Trigger scheduling a Dispatch task directly from the right rail
         onNodeWithText("Schedule in free slot").performClick()
@@ -76,7 +77,7 @@ class CalendarPageUiTest {
         }
         waitForIdle()
         onNodeWithText("Engineering Standup").assertExists()
-        onNodeWithText("Company Offsite").assertExists()
+        assertEquals(2, onAllNodesWithText("Company Offsite").fetchSemanticsNodes().size)
     }
 
     @Test
@@ -97,8 +98,9 @@ class CalendarPageUiTest {
         }
         waitForIdle()
 
-        onNodeWithText("November 2026").assertIsDisplayed()
-        onNodeWithText("Engineering Standup").assertExists()
+        onAllNodesWithText("November 2026")[0].assertIsDisplayed()
+        onNodeWithText("Today").assertIsDisplayed()
+        onAllNodesWithText("26")[0].assertIsDisplayed()
 
         // Narrow toolbar uses `+` icon button cleanly without overflowing
         onNodeWithText("Create").assertDoesNotExist()
