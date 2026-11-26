@@ -36,17 +36,26 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.composables.icons.lucide.Calendar
+import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.CircleDot
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Pencil
+import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Send
 import com.composables.icons.lucide.Square
 import com.composables.icons.lucide.SquareCheck
+import com.composables.icons.lucide.TriangleAlert
+import com.composables.icons.lucide.X
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledButton
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
+import dev.hermeskotlin.core.calendar.ScheduleOperation
+import dev.hermeskotlin.core.calendar.ScheduleProposal as CalendarScheduleProposal
+import dev.hermeskotlin.core.calendar.calendarZonedFromIso
+import dev.hermeskotlin.core.calendar.formatClockCompact
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.chat.computeActionTweaks
 import dev.hermeskotlin.core.chat.formatActionCardReply
@@ -72,19 +81,18 @@ import dev.hermeskotlin.designsystem.radiusMedium
 import dev.hermeskotlin.designsystem.rememberHoverIndication
 import dev.hermeskotlin.designsystem.stroke
 import dev.hermeskotlin.designsystem.strokeStrong
+import dev.hermeskotlin.designsystem.success
+import dev.hermeskotlin.designsystem.successSoft
 import dev.hermeskotlin.designsystem.surface
 import dev.hermeskotlin.designsystem.surface2
 import dev.hermeskotlin.designsystem.text as textColor
 import dev.hermeskotlin.designsystem.textSecondary
 import dev.hermeskotlin.designsystem.textTertiary
 import dev.hermeskotlin.designsystem.typography
+import dev.hermeskotlin.designsystem.warning
+import dev.hermeskotlin.designsystem.warningSoft
 import dev.hermeskotlin.ui.isDesktop
-import dev.hermeskotlin.ui.resources.Res
-import dev.hermeskotlin.ui.resources.chat_interaction_edit
-import dev.hermeskotlin.ui.resources.chat_interaction_edit_short
-import dev.hermeskotlin.ui.resources.chat_interaction_multi_hint
-import dev.hermeskotlin.ui.resources.chat_interaction_send
-import dev.hermeskotlin.ui.resources.chat_interaction_send_count
+import dev.hermeskotlin.ui.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -100,6 +108,10 @@ internal fun ReplyInteractionCard(
     onFill: (String) -> Unit,
     modifier: Modifier = Modifier,
     onTweaks: ((taskId: String, projectId: String?, summary: String?, optionLabel: String, tweaks: List<TweakDeltaInput>) -> Unit)? = null,
+    onApplyProposal: ((proposalId: String, selectedOpIds: List<String>, force: Boolean) -> Unit)? = null,
+    onDiscardProposal: ((proposalId: String) -> Unit)? = null,
+    onRevertProposal: ((proposalId: String) -> Unit)? = null,
+    appliedProposalStatuses: Map<String, String> = emptyMap(),
 ) {
     val containerShape = RoundedCornerShape(Theme[radii][radiusLarge])
     Column(
@@ -136,6 +148,34 @@ internal fun ReplyInteractionCard(
                 },
                 onFill = { option, selected ->
                     onFill(formatActionCardReply(option, interaction.params, selected))
+                },
+            )
+            is ReplyInteraction.ScheduleProposal -> ScheduleProposalContent(
+                cardKey = replyKey,
+                proposal = interaction.proposal,
+                overrideStatus = appliedProposalStatuses[interaction.proposal.id],
+                enabled = sendEnabled,
+                onApply = { selectedIds, force ->
+                    val pid = interaction.proposal.id
+                    if (pid.isNotBlank() && onApplyProposal != null) {
+                        onApplyProposal(pid, selectedIds, force)
+                    } else {
+                        onSend("Apply schedule proposal: ${interaction.proposal.title} (${selectedIds.size} items)")
+                    }
+                },
+                onDiscard = {
+                    val pid = interaction.proposal.id
+                    if (pid.isNotBlank() && onDiscardProposal != null) {
+                        onDiscardProposal(pid)
+                    } else {
+                        onSend("Discard schedule proposal: ${interaction.proposal.title}")
+                    }
+                },
+                onRevert = {
+                    val pid = interaction.proposal.id
+                    if (pid.isNotBlank() && onRevertProposal != null) {
+                        onRevertProposal(pid)
+                    }
                 },
             )
         }
@@ -530,4 +570,225 @@ private fun MultiChoiceOptionRow(
             }
         }
     }
+}
+
+/**
+ * Interactive staged schedule proposal card allowing selective item toggling, external-attendee
+ * notification warnings, conflict banners, and explicit `Apply` / `Discard` / `Revert` confirmation.
+ */
+@Composable
+internal fun ScheduleProposalContent(
+    cardKey: String,
+    proposal: CalendarScheduleProposal,
+    overrideStatus: String? = null,
+    enabled: Boolean = true,
+    onApply: (selectedOpIds: List<String>, force: Boolean) -> Unit,
+    onDiscard: () -> Unit,
+    onRevert: () -> Unit,
+) {
+    val effectiveStatus = overrideStatus ?: proposal.status
+    val isStaged = effectiveStatus == CalendarScheduleProposal.STATUS_STAGED
+    val selectedOps = remember(cardKey, proposal.id, proposal.operations) {
+        mutableStateMapOf<String, Boolean>().apply {
+            proposal.operations.forEach { put(it.opId, it.selected) }
+        }
+    }
+    val chosenOps = proposal.operations.filter { selectedOps[it.opId] != false }
+    val attendeeCount = chosenOps.sumOf { it.attendees.size }
+    val hasConflicts = chosenOps.any { it.conflicts.isNotEmpty() }
+
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        UnstyledIcon(
+            Lucide.Calendar,
+            contentDescription = null,
+            tint = Theme[colors][accentText],
+            modifier = Modifier.size(16.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                proposal.title,
+                style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold),
+                color = Theme[colors][textColor],
+            )
+            proposal.summary?.takeIf { it.isNotBlank() }?.let { summary ->
+                Text(
+                    summary,
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textSecondary],
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+            }
+        }
+        val statusBadge = when (effectiveStatus) {
+            CalendarScheduleProposal.STATUS_APPLIED -> stringResource(Res.string.cal_proposal_applied) to (Theme[colors][successSoft] to Theme[colors][success])
+            CalendarScheduleProposal.STATUS_DISCARDED -> stringResource(Res.string.cal_proposal_discarded) to (Theme[colors][surface2] to Theme[colors][textTertiary])
+            CalendarScheduleProposal.STATUS_REVERTED -> stringResource(Res.string.cal_proposal_reverted) to (Theme[colors][surface2] to Theme[colors][textTertiary])
+            else -> null
+        }
+        if (statusBadge != null) {
+            val (label, pair) = statusBadge
+            Text(
+                label,
+                style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
+                color = pair.second,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+                    .background(pair.first)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        proposal.operations.forEachIndexed { idx, op ->
+            val checked = selectedOps[op.opId] != false
+            val rowShape = RoundedCornerShape(Theme[radii][radiusMedium])
+            val rowBg = if (checked && isStaged) Theme[colors][accentSoft] else Theme[colors][surface2]
+            val rowBorder = if (checked && isStaged) Theme[colors][accent] else Theme[colors][stroke]
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(rowShape)
+                    .background(rowBg, rowShape)
+                    .border(1.dp, rowBorder, rowShape)
+                    .then(
+                        if (isStaged && enabled) {
+                            Modifier.handCursor().clickable(role = Role.Checkbox) {
+                                selectedOps[op.opId] = !checked
+                            }
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                    .testTag("proposal_op_row_$idx"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isStaged) {
+                    UnstyledIcon(
+                        if (checked) Lucide.SquareCheck else Lucide.Square,
+                        contentDescription = null,
+                        tint = Theme[colors][if (checked) accentText else textTertiary],
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        op.title,
+                        style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
+                        color = Theme[colors][textColor],
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val timeLabel = formatProposalOpWindow(op)
+                    val meta = listOfNotNull(timeLabel, op.calendarName, op.reason).joinToString(" · ")
+                    if (meta.isNotBlank()) {
+                        Text(
+                            meta,
+                            style = Theme[typography][caption],
+                            color = Theme[colors][textSecondary],
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (op.conflicts.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            UnstyledIcon(
+                                Lucide.TriangleAlert,
+                                contentDescription = null,
+                                tint = Theme[colors][warning],
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Text(
+                                stringResource(Res.string.cal_proposal_conflict_warning, op.conflicts.first().title),
+                                style = Theme[typography][caption],
+                                color = Theme[colors][warning],
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (isStaged && attendeeCount > 0) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+                .background(Theme[colors][warningSoft])
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            UnstyledIcon(Lucide.TriangleAlert, contentDescription = null, tint = Theme[colors][warning], modifier = Modifier.size(14.dp))
+            Text(
+                stringResource(Res.string.cal_proposal_attendee_warning, attendeeCount),
+                style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
+                color = Theme[colors][warning],
+            )
+        }
+    }
+
+    if (isStaged) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                text = stringResource(Res.string.cal_proposal_discard),
+                onClick = onDiscard,
+                variant = ButtonVariant.Ghost,
+                size = ButtonSize.Small,
+                enabled = enabled,
+                leadingIcon = Lucide.X,
+                modifier = Modifier.testTag("proposal_discard_button"),
+            )
+            Button(
+                text = if (hasConflicts) {
+                    stringResource(Res.string.cal_proposal_force_apply)
+                } else {
+                    stringResource(Res.string.cal_proposal_apply_count, chosenOps.size)
+                },
+                onClick = { onApply(chosenOps.map { it.opId }, hasConflicts) },
+                variant = ButtonVariant.Primary,
+                size = ButtonSize.Small,
+                enabled = enabled && chosenOps.isNotEmpty(),
+                leadingIcon = Lucide.Check,
+                modifier = Modifier.testTag("proposal_apply_button"),
+            )
+        }
+    } else if (effectiveStatus == CalendarScheduleProposal.STATUS_APPLIED) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Button(
+                text = stringResource(Res.string.cal_proposal_revert),
+                onClick = onRevert,
+                variant = ButtonVariant.Outline,
+                size = ButtonSize.Small,
+                enabled = enabled,
+                leadingIcon = Lucide.RotateCcw,
+                modifier = Modifier.testTag("proposal_revert_button"),
+            )
+        }
+    }
+}
+
+private fun formatProposalOpWindow(op: ScheduleOperation): String? {
+    if (op.allDay) return op.startDate
+    val s = op.startAt?.let { calendarZonedFromIso(it, op.timezone) } ?: return null
+    val e = op.endAt?.let { calendarZonedFromIso(it, op.timezone) }
+    val startStr = "${s.date.iso} ${formatClockCompact(s.minuteOfDay, use24Hour = true)}"
+    return if (e != null) "$startStr – ${formatClockCompact(e.minuteOfDay, use24Hour = true)}" else startStr
 }

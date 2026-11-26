@@ -19,6 +19,9 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.theme.ColorScheme
+import dev.hermeskotlin.core.calendar.EventAttendee
+import dev.hermeskotlin.core.calendar.ScheduleOperation
+import dev.hermeskotlin.core.calendar.ScheduleProposal
 import dev.hermeskotlin.core.chat.ChatMessage
 import dev.hermeskotlin.core.chat.OFFER_CHOICES_TOOL
 import dev.hermeskotlin.core.chat.ReplyInteraction
@@ -245,5 +248,67 @@ class ReplyInteractionUiTest {
         onNodeWithTag("interaction_choice_edit_0").performClick()
         waitForIdle()
         assertEquals(listOf("Proceed (Runner: @architect, Scope: Prototype)"), filled)
+    }
+
+    @Test
+    fun scheduleProposalSelectsOperationsAndAppliesOnlyCheckedItems() = runDesktopComposeUiTest(width = 480, height = 560) {
+        var appliedIds: List<String>? = null
+        var discarded = false
+        val proposal = ScheduleProposal(
+            id = "prop-1",
+            title = "Thursday Plan",
+            summary = "Protect morning deep work",
+            targetDate = "2026-11-26",
+            operations = listOf(
+                ScheduleOperation(
+                    opId = "op-1",
+                    kind = "schedule_task",
+                    title = "Write API spec",
+                    startAt = "2026-11-26T02:00:00Z",
+                    endAt = "2026-11-26T03:00:00Z",
+                    calendarName = "MotherBase",
+                ),
+                ScheduleOperation(
+                    opId = "op-2",
+                    kind = "create_event",
+                    title = "Partner sync",
+                    startAt = "2026-11-26T08:00:00Z",
+                    endAt = "2026-11-26T09:00:00Z",
+                    attendees = listOf(EventAttendee(email = "partner@example.com")),
+                    hasExternalAttendees = true,
+                ),
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        Box(Modifier.width(340.dp)) {
+                            ReplyInteractionCard(
+                                replyKey = "sched-1",
+                                interaction = ReplyInteraction.ScheduleProposal(proposal),
+                                sendEnabled = true,
+                                onSend = {},
+                                onFill = {},
+                                onApplyProposal = { _, ids, _ -> appliedIds = ids },
+                                onDiscardProposal = { discarded = true },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        waitForIdle()
+        onNodeWithText("Thursday Plan").assertIsDisplayed()
+        onNodeWithText("Will notify 1 external attendee(s)").assertIsDisplayed()
+        onNodeWithTag("proposal_op_row_1").performClick()
+        waitForIdle()
+        onNodeWithTag("proposal_apply_button").performClick()
+        waitForIdle()
+        assertEquals(listOf("op-1"), appliedIds)
+        onNodeWithTag("proposal_discard_button").performClick()
+        waitForIdle()
+        assertTrue(discarded)
     }
 }

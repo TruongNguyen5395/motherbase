@@ -1,5 +1,8 @@
 package dev.hermeskotlin.core.chat
 
+import dev.hermeskotlin.core.calendar.ScheduleOperation
+import dev.hermeskotlin.core.calendar.ScheduleProposal as CalendarScheduleProposal
+import dev.hermeskotlin.core.network.HermesJson
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -11,9 +14,10 @@ import kotlinx.serialization.json.contentOrNull
 
 const val OFFER_CHOICES_TOOL = "offer_choices"
 const val PROPOSE_ACTION_TOOL = "propose_action_plan"
+const val PROPOSE_SCHEDULE_TOOL = "propose_schedule_plan"
 
-/** Tools from the `motherbase-interact` plugin that render as interactive reply cards instead of raw tool rows. */
-val INTERACTIVE_REPLY_TOOLS: Set<String> = setOf(OFFER_CHOICES_TOOL, PROPOSE_ACTION_TOOL)
+/** Interactive reply tools rendered as rich cards instead of raw tool rows. */
+val INTERACTIVE_REPLY_TOOLS: Set<String> = setOf(OFFER_CHOICES_TOOL, PROPOSE_ACTION_TOOL, PROPOSE_SCHEDULE_TOOL)
 
 private const val MAX_CHOICES = 8
 private const val MAX_PARAMS = 4
@@ -62,6 +66,14 @@ sealed interface ReplyInteraction {
         val projectId: String? = null,
     ) : ReplyInteraction
 
+    /**
+     * Staged schedule proposal produced by [PROPOSE_SCHEDULE_TOOL], allowing selective confirmation
+     * (`Apply`) or discarding without writing external calendar events until the user approves.
+     */
+    data class ScheduleProposal(
+        val proposal: CalendarScheduleProposal,
+    ) : ReplyInteraction
+
     companion object {
         /**
          * Parses an interactive reply payload from a live event (`tool.start` / `tool.complete`) or stored
@@ -98,6 +110,7 @@ sealed interface ReplyInteraction {
             val payload = resolvePayloadObject(rawToolName, args, result) ?: return null
             return when (toolName) {
                 PROPOSE_ACTION_TOOL -> parseActionCardObject(payload)
+                PROPOSE_SCHEDULE_TOOL -> parseScheduleProposalObject(payload)
                 OFFER_CHOICES_TOOL -> parseActionCardObject(payload) ?: parseChoicesObject(payload)
                 else -> null
             }
@@ -141,7 +154,11 @@ sealed interface ReplyInteraction {
 
         private fun isRejectedResult(obj: JsonObject): Boolean {
             if (obj.boolean("ok") == false || obj.boolean("success") == false) return true
-            return obj["error"] != null && obj["options"] == null && obj["actions"] == null
+            return obj["error"] != null &&
+                obj["options"] == null &&
+                obj["actions"] == null &&
+                obj["proposal"] == null &&
+                obj["operations"] == null
         }
 
         private fun unwrapToolCallArgs(toolName: String, args: JsonElement?): JsonObject? {
@@ -163,6 +180,46 @@ sealed interface ReplyInteraction {
                 options = parsedOptions,
                 taskId = obj.string("task_id"),
                 projectId = obj.string("project_id"),
+            )
+        }
+
+        private fun parseScheduleProposalObject(obj: JsonObject): ScheduleProposal? {
+            val target = (obj["proposal"] as? JsonObject) ?: obj
+            val parsed = runCatching {
+                HermesJson.decodeFromJsonElement(CalendarScheduleProposal.serializer(), target)
+            }.getOrNull()
+            if (parsed != null && parsed.operations.isNotEmpty()) {
+                return ScheduleProposal(parsed)
+            }
+            val rawOps = target["operations"] as? JsonArray ?: return null
+            val ops = rawOps.mapIndexedNotNull { idx, el ->
+                val opObj = el as? JsonObject ?: return@mapIndexedNotNull null
+                val title = opObj.string("title") ?: return@mapIndexedNotNull null
+                val kind = opObj.string("kind") ?: "create_event"
+                ScheduleOperation(
+                    opId = opObj.string("op_id") ?: "op_${idx + 1}",
+                    kind = kind,
+                    title = title,
+                    taskId = opObj.string("task_id"),
+                    occurrenceId = opObj.string("occurrence_id"),
+                    timeBlockId = opObj.string("time_block_id"),
+                    calendarId = opObj.string("calendar_id"),
+                    startAt = opObj.string("start_at"),
+                    endAt = opObj.string("end_at"),
+                    allDay = opObj.boolean("all_day") ?: false,
+                    reason = opObj.string("reason"),
+                )
+            }
+            if (ops.isEmpty()) return null
+            return ScheduleProposal(
+                CalendarScheduleProposal(
+                    id = target.string("id") ?: "",
+                    title = target.string("title") ?: "Schedule Plan",
+                    summary = target.string("summary"),
+                    targetDate = target.string("target_date"),
+                    status = target.string("status") ?: CalendarScheduleProposal.STATUS_STAGED,
+                    operations = ops,
+                ),
             )
         }
 

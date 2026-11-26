@@ -377,6 +377,7 @@ data class TaskContext(
     val impact: String? = null,
     val urgency: String? = null,
     @SerialName("reply_acked_at") val replyAckedAt: String? = null,
+    @SerialName("estimated_minutes") val estimatedMinutes: Int? = null,
 ) {
     val needsAttention: Boolean get() = agentState == STATE_NEEDS_YOU
     val isRunning: Boolean get() = agentState == STATE_RUNNING
@@ -416,6 +417,7 @@ data class DirectusTask(
     val impact: String? get() = context?.impact
     val urgency: String? get() = context?.urgency
     val replyAckedAt: String? get() = context?.replyAckedAt
+    val estimatedMinutes: Int? get() = context?.estimatedMinutes
 
     companion object {
         const val STATUS_TODO = "todo"
@@ -468,6 +470,7 @@ data class UpsertContextRequest(
     val impact: String? = null,
     val urgency: String? = null,
     @SerialName("reply_acked_at") val replyAckedAt: String? = null,
+    @SerialName("estimated_minutes") val estimatedMinutes: Int? = null,
 )
 
 @Serializable

@@ -209,4 +209,40 @@ class ReplyInteractionTest {
         val rejected = HermesJson.parseToJsonElement("""{"ok":false,"error":"blocked"}""")
         assertNull(ReplyInteraction.from(PROPOSE_ACTION_TOOL, args, rejected))
     }
+
+    @Test
+    fun parsesProposeSchedulePlanFromResultAndToolArgs() {
+        val result = HermesJson.parseToJsonElement(
+            """
+            {
+              "ok": true,
+              "proposal": {
+                "id": "prop-1",
+                "title": "Thursday Schedule",
+                "summary": "Scheduled 2 priority blocks",
+                "target_date": "2026-11-26",
+                "status": "staged",
+                "operations": [
+                  {
+                    "op_id": "op-1",
+                    "kind": "schedule_task",
+                    "title": "Finalize API Spec",
+                    "task_id": "task-1",
+                    "start_at": "2026-11-26T02:00:00Z",
+                    "end_at": "2026-11-26T03:30:00Z",
+                    "has_external_attendees": false,
+                    "selected": true
+                  }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+        val parsed = assertIs<ReplyInteraction.ScheduleProposal>(
+            ReplyInteraction.from(PROPOSE_SCHEDULE_TOOL, args = null, result = result),
+        )
+        assertEquals("prop-1", parsed.proposal.id)
+        assertEquals(1, parsed.proposal.operations.size)
+        assertEquals("Finalize API Spec", parsed.proposal.operations.single().title)
+    }
 }
