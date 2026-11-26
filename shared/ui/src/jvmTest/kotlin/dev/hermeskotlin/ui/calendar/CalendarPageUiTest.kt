@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.composeunstyled.theme.ColorScheme
 import dev.hermeskotlin.core.calendar.ScheduleProposal
@@ -107,5 +108,140 @@ class CalendarPageUiTest {
         onNodeWithContentDescription("Create").performClick()
         waitForIdle()
         assertTrue(createClicked)
+    }
+
+    @Test
+    fun taskDetailAndEventDetailExposeOpenSessionWithoutForcedTextEdit() = runDesktopComposeUiTest(width = 960, height = 760) {
+        val sample = PageSamples.calendar(CalendarViewMode.FOUR_DAYS)
+        val unscheduledTask = sample.dispatchOverview.tasks.last()
+        var openedTaskId: String? = null
+        var scheduledFromDetail = false
+
+        // 1. Clicking a task opens TaskDetailDialog with "Open session" instead of a name/time edit form
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        TaskDetailDialog(
+                            task = unscheduledTask,
+                            projects = sample.dispatchOverview.projects,
+                            timezone = sample.settings.timezone,
+                            use24Hour = false,
+                            mutating = false,
+                            openingSession = false,
+                            onDismiss = {},
+                            onOpenSession = { tid -> openedTaskId = tid },
+                            onScheduleBlock = { _, _ -> scheduledFromDetail = true },
+                            onDeleteBlock = {},
+                            onToggleDone = { _, _ -> },
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+        onNodeWithText("Event title").assertDoesNotExist()
+        onNodeWithText("Open session").assertIsDisplayed().performClick()
+        waitForIdle()
+        assertEquals("task-2", openedTaskId)
+
+        onNodeWithText("Schedule in free slot").assertIsDisplayed().performClick()
+        waitForIdle()
+        assertTrue(scheduledFromDetail)
+
+        // 2. Clicking a scheduled time-block event shows "Open session" alongside Change time / Unschedule
+        val blockEvent = sample.events.first { it.taskId == "task-1" }
+        var blockOpenedTaskId: String? = null
+        var rescheduledEventTitle: String? = null
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        EventDetailDialog(
+                            event = blockEvent,
+                            use24Hour = false,
+                            mutating = false,
+                            onDismiss = {},
+                            onEdit = {},
+                            onDelete = { _, _ -> },
+                            onUnscheduleBlock = {},
+                            onOpenTaskSession = { tid -> blockOpenedTaskId = tid },
+                            onRescheduleBlock = { ev -> rescheduledEventTitle = ev.title },
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+        onNodeWithText("Change time").assertIsDisplayed().performClick()
+        waitForIdle()
+        assertEquals(blockEvent.title, rescheduledEventTitle)
+
+        onNodeWithText("Open session").assertIsDisplayed().performClick()
+        waitForIdle()
+        assertEquals("task-1", blockOpenedTaskId)
+    }
+
+    @Test
+    fun eventEditorUsesVisualDateAndTimePickersInsteadOfTextFields() = runDesktopComposeUiTest(width = 720, height = 820) {
+        val sample = PageSamples.calendar(CalendarViewMode.FOUR_DAYS)
+        var savedDraft: EventEditorDraft? = null
+
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        EventEditorDialog(
+                            draft = EventEditorDraft(
+                                calendarId = "cal-primary",
+                                title = "Architecture sync",
+                                dateIso = "2026-11-26",
+                                endDateIso = "2026-11-26",
+                                startTime = "09:00",
+                                endTime = "10:00",
+                            ),
+                            calendars = sample.calendars,
+                            use24Hour = false,
+                            mutating = false,
+                            onDismiss = {},
+                            onSave = { savedDraft = it },
+                            onDelete = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithText("Date (YYYY-MM-DD)").assertDoesNotExist()
+        onNodeWithText("Start (HH:MM)").assertDoesNotExist()
+
+        // Pick date from calendar grid
+        onNodeWithText("Thu, Nov 26, 2026").performScrollTo().performClick()
+        waitForIdle()
+        onNodeWithText("28").performScrollTo().performClick()
+        waitForIdle()
+        onNodeWithText("Sat, Nov 28, 2026").assertIsDisplayed()
+
+        // Pick start time via visual hour/minute selector (2:30 PM -> shifts end to 3:30 PM)
+        onNodeWithText("9:00 AM").performScrollTo().performClick()
+        waitForIdle()
+        onNodeWithText("PM").performScrollTo().performClick()
+        waitForIdle()
+        onNodeWithText("2").performScrollTo().performClick()
+        waitForIdle()
+        onNodeWithText(":30").performScrollTo().performClick()
+        waitForIdle()
+        onNodeWithText("Done").performScrollTo().performClick()
+        waitForIdle()
+
+        onNodeWithText("2:30 PM").assertIsDisplayed()
+        onNodeWithText("3:30 PM").assertIsDisplayed()
+
+        onNodeWithText("Save event").performClick()
+        waitForIdle()
+        assertEquals("2026-11-28", savedDraft?.dateIso)
+        assertEquals("14:30", savedDraft?.startTime)
+        assertEquals("15:30", savedDraft?.endTime)
     }
 }

@@ -1,5 +1,6 @@
 package dev.hermeskotlin.core.calendar
 
+import dev.hermeskotlin.core.tasks.TaskChannel
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -161,6 +162,8 @@ data class DispatchCalendarTask(
     @SerialName("due_date") val dueDate: String? = null,
     @SerialName("completed_at") val completedAt: String? = null,
     @SerialName("project_id") val projectId: String? = null,
+    @SerialName("assigned_bots") val assignedBots: List<String> = emptyList(),
+    val channels: List<TaskChannel> = emptyList(),
     @SerialName("agent_state") val agentState: String = "idle",
     val impact: String? = null,
     val urgency: String? = null,
@@ -172,6 +175,7 @@ data class DispatchCalendarTask(
 data class DispatchProjectSummary(
     val id: String,
     val name: String,
+    @SerialName("workspace_cwd") val workspaceCwd: String? = null,
     val color: String? = null,
     val archived: Boolean = false,
 )

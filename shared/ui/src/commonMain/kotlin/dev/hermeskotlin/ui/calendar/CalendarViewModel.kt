@@ -47,20 +47,26 @@ import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.GatewayUrl
 import dev.hermeskotlin.core.gateway.SavedGateway
 import dev.hermeskotlin.core.network.ApiResult
+import dev.hermeskotlin.core.rooms.Room
+import dev.hermeskotlin.core.rooms.RoomsApi
 import dev.hermeskotlin.core.rpc.GatewayEvent
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
+import dev.hermeskotlin.core.tasks.TaskChannel
+import dev.hermeskotlin.core.tasks.UpsertContextRequest
 import dev.hermeskotlin.ui.tasks.ChannelChatLine
 import dev.hermeskotlin.ui.tasks.parseSessionChatLines
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
@@ -176,6 +182,8 @@ data class CalendarUiState(
     val freeSlots: List<FreeSlot> = emptyList(),
     val findingFreeSlots: Boolean = false,
     val selectedEvent: CalendarEvent? = null,
+    val selectedTask: DispatchCalendarTask? = null,
+    val openingTaskSession: Boolean = false,
     val editingEventDraft: EventEditorDraft? = null,
     val schedulingTask: TaskBlockDraft? = null,
     val connectDialogOpen: Boolean = false,
@@ -194,6 +202,11 @@ data class CalendarUiState(
     val agentInputRequests: List<InputRequest> = emptyList(),
 )
 
+sealed interface CalendarNavEvent {
+    data class OpenSession(val sessionId: String, val title: String, val profile: String?) : CalendarNavEvent
+    data class OpenRoom(val room: Room) : CalendarNavEvent
+}
+
 @OptIn(ExperimentalTime::class, ExperimentalUuidApi::class)
 class CalendarViewModel(
     private val calendarApi: CalendarApi,
@@ -202,11 +215,15 @@ class CalendarViewModel(
     private val directusApi: DirectusTasksApi? = null,
     private val sessionsApi: SessionsApi? = null,
     private val botsApi: BotsApi? = null,
+    private val roomsApi: RoomsApi? = null,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CalendarUiState())
     val state: StateFlow<CalendarUiState> = _state.asStateFlow()
+
+    private val _events = Channel<CalendarNavEvent>(Channel.BUFFERED)
+    val events = _events.receiveAsFlow()
 
     private var boundGateway: SavedGateway? = null
     private var visible: Boolean = false
@@ -529,6 +546,7 @@ class CalendarViewModel(
                     events = nextEvents,
                     loadedRange = if (eventsRes is ApiResult.Success) startIso to endIso else cur.loadedRange,
                     dispatchOverview = nextDispatch,
+                    selectedTask = cur.selectedTask?.let { sel -> nextDispatch.tasks.firstOrNull { it.id == sel.id } ?: sel },
                     proposals = nextProposals,
                     bots = nextBots,
                     coordinatorSessionId = coordCfg?.sessionId?.takeIf { it.isNotBlank() } ?: cur.coordinatorSessionId,
@@ -577,7 +595,12 @@ class CalendarViewModel(
         val includeDone = _state.value.showCompletedTasks
         val res = calendarApi.dispatchOverview(gateway.gatewayUrl, includeDone = includeDone)
         if (res is ApiResult.Success && boundGateway == gateway) {
-            _state.update { it.copy(dispatchOverview = res.value) }
+            _state.update { cur ->
+                cur.copy(
+                    dispatchOverview = res.value,
+                    selectedTask = cur.selectedTask?.let { sel -> res.value.tasks.firstOrNull { it.id == sel.id } ?: sel },
+                )
+            }
         }
     }
 
@@ -896,7 +919,11 @@ class CalendarViewModel(
     // ── Event CRUD ───────────────────────────────────────────────────────────
 
     fun selectEvent(event: CalendarEvent?) {
-        _state.update { it.copy(selectedEvent = event) }
+        _state.update { it.copy(selectedEvent = event, selectedTask = if (event != null) null else it.selectedTask) }
+    }
+
+    fun selectTask(task: DispatchCalendarTask?) {
+        _state.update { it.copy(selectedTask = task, selectedEvent = if (task != null) null else it.selectedEvent) }
     }
 
     fun openCreateEvent(date: CalendarDate? = null, startMinute: Int? = null, allDay: Boolean = false) {
@@ -1075,6 +1102,7 @@ class CalendarViewModel(
                 dispatchOverview = ov.copy(
                     tasks = ov.tasks.map { t -> if (t.id == taskId) t.copy(status = nextStatus) else t },
                 ),
+                selectedTask = cur.selectedTask?.let { sel -> if (sel.id == taskId) sel.copy(status = nextStatus) else sel },
             )
         }
         viewModelScope.launch {
@@ -1084,6 +1112,124 @@ class CalendarViewModel(
                 else -> {
                     res.errorTextOrNull()?.let { msg -> _state.update { it.copy(error = msg) } }
                     refreshDispatchOverview(gw)
+                }
+            }
+        }
+    }
+
+    fun openTaskSession(taskId: String) {
+        val gw = boundGateway ?: return
+        if (_state.value.openingTaskSession) return
+        viewModelScope.launch {
+            _state.update { it.copy(openingTaskSession = true, error = null) }
+            try {
+                val curState = _state.value
+                val cachedTask = curState.dispatchOverview.tasks.firstOrNull { it.id == taskId }
+                    ?: curState.selectedTask?.takeIf { it.id == taskId }
+                var title = cachedTask?.title
+                    ?: curState.selectedEvent?.takeIf { it.taskId == taskId }?.title?.removePrefix("[Task] ")?.trim()
+                    ?: "Task"
+                var channels = cachedTask?.channels.orEmpty()
+                var assignedBots = cachedTask?.assignedBots.orEmpty()
+                var projectId = cachedTask?.projectId
+
+                if (channels.isEmpty() && directusApi != null) {
+                    val boardRes = directusApi.fetchBoard(gw.gatewayUrl, includeDone = true)
+                    if (boardRes is ApiResult.SessionExpired) {
+                        _state.update { it.copy(sessionExpired = true) }
+                        return@launch
+                    }
+                    val boardTask = (boardRes as? ApiResult.Success)?.value?.tasks?.firstOrNull { it.id == taskId }
+                    if (boardTask != null) {
+                        title = boardTask.title
+                        channels = boardTask.channels
+                        assignedBots = boardTask.assignedBots
+                        projectId = boardTask.projectId
+                        _state.update { cur ->
+                            val ov = cur.dispatchOverview
+                            cur.copy(
+                                dispatchOverview = ov.copy(
+                                    tasks = ov.tasks.map { t ->
+                                        if (t.id == taskId) t.copy(channels = channels, assignedBots = assignedBots, projectId = projectId) else t
+                                    },
+                                ),
+                            )
+                        }
+                    }
+                }
+
+                val existingSession = channels.firstOrNull { it.isSession }
+                if (existingSession != null) {
+                    _state.update { it.copy(selectedEvent = null, selectedTask = null, schedulingTask = null) }
+                    _events.send(CalendarNavEvent.OpenSession(existingSession.id, title, existingSession.profile))
+                    return@launch
+                }
+
+                val existingRoom = channels.firstOrNull { it.isRoom }
+                if (existingRoom != null && roomsApi != null) {
+                    val room = runCatching { roomsApi.state(existingRoom.id).room }.getOrNull()
+                        ?: Room(roomId = existingRoom.id, name = title)
+                    _state.update { it.copy(selectedEvent = null, selectedTask = null, schedulingTask = null) }
+                    _events.send(CalendarNavEvent.OpenRoom(room))
+                    return@launch
+                }
+
+                val client = (connection.state.value as? ConnectionState.Connected)?.client ?: run {
+                    _state.update { it.copy(error = "Not connected to gateway.") }
+                    return@launch
+                }
+                val profile = assignedBots.firstOrNull()?.takeIf { it.isNotBlank() }
+                val cwd = projectId?.let { pid ->
+                    _state.value.dispatchOverview.projects.firstOrNull { it.id == pid }?.workspaceCwd?.takeIf { it.isNotBlank() }
+                }
+                val created = runCatching {
+                    client.request(
+                        "session.create",
+                        buildJsonObject {
+                            profile?.let { put("profile", it) }
+                            put("source", "desktop")
+                            put("cols", 80)
+                            cwd?.let { put("cwd", it) }
+                        },
+                    ) as? JsonObject
+                }.getOrNull()
+                val runtimeId = (created?.get("session_id") as? JsonPrimitive)?.contentOrNull
+                val storedId = (created?.get("stored_session_id") as? JsonPrimitive)?.contentOrNull ?: runtimeId ?: run {
+                    _state.update { it.copy(error = "Could not start task session.") }
+                    return@launch
+                }
+                val botName = profile ?: "Hermes"
+                val newChannel = TaskChannel(
+                    type = TaskChannel.TYPE_SESSION,
+                    id = storedId,
+                    label = "Session (@$botName)",
+                    profile = profile,
+                    managed = true,
+                )
+                val nextChannels = channels + newChannel
+                val nextBots = if (profile != null && profile !in assignedBots) assignedBots + profile else assignedBots
+                directusApi?.upsertContext(
+                    gw.gatewayUrl,
+                    taskId,
+                    UpsertContextRequest(channels = nextChannels, assignedBots = nextBots),
+                )
+                _state.update { cur ->
+                    val ov = cur.dispatchOverview
+                    cur.copy(
+                        selectedEvent = null,
+                        selectedTask = null,
+                        schedulingTask = null,
+                        dispatchOverview = ov.copy(
+                            tasks = ov.tasks.map { t ->
+                                if (t.id == taskId) t.copy(channels = nextChannels, assignedBots = nextBots) else t
+                            },
+                        ),
+                    )
+                }
+                _events.send(CalendarNavEvent.OpenSession(storedId, title, profile))
+            } finally {
+                if (boundGateway == gw) {
+                    _state.update { it.copy(openingTaskSession = false) }
                 }
             }
         }
@@ -1101,6 +1247,8 @@ class CalendarViewModel(
         val duration = task.estimatedMinutes?.coerceIn(15, 480) ?: 60
         _state.update {
             it.copy(
+                selectedEvent = null,
+                selectedTask = null,
                 schedulingTask = TaskBlockDraft(
                     task = task,
                     existingBlockId = existingBlock?.id,
@@ -1195,7 +1343,16 @@ class CalendarViewModel(
             _state.update { it.copy(mutating = true, error = null) }
             when (val res = calendarApi.deleteTimeBlock(gw.gatewayUrl, blockId)) {
                 is ApiResult.Success -> {
-                    _state.update { it.copy(mutating = false, selectedEvent = null, schedulingTask = null) }
+                    _state.update { cur ->
+                        cur.copy(
+                            mutating = false,
+                            selectedEvent = null,
+                            schedulingTask = null,
+                            selectedTask = cur.selectedTask?.let { st ->
+                                st.copy(timeBlocks = st.timeBlocks.filterNot { it.id == blockId })
+                            },
+                        )
+                    }
                     refreshWorkspaceSilently(gw)
                 }
                 is ApiResult.SessionExpired -> _state.update { it.copy(mutating = false, sessionExpired = true) }

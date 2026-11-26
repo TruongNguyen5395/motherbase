@@ -24,9 +24,9 @@
     <string name="cal_more_count">+%1$d weitere</string>
     <string name="cal_no_events">Keine Termine in diesem Zeitraum.</string>
     <string name="cal_event_title">Titel</string>
-    <string name="cal_event_date">Datum (YYYY-MM-DD)</string>
-    <string name="cal_event_start">Beginn (HH:MM)</string>
-    <string name="cal_event_end">Ende (HH:MM)</string>
+    <string name="cal_event_date">Datum</string>
+    <string name="cal_event_start">Beginn</string>
+    <string name="cal_event_end">Ende</string>
     <string name="cal_event_location">Ort (optional)</string>
     <string name="cal_event_description">Notizen (optional)</string>
     <string name="cal_event_calendar">Kalender</string>
@@ -86,7 +86,7 @@
     <string name="cal_task_target_badge">Dispatch-Sync</string>
     <string name="cal_settings_title">Kalendereinstellungen</string>
     <string name="cal_settings_timezone">Zeitzone (IANA)</string>
-    <string name="cal_settings_working_hours">Arbeitszeiten (HH:MM - HH:MM)</string>
+    <string name="cal_settings_working_hours">Arbeitszeiten</string>
     <string name="cal_settings_subcal_name">Name des Dispatch-Unterkalenders</string>
     <string name="cal_plugin_missing">Das Plugin „MotherBase Calendar“ ist auf diesem Gateway nicht aktiviert.</string>
     <string name="cal_ask_agent_plan">Tag mit %1$s planen</string>
@@ -112,4 +112,12 @@
     <string name="cal_back">Zurück</string>
     <string name="cal_estimate_input">Schätzung (Min)</string>
     <string name="cal_view_settings">Ansicht &amp; Filter</string>
+    <string name="cal_open_session">Sitzung öffnen</string>
+    <string name="cal_reschedule_block">Zeit ändern</string>
+    <string name="cal_mark_done">Als erledigt markieren</string>
+    <string name="cal_reopen_task">Wieder öffnen</string>
+    <string name="cal_pick_hour">Stunde</string>
+    <string name="cal_pick_minute">Minute</string>
+    <string name="cal_done_action">Fertig</string>
+    <string name="cal_task_no_blocks">Noch kein Zeitblock geplant</string>
 </resources>

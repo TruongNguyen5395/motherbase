@@ -24,9 +24,9 @@
     <string name="cal_more_count">+%1$d more</string>
     <string name="cal_no_events">No events scheduled in this range.</string>
     <string name="cal_event_title">Event title</string>
-    <string name="cal_event_date">Date (YYYY-MM-DD)</string>
-    <string name="cal_event_start">Start (HH:MM)</string>
-    <string name="cal_event_end">End (HH:MM)</string>
+    <string name="cal_event_date">Date</string>
+    <string name="cal_event_start">Start</string>
+    <string name="cal_event_end">End</string>
     <string name="cal_event_location">Location (optional)</string>
     <string name="cal_event_description">Notes (optional)</string>
     <string name="cal_event_calendar">Calendar</string>
@@ -86,7 +86,7 @@
     <string name="cal_task_target_badge">Dispatch sync</string>
     <string name="cal_settings_title">Calendar settings</string>
     <string name="cal_settings_timezone">Timezone (IANA)</string>
-    <string name="cal_settings_working_hours">Working hours (HH:MM - HH:MM)</string>
+    <string name="cal_settings_working_hours">Working hours</string>
     <string name="cal_settings_subcal_name">Dispatch sub-calendar name</string>
     <string name="cal_plugin_missing">MotherBase Calendar plugin is not enabled on this gateway.</string>
     <string name="cal_ask_agent_plan">Plan my day with %1$s</string>
@@ -112,4 +112,12 @@
     <string name="cal_back">Back</string>
     <string name="cal_estimate_input">Estimate (min)</string>
     <string name="cal_view_settings">View &amp; filters</string>
+    <string name="cal_open_session">Open session</string>
+    <string name="cal_reschedule_block">Change time</string>
+    <string name="cal_mark_done">Mark done</string>
+    <string name="cal_reopen_task">Reopen task</string>
+    <string name="cal_pick_hour">Hour</string>
+    <string name="cal_pick_minute">Minute</string>
+    <string name="cal_done_action">Done</string>
+    <string name="cal_task_no_blocks">No time block scheduled yet</string>
 </resources>

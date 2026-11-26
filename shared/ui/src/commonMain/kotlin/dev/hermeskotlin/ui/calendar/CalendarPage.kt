@@ -35,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +66,7 @@ import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.ListTodo
+import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.PanelRight
 import com.composables.icons.lucide.Plus
@@ -92,6 +94,7 @@ import dev.hermeskotlin.core.calendar.formatClockCompact
 import dev.hermeskotlin.core.calendar.plusDays
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.rooms.Room
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.accentSoft
 import dev.hermeskotlin.designsystem.accentText
@@ -147,6 +150,7 @@ import dev.hermeskotlin.ui.resources.cal_dispatch_tasks
 import dev.hermeskotlin.ui.resources.cal_estimated_minutes
 import dev.hermeskotlin.ui.resources.cal_my_calendars
 import dev.hermeskotlin.ui.resources.cal_next
+import dev.hermeskotlin.ui.resources.cal_open_session
 import dev.hermeskotlin.ui.resources.cal_other_calendars
 import dev.hermeskotlin.ui.resources.cal_plan_my_day
 import dev.hermeskotlin.ui.resources.cal_plugin_missing
@@ -191,10 +195,14 @@ internal fun CalendarPage(
     visible: Boolean,
     onBack: () -> Unit,
     onSessionExpired: () -> Unit,
+    onOpenSession: (sessionId: String, title: String, profile: String?) -> Unit = { _, _, _ -> },
+    onOpenRoom: (Room) -> Unit = {},
     onToggleSidebar: (() -> Unit)? = null,
 ) {
     val viewModel: CalendarViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val openSession by rememberUpdatedState(onOpenSession)
+    val openRoom by rememberUpdatedState(onOpenRoom)
 
     LaunchedEffect(gateway, visible) {
         viewModel.bind(gateway, visible)
@@ -208,6 +216,14 @@ internal fun CalendarPage(
     }
     LaunchedEffect(state.sessionExpired) {
         if (state.sessionExpired) onSessionExpired()
+    }
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is CalendarNavEvent.OpenSession -> openSession(event.sessionId, event.title, event.profile)
+                is CalendarNavEvent.OpenRoom -> openRoom(event.room)
+            }
+        }
     }
 
     CalendarPageContent(
@@ -226,6 +242,8 @@ internal fun CalendarPage(
         onToggleCalendarVisible = viewModel::toggleCalendarVisible,
         onSetTaskTargetCalendar = viewModel::setTaskTargetCalendar,
         onSelectEvent = viewModel::selectEvent,
+        onSelectTask = viewModel::selectTask,
+        onOpenTaskSession = viewModel::openTaskSession,
         onOpenCreateEvent = viewModel::openCreateEvent,
         onOpenEditEvent = viewModel::openEditEvent,
         onCloseEventEditor = viewModel::closeEventEditor,
@@ -280,6 +298,8 @@ internal fun CalendarPageContent(
     onToggleCalendarVisible: (CalendarInfo) -> Unit = {},
     onSetTaskTargetCalendar: (CalendarInfo) -> Unit = {},
     onSelectEvent: (CalendarEvent?) -> Unit = {},
+    onSelectTask: (DispatchCalendarTask?) -> Unit = {},
+    onOpenTaskSession: (String) -> Unit = {},
     onOpenCreateEvent: (CalendarDate?, Int?, Boolean) -> Unit = { _, _, _ -> },
     onOpenEditEvent: (CalendarEvent) -> Unit = {},
     onCloseEventEditor: () -> Unit = {},
@@ -423,7 +443,7 @@ internal fun CalendarPageContent(
             val handleItemClick: (CalendarItem) -> Unit = { item ->
                 when (item) {
                     is CalendarItem.EventItem -> onSelectEvent(item.event)
-                    is CalendarItem.TaskDeadlineItem -> onOpenScheduleTask(item.task, item.task.timeBlocks.firstOrNull())
+                    is CalendarItem.TaskDeadlineItem -> onSelectTask(item.task)
                     is CalendarItem.GhostOperationItem -> {
                         rightTab = CalendarRightTab.AGENT
                         if (wideRight) rightRailDockedOpen = true else rightSheetOpen = true
@@ -590,6 +610,8 @@ internal fun CalendarPageContent(
                             selectedTab = rightTab,
                             onSelectTab = { rightTab = it },
                             onToggleTaskDone = onToggleTaskDone,
+                            onSelectTask = onSelectTask,
+                            onOpenTaskSession = onOpenTaskSession,
                             onScheduleTask = onOpenScheduleTask,
                             onDeleteBlock = onDeleteTaskBlock,
                             onQuickPlanDay = onQuickPlanDay,
@@ -641,6 +663,14 @@ internal fun CalendarPageContent(
                         selectedTab = rightTab,
                         onSelectTab = { rightTab = it },
                         onToggleTaskDone = onToggleTaskDone,
+                        onSelectTask = { t ->
+                            rightSheetOpen = false
+                            onSelectTask(t)
+                        },
+                        onOpenTaskSession = { tid ->
+                            rightSheetOpen = false
+                            onOpenTaskSession(tid)
+                        },
                         onScheduleTask = { t, b ->
                             rightSheetOpen = false
                             onOpenScheduleTask(t, b)
@@ -676,19 +706,58 @@ internal fun CalendarPageContent(
         onConnectIcs = onConnectIcs,
     )
 
+    TaskDetailDialog(
+        task = state.selectedTask,
+        projects = state.dispatchOverview.projects,
+        timezone = state.settings.timezone.ifBlank { null },
+        use24Hour = state.use24Hour,
+        mutating = state.mutating,
+        openingSession = state.openingTaskSession,
+        onDismiss = { onSelectTask(null) },
+        onOpenSession = onOpenTaskSession,
+        onScheduleBlock = onOpenScheduleTask,
+        onDeleteBlock = onDeleteTaskBlock,
+        onToggleDone = onToggleTaskDone,
+    )
+
     EventDetailDialog(
         event = state.selectedEvent,
         use24Hour = state.use24Hour,
         mutating = state.mutating,
+        openingSession = state.openingTaskSession,
         onDismiss = { onSelectEvent(null) },
         onEdit = onOpenEditEvent,
         onDelete = onDeleteEvent,
         onUnscheduleBlock = onDeleteTaskBlock,
+        onOpenTaskSession = onOpenTaskSession,
+        onRescheduleBlock = { ev ->
+            val tid = ev.taskId ?: return@EventDetailDialog
+            val task = state.dispatchOverview.tasks.firstOrNull { it.id == tid }
+                ?: DispatchCalendarTask(
+                    id = tid,
+                    title = ev.title.removePrefix("[Task] ").trim().ifBlank { ev.title },
+                )
+            val blk = ev.timeBlockId?.let { bid ->
+                task.timeBlocks.firstOrNull { it.id == bid }
+                    ?: if (ev.startAt != null && ev.endAt != null) {
+                        DispatchTimeBlock(
+                            id = bid,
+                            taskId = tid,
+                            label = ev.title,
+                            startAt = ev.startAt.orEmpty(),
+                            endAt = ev.endAt.orEmpty(),
+                            timezone = ev.timezone,
+                        )
+                    } else null
+            }
+            onOpenScheduleTask(task, blk)
+        },
     )
 
     EventEditorDialog(
         draft = state.editingEventDraft,
         calendars = state.calendars,
+        use24Hour = state.use24Hour,
         mutating = state.mutating,
         onDismiss = onCloseEventEditor,
         onSave = onSaveEvent,
@@ -699,17 +768,20 @@ internal fun CalendarPageContent(
         draft = state.schedulingTask,
         freeSlots = state.freeSlots,
         findingSlots = state.findingFreeSlots,
+        use24Hour = state.use24Hour,
         mutating = state.mutating,
         onDismiss = onCloseScheduleTask,
         onRefreshSlots = onRefreshSlots,
         onSave = onSaveTaskBlock,
         onDeleteBlock = onDeleteTaskBlock,
+        onOpenSession = onOpenTaskSession,
     )
 
     CalendarSettingsDialog(
         visible = state.settingsDialogOpen,
         settings = state.settings,
         accounts = state.accounts,
+        use24Hour = state.use24Hour,
         mutating = state.mutating,
         onDismiss = onCloseSettings,
         onSave = onSaveSettings,
@@ -1127,6 +1199,8 @@ private fun CalendarRightPanel(
     selectedTab: CalendarRightTab,
     onSelectTab: (CalendarRightTab) -> Unit,
     onToggleTaskDone: (String, Boolean) -> Unit,
+    onSelectTask: (DispatchCalendarTask) -> Unit,
+    onOpenTaskSession: (String) -> Unit,
     onScheduleTask: (DispatchCalendarTask, DispatchTimeBlock?) -> Unit,
     onDeleteBlock: (String) -> Unit,
     onQuickPlanDay: () -> Unit,
@@ -1169,6 +1243,8 @@ private fun CalendarRightPanel(
             DispatchTasksBacklogTab(
                 state = state,
                 onToggleTaskDone = onToggleTaskDone,
+                onSelectTask = onSelectTask,
+                onOpenTaskSession = onOpenTaskSession,
                 onScheduleTask = onScheduleTask,
                 onDeleteBlock = onDeleteBlock,
                 onPlanWithAgent = {
@@ -1199,6 +1275,8 @@ private fun CalendarRightPanel(
 private fun DispatchTasksBacklogTab(
     state: CalendarUiState,
     onToggleTaskDone: (String, Boolean) -> Unit,
+    onSelectTask: (DispatchCalendarTask) -> Unit,
+    onOpenTaskSession: (String) -> Unit,
     onScheduleTask: (DispatchCalendarTask, DispatchTimeBlock?) -> Unit,
     onDeleteBlock: (String) -> Unit,
     onPlanWithAgent: () -> Unit,
@@ -1240,6 +1318,8 @@ private fun DispatchTasksBacklogTab(
                         tz = tz,
                         use24Hour = state.use24Hour,
                         onToggleDone = { onToggleTaskDone(task.id, task.status != "done") },
+                        onSelectTask = { onSelectTask(task) },
+                        onOpenSession = { onOpenTaskSession(task.id) },
                         onSchedule = { onScheduleTask(task, null) },
                         onEditBlock = { blk -> onScheduleTask(task, blk) },
                         onDeleteBlock = onDeleteBlock,
@@ -1259,6 +1339,8 @@ private fun DispatchTasksBacklogTab(
                         tz = tz,
                         use24Hour = state.use24Hour,
                         onToggleDone = { onToggleTaskDone(task.id, task.status != "done") },
+                        onSelectTask = { onSelectTask(task) },
+                        onOpenSession = { onOpenTaskSession(task.id) },
                         onSchedule = { onScheduleTask(task, task.timeBlocks.firstOrNull()) },
                         onEditBlock = { blk -> onScheduleTask(task, blk) },
                         onDeleteBlock = onDeleteBlock,
@@ -1277,6 +1359,8 @@ private fun DispatchBacklogTaskCard(
     tz: String?,
     use24Hour: Boolean,
     onToggleDone: () -> Unit,
+    onSelectTask: () -> Unit,
+    onOpenSession: () -> Unit,
     onSchedule: () -> Unit,
     onEditBlock: (DispatchTimeBlock) -> Unit,
     onDeleteBlock: (String) -> Unit,
@@ -1306,7 +1390,14 @@ private fun DispatchBacklogTaskCard(
                     modifier = Modifier.size(16.dp),
                 )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(role = Role.Button, onClick = onSelectTask)
+                    .handCursor(),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
                     task.title,
                     style = Theme[typography][bodySmall].copy(
@@ -1326,6 +1417,11 @@ private fun DispatchBacklogTaskCard(
                     }
                 }
             }
+            IconButton(
+                icon = Lucide.MessageSquare,
+                contentDescription = stringResource(Res.string.cal_open_session),
+                onClick = onOpenSession,
+            )
         }
         task.timeBlocks.forEach { blk ->
             val s = calendarZonedFromIso(blk.startAt, tz)

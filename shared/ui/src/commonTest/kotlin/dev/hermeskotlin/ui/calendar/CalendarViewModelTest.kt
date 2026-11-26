@@ -374,4 +374,106 @@ class CalendarViewModelTest {
             h.vm.stopForTest()
         }
     }
+
+    @Test
+    fun openTaskSessionOpensExistingSessionAndCreatesNewSessionWhenMissing() = runTest(dispatcher) {
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path.endsWith("/dispatch/overview") -> HttpStatusCode.OK to """
+                        {
+                          "configured": true,
+                          "projects": [{"id":"proj-1","name":"Core","workspace_cwd":"/srv/core","color":"#0284C7"}],
+                          "tasks": [
+                            {
+                              "id": "task-1",
+                              "title": "Write docs",
+                              "status": "todo",
+                              "project_id": "proj-1",
+                              "assigned_bots": ["ops"],
+                              "channels": [{"type":"session","id":"sess-existing","label":"Session (@ops)","profile":"ops","managed":true}]
+                            },
+                            {
+                              "id": "task-2",
+                              "title": "Deploy release",
+                              "status": "todo",
+                              "project_id": "proj-1",
+                              "assigned_bots": ["ops"],
+                              "channels": []
+                            }
+                          ],
+                          "time_blocks": []
+                        }
+                    """
+                    rec.path.endsWith("/api/plugins/directus-tasks/board") -> HttpStatusCode.OK to """
+                        {
+                          "configured": true,
+                          "projects": [],
+                          "tasks": [{"id":"task-2","title":"Deploy release","status":"todo"}]
+                        }
+                    """
+                    rec.path.endsWith("/api/plugins/directus-tasks/tasks/task-2/context") -> HttpStatusCode.OK to """
+                        {
+                          "task": {
+                            "id": "task-2",
+                            "title": "Deploy release",
+                            "status": "todo"
+                          }
+                        }
+                    """
+                    else -> defaultRespond(rec)
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "session.create" -> """{"session_id":"rt-new-task","stored_session_id":"sess-new-task"}"""
+                    "session.resume" -> """{"session_id":"rt-1"}"""
+                    "session.start" -> """{"session_id":"rt-new","stored_session_id":"sess-new"}"""
+                    "prompt.submit" -> """{"ok":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        val emitted = mutableListOf<CalendarNavEvent>()
+        val collectJob = backgroundScope.launch {
+            h.vm.events.collect { emitted += it }
+        }
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.dispatchOverview.tasks.size == 2 } }
+
+            // Task 1 already has a session channel -> open directly without creating a new session
+            h.vm.openTaskSession("task-1")
+            withTimeout(5_000) { h.vm.state.first { !it.openingTaskSession } }
+            assertEquals(1, emitted.size)
+            assertEquals(CalendarNavEvent.OpenSession("sess-existing", "Write docs", "ops"), emitted[0])
+            assertTrue(h.socket.calls.none { it.first == "session.create" })
+
+            // Task 2 has no channel -> create managed session + persist context + emit navigation event
+            h.vm.openTaskSession("task-2")
+            withTimeout(5_000) { h.vm.state.first { !it.openingTaskSession } }
+            assertEquals(2, emitted.size)
+            assertEquals(CalendarNavEvent.OpenSession("sess-new-task", "Deploy release", "ops"), emitted[1])
+            val createCall = h.socket.calls.firstOrNull { it.first == "session.create" }
+            assertNotNull(createCall)
+            assertEquals("ops", createCall.second["profile"]?.jsonPrimitive?.content)
+            assertEquals("/srv/core", createCall.second["cwd"]?.jsonPrimitive?.content)
+            assertTrue(h.requests.any { it.path.endsWith("/api/plugins/directus-tasks/tasks/task-2/context") })
+        } finally {
+            collectJob.cancel()
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
+    }
+
+    @Test
+    fun shiftEndTimeIfNeededAndReadableClockWorkCorrectly() {
+        assertEquals("12:05 AM", formatReadableClock(0, 5, use24Hour = false))
+        assertEquals("1:30 PM", formatReadableClock(13, 30, use24Hour = false))
+        assertEquals("13:30", formatReadableClock(13, 30, use24Hour = true))
+
+        assertEquals("15:30", shiftEndTimeIfNeeded("09:00", "14:30", "10:00"))
+        assertEquals("11:00", shiftEndTimeIfNeeded("09:00", "09:30", "11:00"))
+    }
 }

@@ -24,9 +24,9 @@
     <string name="cal_more_count">+%1$d más</string>
     <string name="cal_no_events">No hay eventos programados en este rango.</string>
     <string name="cal_event_title">Título del evento</string>
-    <string name="cal_event_date">Fecha (YYYY-MM-DD)</string>
-    <string name="cal_event_start">Inicio (HH:MM)</string>
-    <string name="cal_event_end">Fin (HH:MM)</string>
+    <string name="cal_event_date">Fecha</string>
+    <string name="cal_event_start">Inicio</string>
+    <string name="cal_event_end">Fin</string>
     <string name="cal_event_location">Ubicación (opcional)</string>
     <string name="cal_event_description">Notas (opcional)</string>
     <string name="cal_event_calendar">Calendario</string>
@@ -86,7 +86,7 @@
     <string name="cal_task_target_badge">Sinc. Dispatch</string>
     <string name="cal_settings_title">Ajustes del calendario</string>
     <string name="cal_settings_timezone">Zona horaria (IANA)</string>
-    <string name="cal_settings_working_hours">Horario laboral (HH:MM - HH:MM)</string>
+    <string name="cal_settings_working_hours">Horario laboral</string>
     <string name="cal_settings_subcal_name">Nombre del subcalendario de Dispatch</string>
     <string name="cal_plugin_missing">El plugin MotherBase Calendar no está activado en esta pasarela.</string>
     <string name="cal_ask_agent_plan">Planificar día con %1$s</string>
@@ -112,4 +112,12 @@
     <string name="cal_back">Atrás</string>
     <string name="cal_estimate_input">Estimación (min)</string>
     <string name="cal_view_settings">Vista y filtros</string>
+    <string name="cal_open_session">Abrir sesión</string>
+    <string name="cal_reschedule_block">Cambiar hora</string>
+    <string name="cal_mark_done">Marcar completada</string>
+    <string name="cal_reopen_task">Reabrir tarea</string>
+    <string name="cal_pick_hour">Hora</string>
+    <string name="cal_pick_minute">Minuto</string>
+    <string name="cal_done_action">Listo</string>
+    <string name="cal_task_no_blocks">Aún no hay bloques programados</string>
 </resources>

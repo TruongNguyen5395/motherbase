@@ -24,9 +24,9 @@
     <string name="cal_more_count">还有 %1$d 项</string>
     <string name="cal_no_events">当前时间范围内没有日程。</string>
     <string name="cal_event_title">日程标题</string>
-    <string name="cal_event_date">日期 (YYYY-MM-DD)</string>
-    <string name="cal_event_start">开始时间 (HH:MM)</string>
-    <string name="cal_event_end">结束时间 (HH:MM)</string>
+    <string name="cal_event_date">日期</string>
+    <string name="cal_event_start">开始时间</string>
+    <string name="cal_event_end">结束时间</string>
     <string name="cal_event_location">地点（可选）</string>
     <string name="cal_event_description">备注（可选）</string>
     <string name="cal_event_calendar">所属日历</string>
@@ -86,7 +86,7 @@
     <string name="cal_task_target_badge">Dispatch 同步</string>
     <string name="cal_settings_title">日历设置</string>
     <string name="cal_settings_timezone">时区 (IANA)</string>
-    <string name="cal_settings_working_hours">工作时段 (HH:MM - HH:MM)</string>
+    <string name="cal_settings_working_hours">工作时段</string>
     <string name="cal_settings_subcal_name">Dispatch 子日历名称</string>
     <string name="cal_plugin_missing">当前网关未启用 MotherBase Calendar 插件。</string>
     <string name="cal_ask_agent_plan">让 %1$s 规划今日日程</string>
@@ -112,4 +112,12 @@
     <string name="cal_back">返回</string>
     <string name="cal_estimate_input">预估耗时（分钟）</string>
     <string name="cal_view_settings">视图与筛选</string>
+    <string name="cal_open_session">打开会话</string>
+    <string name="cal_reschedule_block">调整时间</string>
+    <string name="cal_mark_done">标记完成</string>
+    <string name="cal_reopen_task">重新打开</string>
+    <string name="cal_pick_hour">小时</string>
+    <string name="cal_pick_minute">分钟</string>
+    <string name="cal_done_action">完成</string>
+    <string name="cal_task_no_blocks">尚未安排时间块</string>
 </resources>

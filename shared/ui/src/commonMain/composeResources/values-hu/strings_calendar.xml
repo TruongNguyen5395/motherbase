@@ -24,9 +24,9 @@
     <string name="cal_more_count">+%1$d további</string>
     <string name="cal_no_events">Nincs ütemezett esemény ebben az időszakban.</string>
     <string name="cal_event_title">Esemény címe</string>
-    <string name="cal_event_date">Dátum (YYYY-MM-DD)</string>
-    <string name="cal_event_start">Kezdés (HH:MM)</string>
-    <string name="cal_event_end">Vége (HH:MM)</string>
+    <string name="cal_event_date">Dátum</string>
+    <string name="cal_event_start">Kezdés</string>
+    <string name="cal_event_end">Vége</string>
     <string name="cal_event_location">Helyszín (opcionális)</string>
     <string name="cal_event_description">Jegyzetek (opcionális)</string>
     <string name="cal_event_calendar">Naptár</string>
@@ -86,7 +86,7 @@
     <string name="cal_task_target_badge">Dispatch szinkron</string>
     <string name="cal_settings_title">Naptárbeállítások</string>
     <string name="cal_settings_timezone">Időzóna (IANA)</string>
-    <string name="cal_settings_working_hours">Munkaidő (HH:MM - HH:MM)</string>
+    <string name="cal_settings_working_hours">Munkaidő</string>
     <string name="cal_settings_subcal_name">Dispatch alnaptár neve</string>
     <string name="cal_plugin_missing">A MotherBase Calendar bővítmény nincs engedélyezve ezen az átjárón.</string>
     <string name="cal_ask_agent_plan">Nap tervezése: %1$s</string>
@@ -112,4 +112,12 @@
     <string name="cal_back">Vissza</string>
     <string name="cal_estimate_input">Becslés (perc)</string>
     <string name="cal_view_settings">Nézet és szűrők</string>
+    <string name="cal_open_session">Munkamenet megnyitása</string>
+    <string name="cal_reschedule_block">Időpont módosítása</string>
+    <string name="cal_mark_done">Készre jelölés</string>
+    <string name="cal_reopen_task">Újranyitás</string>
+    <string name="cal_pick_hour">Óra</string>
+    <string name="cal_pick_minute">Perc</string>
+    <string name="cal_done_action">Kész</string>
+    <string name="cal_task_no_blocks">Még nincs ütemezett idősáv</string>
 </resources>

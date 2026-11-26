@@ -782,6 +782,14 @@ fun SessionsSidebar(
                 visible = pageVisible,
                 onBack = { calendarOpen = false },
                 onSessionExpired = onSessionExpired,
+                onOpenSession = { sessionId, title, targetProfile ->
+                    closePages()
+                    onOpenTaskSession(sessionId, title, targetProfile)
+                },
+                onOpenRoom = { room ->
+                    closePages()
+                    onOpenRoom(room)
+                },
                 onToggleSidebar = onToggleSidebar,
             )
             scheduledOpen -> ScheduledPage(

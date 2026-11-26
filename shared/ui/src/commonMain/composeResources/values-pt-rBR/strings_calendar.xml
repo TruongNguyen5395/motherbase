@@ -24,9 +24,9 @@
     <string name="cal_more_count">+%1$d mais</string>
     <string name="cal_no_events">Nenhum evento agendado neste período.</string>
     <string name="cal_event_title">Título do evento</string>
-    <string name="cal_event_date">Data (YYYY-MM-DD)</string>
-    <string name="cal_event_start">Início (HH:MM)</string>
-    <string name="cal_event_end">Fim (HH:MM)</string>
+    <string name="cal_event_date">Data</string>
+    <string name="cal_event_start">Início</string>
+    <string name="cal_event_end">Fim</string>
     <string name="cal_event_location">Local (opcional)</string>
     <string name="cal_event_description">Notas (opcional)</string>
     <string name="cal_event_calendar">Agenda</string>
@@ -86,7 +86,7 @@
     <string name="cal_task_target_badge">Sync Dispatch</string>
     <string name="cal_settings_title">Configurações da agenda</string>
     <string name="cal_settings_timezone">Fuso horário (IANA)</string>
-    <string name="cal_settings_working_hours">Horário de trabalho (HH:MM - HH:MM)</string>
+    <string name="cal_settings_working_hours">Horário de trabalho</string>
     <string name="cal_settings_subcal_name">Nome da subagenda Dispatch</string>
     <string name="cal_plugin_missing">O plugin MotherBase Calendar não está ativo neste gateway.</string>
     <string name="cal_ask_agent_plan">Planejar dia com %1$s</string>
@@ -112,4 +112,12 @@
     <string name="cal_back">Voltar</string>
     <string name="cal_estimate_input">Estimativa (min)</string>
     <string name="cal_view_settings">Visualização e filtros</string>
+    <string name="cal_open_session">Abrir sessão</string>
+    <string name="cal_reschedule_block">Alterar horário</string>
+    <string name="cal_mark_done">Concluir</string>
+    <string name="cal_reopen_task">Reabrir tarefa</string>
+    <string name="cal_pick_hour">Hora</string>
+    <string name="cal_pick_minute">Minuto</string>
+    <string name="cal_done_action">Concluído</string>
+    <string name="cal_task_no_blocks">Nenhum bloco agendado ainda</string>
 </resources>

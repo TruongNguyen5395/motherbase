@@ -38,6 +38,9 @@ import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import com.composables.icons.lucide.Calendar
+import com.composables.icons.lucide.CalendarClock
+import com.composables.icons.lucide.Circle
+import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Globe
@@ -45,6 +48,7 @@ import com.composables.icons.lucide.KeyRound
 import com.composables.icons.lucide.Link
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MapPin
+import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.Users
@@ -53,7 +57,12 @@ import dev.hermeskotlin.core.calendar.CalendarEvent
 import dev.hermeskotlin.core.calendar.CalendarHealthStatus
 import dev.hermeskotlin.core.calendar.CalendarInfo
 import dev.hermeskotlin.core.calendar.CalendarSettings
+import dev.hermeskotlin.core.calendar.DispatchCalendarTask
+import dev.hermeskotlin.core.calendar.DispatchProjectSummary
+import dev.hermeskotlin.core.calendar.DispatchTimeBlock
 import dev.hermeskotlin.core.calendar.FreeSlot
+import dev.hermeskotlin.core.calendar.calendarDateFromIso
+import dev.hermeskotlin.core.calendar.calendarToday
 import dev.hermeskotlin.core.calendar.calendarZonedFromIso
 import dev.hermeskotlin.core.calendar.formatClockCompact
 import dev.hermeskotlin.designsystem.accent
@@ -83,6 +92,7 @@ import dev.hermeskotlin.ui.resources.Res
 import dev.hermeskotlin.ui.resources.app_save
 import dev.hermeskotlin.ui.resources.cal_accounts_heading
 import dev.hermeskotlin.ui.resources.cal_all_day
+import dev.hermeskotlin.ui.resources.cal_block_slot
 import dev.hermeskotlin.ui.resources.cal_connect_caldav_hint
 import dev.hermeskotlin.ui.resources.cal_connect_caldav_url
 import dev.hermeskotlin.ui.resources.cal_connect_client_id
@@ -125,14 +135,20 @@ import dev.hermeskotlin.ui.resources.cal_event_save
 import dev.hermeskotlin.ui.resources.cal_event_start
 import dev.hermeskotlin.ui.resources.cal_event_title
 import dev.hermeskotlin.ui.resources.cal_find_free_slots
+import dev.hermeskotlin.ui.resources.cal_mark_done
 import dev.hermeskotlin.ui.resources.cal_new_event
 import dev.hermeskotlin.ui.resources.cal_no_free_slots
+import dev.hermeskotlin.ui.resources.cal_open_session
 import dev.hermeskotlin.ui.resources.cal_read_only
+import dev.hermeskotlin.ui.resources.cal_reopen_task
+import dev.hermeskotlin.ui.resources.cal_reschedule_block
 import dev.hermeskotlin.ui.resources.cal_schedule_task
 import dev.hermeskotlin.ui.resources.cal_settings_subcal_name
 import dev.hermeskotlin.ui.resources.cal_settings_timezone
 import dev.hermeskotlin.ui.resources.cal_settings_title
 import dev.hermeskotlin.ui.resources.cal_settings_working_hours
+import dev.hermeskotlin.ui.resources.cal_task_due
+import dev.hermeskotlin.ui.resources.cal_task_no_blocks
 import dev.hermeskotlin.ui.resources.cal_unschedule_block
 import dev.hermeskotlin.ui.resources.common_cancel
 import org.jetbrains.compose.resources.stringResource
@@ -505,15 +521,165 @@ private fun OAuthCodePasteSection(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun TaskDetailDialog(
+    task: DispatchCalendarTask?,
+    projects: List<DispatchProjectSummary>,
+    timezone: String?,
+    use24Hour: Boolean,
+    mutating: Boolean,
+    openingSession: Boolean,
+    onDismiss: () -> Unit,
+    onOpenSession: (taskId: String) -> Unit,
+    onScheduleBlock: (DispatchCalendarTask, DispatchTimeBlock?) -> Unit,
+    onDeleteBlock: (blockId: String) -> Unit,
+    onToggleDone: (taskId: String, done: Boolean) -> Unit,
+) {
+    Dialog(
+        visible = task != null,
+        onDismissRequest = onDismiss,
+        title = task?.title.orEmpty(),
+        maxWidth = 460.dp,
+        actions = {
+            Button(
+                text = stringResource(Res.string.common_cancel),
+                onClick = onDismiss,
+                variant = ButtonVariant.Outline,
+                size = ButtonSize.Small,
+                enabled = !openingSession,
+            )
+            if (task != null) {
+                Button(
+                    text = if (openingSession) "…" else stringResource(Res.string.cal_open_session),
+                    onClick = { onOpenSession(task.id) },
+                    variant = ButtonVariant.Primary,
+                    size = ButtonSize.Small,
+                    leadingIcon = Lucide.MessageSquare,
+                    enabled = !openingSession,
+                )
+            }
+        },
+    ) {
+        if (task != null) {
+            val isDone = task.status == "done"
+            val project = task.projectId?.let { pid -> projects.firstOrNull { it.id == pid } }
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        UnstyledIcon(
+                            if (isDone) Lucide.CircleCheck else Lucide.Circle,
+                            contentDescription = null,
+                            tint = if (isDone) Theme[colors][accentText] else Theme[colors][textSecondary],
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            task.status.replace('_', ' '),
+                            style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
+                            color = Theme[colors][textSecondary],
+                        )
+                    }
+                    if (project != null) {
+                        val projColor = parseCalendarHexColor(project.color, Theme[colors][accent])
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).background(projColor, CircleShape))
+                            Text(project.name, style = Theme[typography][caption], color = Theme[colors][textSecondary])
+                        }
+                    }
+                    task.dueDate?.take(10)?.let { due ->
+                        Text(stringResource(Res.string.cal_task_due, due), style = Theme[typography][caption], color = Theme[colors][textSecondary])
+                    }
+                    task.estimatedMinutes?.let { est ->
+                        Text(stringResource(Res.string.cal_estimated_minutes, est), style = Theme[typography][caption], color = Theme[colors][accentText])
+                    }
+                }
+
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        text = stringResource(if (isDone) Res.string.cal_reopen_task else Res.string.cal_mark_done),
+                        onClick = { onToggleDone(task.id, !isDone) },
+                        variant = ButtonVariant.Outline,
+                        size = ButtonSize.Small,
+                        enabled = !mutating,
+                    )
+                    Button(
+                        text = stringResource(if (task.timeBlocks.isEmpty()) Res.string.cal_block_slot else Res.string.cal_reschedule_block),
+                        onClick = { onScheduleBlock(task, task.timeBlocks.firstOrNull()) },
+                        variant = ButtonVariant.Outline,
+                        size = ButtonSize.Small,
+                        leadingIcon = Lucide.CalendarClock,
+                        enabled = !mutating,
+                    )
+                }
+
+                if (task.timeBlocks.isEmpty()) {
+                    Text(
+                        stringResource(Res.string.cal_task_no_blocks),
+                        style = Theme[typography][caption],
+                        color = Theme[colors][textTertiary],
+                    )
+                } else {
+                    task.timeBlocks.forEach { blk ->
+                        val s = calendarZonedFromIso(blk.startAt, timezone)
+                        val e = calendarZonedFromIso(blk.endAt, timezone)
+                        val summary = if (s != null && e != null) {
+                            "${s.date.iso} · ${formatClockCompact(s.minuteOfDay, use24Hour)} – ${formatClockCompact(e.minuteOfDay, use24Hour)}"
+                        } else {
+                            blk.startAt
+                        }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Theme[colors][surface2], RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            UnstyledIcon(Lucide.Clock, contentDescription = null, tint = Theme[colors][textSecondary], modifier = Modifier.size(14.dp))
+                            Text(
+                                summary,
+                                style = Theme[typography][caption],
+                                color = Theme[colors][textColor],
+                                modifier = Modifier.weight(1f),
+                            )
+                            Button(
+                                text = stringResource(Res.string.cal_reschedule_block),
+                                onClick = { onScheduleBlock(task, blk) },
+                                variant = ButtonVariant.Ghost,
+                                size = ButtonSize.Small,
+                                enabled = !mutating,
+                            )
+                            Button(
+                                text = stringResource(Res.string.cal_unschedule_block),
+                                onClick = { onDeleteBlock(blk.id) },
+                                variant = ButtonVariant.Ghost,
+                                size = ButtonSize.Small,
+                                enabled = !mutating,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun EventDetailDialog(
     event: CalendarEvent?,
     use24Hour: Boolean,
     mutating: Boolean,
+    openingSession: Boolean = false,
     onDismiss: () -> Unit,
     onEdit: (CalendarEvent) -> Unit,
     onDelete: (occurrenceId: String, notifyAttendees: Boolean) -> Unit,
     onUnscheduleBlock: (blockId: String) -> Unit,
+    onOpenTaskSession: (taskId: String) -> Unit = {},
+    onRescheduleBlock: (CalendarEvent) -> Unit = {},
 ) {
     val uriHandler = LocalUriHandler.current
     var notifyOnDelete by remember(event?.id) { mutableStateOf(false) }
@@ -524,9 +690,27 @@ internal fun EventDetailDialog(
         title = event?.title.orEmpty(),
         maxWidth = 460.dp,
         actions = {
-            if (event != null) {
-                val blockId = event.timeBlockId
-                if (blockId != null) {
+            val taskId = event?.taskId
+            val blockId = event?.timeBlockId
+            when {
+                taskId != null -> {
+                    Button(
+                        text = stringResource(Res.string.common_cancel),
+                        onClick = onDismiss,
+                        variant = ButtonVariant.Outline,
+                        size = ButtonSize.Small,
+                        enabled = !openingSession,
+                    )
+                    Button(
+                        text = if (openingSession) "…" else stringResource(Res.string.cal_open_session),
+                        onClick = { onOpenTaskSession(taskId) },
+                        variant = ButtonVariant.Primary,
+                        size = ButtonSize.Small,
+                        leadingIcon = Lucide.MessageSquare,
+                        enabled = !openingSession,
+                    )
+                }
+                blockId != null -> {
                     Button(
                         text = stringResource(Res.string.cal_unschedule_block),
                         onClick = { onUnscheduleBlock(blockId) },
@@ -535,31 +719,40 @@ internal fun EventDetailDialog(
                         leadingIcon = Lucide.Trash2,
                         enabled = !mutating,
                     )
-                } else if (event.calendarWritable) {
                     Button(
-                        text = stringResource(Res.string.cal_event_delete),
-                        onClick = { onDelete(event.id, notifyOnDelete) },
-                        variant = ButtonVariant.Ghost,
+                        text = stringResource(Res.string.common_cancel),
+                        onClick = onDismiss,
+                        variant = ButtonVariant.Outline,
                         size = ButtonSize.Small,
-                        leadingIcon = Lucide.Trash2,
-                        enabled = !mutating,
                     )
+                }
+                else -> {
+                    if (event != null && event.calendarWritable) {
+                        Button(
+                            text = stringResource(Res.string.cal_event_delete),
+                            onClick = { onDelete(event.id, notifyOnDelete) },
+                            variant = ButtonVariant.Ghost,
+                            size = ButtonSize.Small,
+                            leadingIcon = Lucide.Trash2,
+                            enabled = !mutating,
+                        )
+                        Button(
+                            text = stringResource(Res.string.cal_edit_event),
+                            onClick = { onEdit(event) },
+                            variant = ButtonVariant.Primary,
+                            size = ButtonSize.Small,
+                            leadingIcon = Lucide.Pencil,
+                            enabled = !mutating,
+                        )
+                    }
                     Button(
-                        text = stringResource(Res.string.cal_edit_event),
-                        onClick = { onEdit(event) },
-                        variant = ButtonVariant.Primary,
+                        text = stringResource(Res.string.common_cancel),
+                        onClick = onDismiss,
+                        variant = ButtonVariant.Outline,
                         size = ButtonSize.Small,
-                        leadingIcon = Lucide.Pencil,
-                        enabled = !mutating,
                     )
                 }
             }
-            Button(
-                text = stringResource(Res.string.common_cancel),
-                onClick = onDismiss,
-                variant = ButtonVariant.Outline,
-                size = ButtonSize.Small,
-            )
         },
     ) {
         if (event != null) {
@@ -590,6 +783,28 @@ internal fun EventDetailDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     UnstyledIcon(Lucide.Clock, contentDescription = null, tint = Theme[colors][textSecondary], modifier = Modifier.size(15.dp))
                     Text(timeSummary, style = Theme[typography][bodySmall], color = Theme[colors][textColor])
+                }
+                if (event.taskId != null && (event.timeBlockId != null || event.isDispatchBlock)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            text = stringResource(Res.string.cal_reschedule_block),
+                            onClick = { onRescheduleBlock(event) },
+                            variant = ButtonVariant.Outline,
+                            size = ButtonSize.Small,
+                            leadingIcon = Lucide.CalendarClock,
+                            enabled = !mutating,
+                        )
+                        event.timeBlockId?.let { blkId ->
+                            Button(
+                                text = stringResource(Res.string.cal_unschedule_block),
+                                onClick = { onUnscheduleBlock(blkId) },
+                                variant = ButtonVariant.Ghost,
+                                size = ButtonSize.Small,
+                                leadingIcon = Lucide.Trash2,
+                                enabled = !mutating,
+                            )
+                        }
+                    }
                 }
                 if (!event.location.isNullOrBlank()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -657,27 +872,37 @@ internal fun EventDetailDialog(
     }
 }
 
+private enum class EventEditorPicker {
+    DATE,
+    END_DATE,
+    START_TIME,
+    END_TIME,
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun EventEditorDialog(
     draft: EventEditorDraft?,
     calendars: List<CalendarInfo>,
+    use24Hour: Boolean = false,
     mutating: Boolean,
     onDismiss: () -> Unit,
     onSave: (EventEditorDraft) -> Unit,
     onDelete: (String) -> Unit,
 ) {
     val writableCals = remember(calendars) { calendars.filter { it.writable } }
+    val fallbackIso = remember { calendarToday().iso }
     var selectedCalId by remember(draft) { mutableStateOf(draft?.calendarId ?: writableCals.firstOrNull()?.id.orEmpty()) }
     var allDay by remember(draft) { mutableStateOf(draft?.allDay ?: false) }
     var busy by remember(draft) { mutableStateOf(draft?.busy ?: true) }
     var sendUpdates by remember(draft) { mutableStateOf(draft?.sendUpdates ?: false) }
+    var dateIso by remember(draft) { mutableStateOf(draft?.dateIso?.ifBlank { fallbackIso } ?: fallbackIso) }
+    var endDateIso by remember(draft) { mutableStateOf(draft?.endDateIso?.ifBlank { draft.dateIso.ifBlank { fallbackIso } } ?: fallbackIso) }
+    var startTime by remember(draft) { mutableStateOf(draft?.startTime?.ifBlank { "09:00" } ?: "09:00") }
+    var endTime by remember(draft) { mutableStateOf(draft?.endTime?.ifBlank { "10:00" } ?: "10:00") }
+    var activePicker by remember(draft) { mutableStateOf<EventEditorPicker?>(null) }
 
     val titleState = rememberTextFieldState(draft?.title.orEmpty())
-    val dateState = rememberTextFieldState(draft?.dateIso.orEmpty())
-    val endDateState = rememberTextFieldState(draft?.endDateIso.orEmpty())
-    val startState = rememberTextFieldState(draft?.startTime ?: "09:00")
-    val endState = rememberTextFieldState(draft?.endTime ?: "10:00")
     val locationState = rememberTextFieldState(draft?.location.orEmpty())
     val descState = rememberTextFieldState(draft?.description.orEmpty())
     val attendeesState = rememberTextFieldState(draft?.attendeesText.orEmpty())
@@ -685,10 +910,11 @@ internal fun EventEditorDialog(
     LaunchedEffect(draft) {
         if (draft != null) {
             titleState.setTextAndPlaceCursorAtEnd(draft.title)
-            dateState.setTextAndPlaceCursorAtEnd(draft.dateIso)
-            endDateState.setTextAndPlaceCursorAtEnd(draft.endDateIso)
-            startState.setTextAndPlaceCursorAtEnd(draft.startTime)
-            endState.setTextAndPlaceCursorAtEnd(draft.endTime)
+            dateIso = draft.dateIso.ifBlank { fallbackIso }
+            endDateIso = draft.endDateIso.ifBlank { dateIso }
+            startTime = draft.startTime.ifBlank { "09:00" }
+            endTime = draft.endTime.ifBlank { "10:00" }
+            activePicker = null
             locationState.setTextAndPlaceCursorAtEnd(draft.location)
             descState.setTextAndPlaceCursorAtEnd(draft.description)
             attendeesState.setTextAndPlaceCursorAtEnd(draft.attendeesText)
@@ -725,10 +951,10 @@ internal fun EventEditorDialog(
                             draft.copy(
                                 calendarId = selectedCalId,
                                 title = titleState.text.toString(),
-                                dateIso = dateState.text.toString(),
-                                endDateIso = endDateState.text.toString(),
-                                startTime = startState.text.toString(),
-                                endTime = endState.text.toString(),
+                                dateIso = dateIso,
+                                endDateIso = endDateIso,
+                                startTime = startTime,
+                                endTime = endTime,
                                 allDay = allDay,
                                 location = locationState.text.toString(),
                                 description = descState.text.toString(),
@@ -747,7 +973,7 @@ internal fun EventEditorDialog(
     ) {
         if (draft != null) {
             Column(
-                Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+                Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 TextField(
@@ -770,7 +996,10 @@ internal fun EventEditorDialog(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable(role = Role.Switch) { allDay = !allDay }
+                        .clickable(role = Role.Switch) {
+                            allDay = !allDay
+                            activePicker = null
+                        }
                         .handCursor()
                         .padding(vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -779,15 +1008,109 @@ internal fun EventEditorDialog(
                     Text(stringResource(Res.string.cal_event_all_day), style = Theme[typography][bodySmall], color = Theme[colors][textColor])
                     Switch(checked = allDay)
                 }
-                TextField(state = dateState, label = stringResource(Res.string.cal_event_date))
+
                 if (allDay) {
-                    TextField(state = endDateState, label = stringResource(Res.string.cal_event_end))
-                } else {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextField(state = startState, label = stringResource(Res.string.cal_event_start), modifier = Modifier.weight(1f))
-                        TextField(state = endState, label = stringResource(Res.string.cal_event_end), modifier = Modifier.weight(1f))
+                        CalendarDatePickerTrigger(
+                            label = stringResource(Res.string.cal_event_date),
+                            valueIso = dateIso,
+                            expanded = activePicker == EventEditorPicker.DATE,
+                            onClick = { activePicker = if (activePicker == EventEditorPicker.DATE) null else EventEditorPicker.DATE },
+                            modifier = Modifier.weight(1f),
+                        )
+                        CalendarDatePickerTrigger(
+                            label = stringResource(Res.string.cal_event_end),
+                            valueIso = endDateIso,
+                            expanded = activePicker == EventEditorPicker.END_DATE,
+                            onClick = { activePicker = if (activePicker == EventEditorPicker.END_DATE) null else EventEditorPicker.END_DATE },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    when (activePicker) {
+                        EventEditorPicker.DATE -> CalendarDatePickerPanel(
+                            selectedIso = dateIso,
+                            onSelectDate = { picked ->
+                                dateIso = picked
+                                val startD = calendarDateFromIso(picked)
+                                val endD = calendarDateFromIso(endDateIso)
+                                if (startD != null && (endD == null || endD.epochDay < startD.epochDay)) {
+                                    endDateIso = picked
+                                }
+                                activePicker = null
+                            },
+                            onDone = { activePicker = null },
+                        )
+                        EventEditorPicker.END_DATE -> CalendarDatePickerPanel(
+                            selectedIso = endDateIso,
+                            minDateIso = dateIso,
+                            onSelectDate = { picked ->
+                                endDateIso = picked
+                                activePicker = null
+                            },
+                            onDone = { activePicker = null },
+                        )
+                        else -> Unit
+                    }
+                } else {
+                    CalendarDatePickerTrigger(
+                        label = stringResource(Res.string.cal_event_date),
+                        valueIso = dateIso,
+                        expanded = activePicker == EventEditorPicker.DATE,
+                        onClick = { activePicker = if (activePicker == EventEditorPicker.DATE) null else EventEditorPicker.DATE },
+                    )
+                    if (activePicker == EventEditorPicker.DATE) {
+                        CalendarDatePickerPanel(
+                            selectedIso = dateIso,
+                            onSelectDate = { picked ->
+                                dateIso = picked
+                                endDateIso = picked
+                                activePicker = null
+                            },
+                            onDone = { activePicker = null },
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CalendarTimePickerTrigger(
+                            label = stringResource(Res.string.cal_event_start),
+                            valueHHMM = startTime,
+                            use24Hour = use24Hour,
+                            expanded = activePicker == EventEditorPicker.START_TIME,
+                            onClick = { activePicker = if (activePicker == EventEditorPicker.START_TIME) null else EventEditorPicker.START_TIME },
+                            modifier = Modifier.weight(1f),
+                        )
+                        CalendarTimePickerTrigger(
+                            label = stringResource(Res.string.cal_event_end),
+                            valueHHMM = endTime,
+                            use24Hour = use24Hour,
+                            expanded = activePicker == EventEditorPicker.END_TIME,
+                            onClick = { activePicker = if (activePicker == EventEditorPicker.END_TIME) null else EventEditorPicker.END_TIME },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    when (activePicker) {
+                        EventEditorPicker.START_TIME -> {
+                            val baseStart = remember(draft, activePicker) { startTime }
+                            val baseEnd = remember(draft, activePicker) { endTime }
+                            CalendarTimePickerPanel(
+                                valueHHMM = startTime,
+                                use24Hour = use24Hour,
+                                onSelectTime = { picked ->
+                                    startTime = picked
+                                    endTime = shiftEndTimeIfNeeded(baseStart, picked, baseEnd)
+                                },
+                                onDone = { activePicker = null },
+                            )
+                        }
+                        EventEditorPicker.END_TIME -> CalendarTimePickerPanel(
+                            valueHHMM = endTime,
+                            use24Hour = use24Hour,
+                            onSelectTime = { picked -> endTime = picked },
+                            onDone = { activePicker = null },
+                        )
+                        else -> Unit
                     }
                 }
+
                 TextField(state = locationState, label = stringResource(Res.string.cal_event_location))
                 TextField(state = attendeesState, label = stringResource(Res.string.cal_event_attendees))
                 if (attendeesState.text.isNotBlank()) {
@@ -823,29 +1146,37 @@ internal fun EventEditorDialog(
     }
 }
 
+private enum class TaskBlockPicker {
+    DATE,
+    START_TIME,
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ScheduleTaskBlockDialog(
     draft: TaskBlockDraft?,
     freeSlots: List<FreeSlot>,
     findingSlots: Boolean,
+    use24Hour: Boolean = false,
     mutating: Boolean,
     onDismiss: () -> Unit,
     onRefreshSlots: (Int) -> Unit,
     onSave: (TaskBlockDraft) -> Unit,
     onDeleteBlock: (String) -> Unit,
+    onOpenSession: ((String) -> Unit)? = null,
 ) {
-    val labelState = rememberTextFieldState(draft?.label.orEmpty())
-    val dateState = rememberTextFieldState(draft?.dateIso.orEmpty())
-    val startState = rememberTextFieldState(draft?.startTime ?: "09:00")
+    val fallbackIso = remember { calendarToday().iso }
+    var dateIso by remember(draft) { mutableStateOf(draft?.dateIso?.ifBlank { fallbackIso } ?: fallbackIso) }
+    var startTime by remember(draft) { mutableStateOf(draft?.startTime?.ifBlank { "09:00" } ?: "09:00") }
     var durationMin by remember(draft) { mutableIntStateOf(draft?.durationMinutes ?: 60) }
+    var activePicker by remember(draft) { mutableStateOf<TaskBlockPicker?>(null) }
 
     LaunchedEffect(draft) {
         if (draft != null) {
-            labelState.setTextAndPlaceCursorAtEnd(draft.label)
-            dateState.setTextAndPlaceCursorAtEnd(draft.dateIso)
-            startState.setTextAndPlaceCursorAtEnd(draft.startTime)
+            dateIso = draft.dateIso.ifBlank { fallbackIso }
+            startTime = draft.startTime.ifBlank { "09:00" }
             durationMin = draft.durationMinutes
+            activePicker = null
         }
     }
 
@@ -877,9 +1208,8 @@ internal fun ScheduleTaskBlockDialog(
                     if (draft != null) {
                         onSave(
                             draft.copy(
-                                label = labelState.text.toString(),
-                                dateIso = dateState.text.toString(),
-                                startTime = startState.text.toString(),
+                                dateIso = dateIso,
+                                startTime = startTime,
                                 durationMinutes = durationMin,
                             ),
                         )
@@ -893,7 +1223,7 @@ internal fun ScheduleTaskBlockDialog(
     ) {
         if (draft != null) {
             Column(
-                Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -911,11 +1241,49 @@ internal fun ScheduleTaskBlockDialog(
                         )
                     }
                 }
+                if (onOpenSession != null) {
+                    Button(
+                        text = stringResource(Res.string.cal_open_session),
+                        onClick = { onOpenSession(draft.task.id) },
+                        variant = ButtonVariant.Outline,
+                        size = ButtonSize.Small,
+                        leadingIcon = Lucide.MessageSquare,
+                    )
+                }
 
-                TextField(state = labelState, label = stringResource(Res.string.cal_event_title))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextField(state = dateState, label = stringResource(Res.string.cal_event_date), modifier = Modifier.weight(1f))
-                    TextField(state = startState, label = stringResource(Res.string.cal_event_start), modifier = Modifier.weight(1f))
+                    CalendarDatePickerTrigger(
+                        label = stringResource(Res.string.cal_event_date),
+                        valueIso = dateIso,
+                        expanded = activePicker == TaskBlockPicker.DATE,
+                        onClick = { activePicker = if (activePicker == TaskBlockPicker.DATE) null else TaskBlockPicker.DATE },
+                        modifier = Modifier.weight(1f),
+                    )
+                    CalendarTimePickerTrigger(
+                        label = stringResource(Res.string.cal_event_start),
+                        valueHHMM = startTime,
+                        use24Hour = use24Hour,
+                        expanded = activePicker == TaskBlockPicker.START_TIME,
+                        onClick = { activePicker = if (activePicker == TaskBlockPicker.START_TIME) null else TaskBlockPicker.START_TIME },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                when (activePicker) {
+                    TaskBlockPicker.DATE -> CalendarDatePickerPanel(
+                        selectedIso = dateIso,
+                        onSelectDate = { picked ->
+                            dateIso = picked
+                            activePicker = null
+                        },
+                        onDone = { activePicker = null },
+                    )
+                    TaskBlockPicker.START_TIME -> CalendarTimePickerPanel(
+                        valueHHMM = startTime,
+                        use24Hour = use24Hour,
+                        onSelectTime = { picked -> startTime = picked },
+                        onDone = { activePicker = null },
+                    )
+                    null -> Unit
                 }
 
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -949,10 +1317,11 @@ internal fun ScheduleTaskBlockDialog(
                         freeSlots.take(6).forEach { slot ->
                             Chip(
                                 text = "${slot.date.drop(5)} ${slot.startLocal}–${slot.endLocal}",
-                                selected = dateState.text.toString() == slot.date && startState.text.toString() == slot.startLocal,
+                                selected = dateIso == slot.date && startTime == slot.startLocal,
                                 onClick = {
-                                    dateState.setTextAndPlaceCursorAtEnd(slot.date)
-                                    startState.setTextAndPlaceCursorAtEnd(slot.startLocal)
+                                    dateIso = slot.date
+                                    startTime = slot.startLocal
+                                    activePicker = null
                                 },
                             )
                         }
@@ -963,11 +1332,17 @@ internal fun ScheduleTaskBlockDialog(
     }
 }
 
+private enum class SettingsTimePicker {
+    START,
+    END,
+}
+
 @Composable
 internal fun CalendarSettingsDialog(
     visible: Boolean,
     settings: CalendarSettings,
     accounts: List<CalendarAccount>,
+    use24Hour: Boolean = false,
     mutating: Boolean,
     onDismiss: () -> Unit,
     onSave: (timezone: String, workStart: String, workEnd: String, subcalendarName: String) -> Unit,
@@ -977,15 +1352,17 @@ internal fun CalendarSettingsDialog(
         settings.workingHours["mon"] ?: settings.workingHours.values.firstOrNull() ?: listOf("09:00", "18:00")
     }
     val tzState = rememberTextFieldState(settings.timezone)
-    val startState = rememberTextFieldState(defaultHours.getOrNull(0) ?: "09:00")
-    val endState = rememberTextFieldState(defaultHours.getOrNull(1) ?: "18:00")
+    var workStart by remember(settings) { mutableStateOf(defaultHours.getOrNull(0) ?: "09:00") }
+    var workEnd by remember(settings) { mutableStateOf(defaultHours.getOrNull(1) ?: "18:00") }
+    var activePicker by remember { mutableStateOf<SettingsTimePicker?>(null) }
     val subcalState = rememberTextFieldState(settings.dispatchSyncTarget.subcalendarName)
 
     LaunchedEffect(visible, settings) {
         if (visible) {
             tzState.setTextAndPlaceCursorAtEnd(settings.timezone)
-            startState.setTextAndPlaceCursorAtEnd(defaultHours.getOrNull(0) ?: "09:00")
-            endState.setTextAndPlaceCursorAtEnd(defaultHours.getOrNull(1) ?: "18:00")
+            workStart = defaultHours.getOrNull(0) ?: "09:00"
+            workEnd = defaultHours.getOrNull(1) ?: "18:00"
+            activePicker = null
             subcalState.setTextAndPlaceCursorAtEnd(settings.dispatchSyncTarget.subcalendarName)
         }
     }
@@ -1007,8 +1384,8 @@ internal fun CalendarSettingsDialog(
                 onClick = {
                     onSave(
                         tzState.text.toString(),
-                        startState.text.toString(),
-                        endState.text.toString(),
+                        workStart,
+                        workEnd,
                         subcalState.text.toString(),
                     )
                 },
@@ -1019,14 +1396,47 @@ internal fun CalendarSettingsDialog(
         },
     ) {
         Column(
-            Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             TextField(state = tzState, label = stringResource(Res.string.cal_settings_timezone), leadingIcon = GlobeIcon)
             Text(stringResource(Res.string.cal_settings_working_hours), style = Theme[typography][caption], color = Theme[colors][textSecondary])
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextField(state = startState, label = stringResource(Res.string.cal_event_start), modifier = Modifier.weight(1f))
-                TextField(state = endState, label = stringResource(Res.string.cal_event_end), modifier = Modifier.weight(1f))
+                CalendarTimePickerTrigger(
+                    label = stringResource(Res.string.cal_event_start),
+                    valueHHMM = workStart,
+                    use24Hour = use24Hour,
+                    expanded = activePicker == SettingsTimePicker.START,
+                    onClick = { activePicker = if (activePicker == SettingsTimePicker.START) null else SettingsTimePicker.START },
+                    modifier = Modifier.weight(1f),
+                )
+                CalendarTimePickerTrigger(
+                    label = stringResource(Res.string.cal_event_end),
+                    valueHHMM = workEnd,
+                    use24Hour = use24Hour,
+                    expanded = activePicker == SettingsTimePicker.END,
+                    onClick = { activePicker = if (activePicker == SettingsTimePicker.END) null else SettingsTimePicker.END },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            when (activePicker) {
+                SettingsTimePicker.START -> CalendarTimePickerPanel(
+                    valueHHMM = workStart,
+                    use24Hour = use24Hour,
+                    onSelectTime = { picked ->
+                        val prev = workStart
+                        workStart = picked
+                        workEnd = shiftEndTimeIfNeeded(prev, picked, workEnd)
+                    },
+                    onDone = { activePicker = null },
+                )
+                SettingsTimePicker.END -> CalendarTimePickerPanel(
+                    valueHHMM = workEnd,
+                    use24Hour = use24Hour,
+                    onSelectTime = { picked -> workEnd = picked },
+                    onDone = { activePicker = null },
+                )
+                null -> Unit
             }
             TextField(state = subcalState, label = stringResource(Res.string.cal_settings_subcal_name), leadingIcon = CalendarIcon)
 

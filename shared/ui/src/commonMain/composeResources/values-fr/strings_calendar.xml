@@ -24,9 +24,9 @@
     <string name="cal_more_count">+%1$d de plus</string>
     <string name="cal_no_events">Aucun événement prévu sur cette période.</string>
     <string name="cal_event_title">Titre</string>
-    <string name="cal_event_date">Date (YYYY-MM-DD)</string>
-    <string name="cal_event_start">Début (HH:MM)</string>
-    <string name="cal_event_end">Fin (HH:MM)</string>
+    <string name="cal_event_date">Date</string>
+    <string name="cal_event_start">Début</string>
+    <string name="cal_event_end">Fin</string>
     <string name="cal_event_location">Lieu (optionnel)</string>
     <string name="cal_event_description">Notes (optionnel)</string>
     <string name="cal_event_calendar">Agenda</string>
@@ -86,7 +86,7 @@
     <string name="cal_task_target_badge">Sync Dispatch</string>
     <string name="cal_settings_title">Paramètres de l&apos;agenda</string>
     <string name="cal_settings_timezone">Fuseau horaire (IANA)</string>
-    <string name="cal_settings_working_hours">Heures de travail (HH:MM - HH:MM)</string>
+    <string name="cal_settings_working_hours">Heures de travail</string>
     <string name="cal_settings_subcal_name">Nom du sous-agenda Dispatch</string>
     <string name="cal_plugin_missing">Le plugin MotherBase Calendar n&apos;est pas activé sur cette passerelle.</string>
     <string name="cal_ask_agent_plan">Planifier la journée avec %1$s</string>
@@ -112,4 +112,12 @@
     <string name="cal_back">Retour</string>
     <string name="cal_estimate_input">Estimation (min)</string>
     <string name="cal_view_settings">Vue et filtres</string>
+    <string name="cal_open_session">Ouvrir la session</string>
+    <string name="cal_reschedule_block">Modifier l’heure</string>
+    <string name="cal_mark_done">Marquer terminé</string>
+    <string name="cal_reopen_task">Rouvrir</string>
+    <string name="cal_pick_hour">Heure</string>
+    <string name="cal_pick_minute">Minute</string>
+    <string name="cal_done_action">Terminer</string>
+    <string name="cal_task_no_blocks">Aucun créneau planifié</string>
 </resources>
