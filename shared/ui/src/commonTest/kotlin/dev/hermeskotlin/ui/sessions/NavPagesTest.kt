@@ -11,6 +11,7 @@ class NavPagesTest {
     private val phonePages = listOf(
         SidebarPage.Inbox,
         SidebarPage.Tasks,
+        SidebarPage.Calendar,
         SidebarPage.Scheduled,
         SidebarPage.Insights,
         SidebarPage.Capabilities,
@@ -44,7 +45,7 @@ class NavPagesTest {
             .withSidebarPage(SidebarPage.Inbox.name, shown = false)
             .withSidebarPage(SidebarPage.Config.name, shown = false)
         assertEquals(
-            listOf(SidebarPage.Tasks, SidebarPage.Scheduled, SidebarPage.Insights, SidebarPage.Capabilities, SidebarPage.Plugins, SidebarPage.Archived),
+            listOf(SidebarPage.Tasks, SidebarPage.Calendar, SidebarPage.Scheduled, SidebarPage.Insights, SidebarPage.Capabilities, SidebarPage.Plugins, SidebarPage.Archived),
             shownNavPages(settings, desktop = false),
         )
         // Back on, the section has them as they were left.

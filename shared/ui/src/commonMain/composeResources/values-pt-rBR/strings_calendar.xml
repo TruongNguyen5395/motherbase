@@ -91,4 +91,25 @@
     <string name="cal_plugin_missing">O plugin MotherBase Calendar não está ativo neste gateway.</string>
     <string name="cal_ask_agent_plan">Planejar dia com %1$s</string>
     <string name="cal_ask_agent_hint">Peça a %1$s para organizar seu dia ou buscar horários livres…</string>
+    <string name="cal_previous">Período anterior</string>
+    <string name="cal_next">Próximo período</string>
+    <string name="cal_toggle_calendars">Alternar painel de agendas</string>
+    <string name="cal_read_only">Somente leitura</string>
+    <string name="cal_view_in_calendar">Ver na Agenda</string>
+    <string name="cal_plan_my_day">Organizar meu dia</string>
+    <string name="cal_find_free_slots">Buscar horários livres</string>
+    <string name="cal_no_free_slots">Nenhum horário livre encontrado.</string>
+    <string name="cal_unscheduled_tasks">Tarefas não agendadas</string>
+    <string name="cal_scheduled_tasks">Blocos agendados</string>
+    <string name="cal_task_due">Prazo %1$s</string>
+    <string name="cal_event_all_day">Dia inteiro</string>
+    <string name="cal_delete_attendee_confirm">Participantes externos serão notificados se ativado.</string>
+    <string name="cal_proposal_conflict_title">Conflito de horário detectado</string>
+    <string name="cal_proposal_conflict_message">Uma ou mais ações sobrepõem eventos ocupados:</string>
+    <string name="cal_agent_panel_empty">Peça ao coordenador do Dispatch para organizar seu dia ou sugerir horários.</string>
+    <string name="cal_agent_staged_empty">Nenhuma proposta pendente.</string>
+    <string name="cal_status_synced">Sincronizado %1$s</string>
+    <string name="cal_back">Voltar</string>
+    <string name="cal_estimate_input">Estimativa (min)</string>
+    <string name="cal_view_settings">Visualização e filtros</string>
 </resources>

@@ -91,4 +91,25 @@
     <string name="cal_plugin_missing">Das Plugin „MotherBase Calendar“ ist auf diesem Gateway nicht aktiviert.</string>
     <string name="cal_ask_agent_plan">Tag mit %1$s planen</string>
     <string name="cal_ask_agent_hint">%1$s bitten, den Tag zu planen, Termine zu verschieben oder freie Zeiten zu finden…</string>
+    <string name="cal_previous">Vorheriger Zeitraum</string>
+    <string name="cal_next">Nächster Zeitraum</string>
+    <string name="cal_toggle_calendars">Kalenderleiste umschalten</string>
+    <string name="cal_read_only">Schreibgeschützt</string>
+    <string name="cal_view_in_calendar">Im Kalender anzeigen</string>
+    <string name="cal_plan_my_day">Tag planen</string>
+    <string name="cal_find_free_slots">Freie Zeiten suchen</string>
+    <string name="cal_no_free_slots">Keine freien Zeitfenster im Bereich gefunden.</string>
+    <string name="cal_unscheduled_tasks">Ungeplante Aufgaben</string>
+    <string name="cal_scheduled_tasks">Geplante Blöcke</string>
+    <string name="cal_task_due">Fällig %1$s</string>
+    <string name="cal_event_all_day">Ganztägig</string>
+    <string name="cal_delete_attendee_confirm">Externe Teilnehmende werden bei Aktivierung benachrichtigt.</string>
+    <string name="cal_proposal_conflict_title">Terminkonflikt erkannt</string>
+    <string name="cal_proposal_conflict_message">Mindestens eine Aktion überschneidet sich mit belegten Terminen:</string>
+    <string name="cal_agent_panel_empty">Bitten Sie den Dispatch-Koordinator, Ihren Tag zu planen oder Zeitblöcke vorzuschlagen.</string>
+    <string name="cal_agent_staged_empty">Keine ausstehenden Terminvorschläge.</string>
+    <string name="cal_status_synced">Synchronisiert %1$s</string>
+    <string name="cal_back">Zurück</string>
+    <string name="cal_estimate_input">Schätzung (Min)</string>
+    <string name="cal_view_settings">Ansicht &amp; Filter</string>
 </resources>

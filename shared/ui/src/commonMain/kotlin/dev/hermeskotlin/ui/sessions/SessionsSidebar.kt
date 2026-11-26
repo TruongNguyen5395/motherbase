@@ -27,7 +27,9 @@ import com.composables.icons.lucide.ChevronsUpDown
 import com.composables.icons.lucide.Folder
 import com.composables.icons.lucide.Folders
 import com.composables.icons.lucide.House
+import com.composables.icons.lucide.Calendar
 import com.composables.icons.lucide.ListTodo
+import dev.hermeskotlin.ui.calendar.CalendarPage
 import dev.hermeskotlin.ui.tasks.TasksPage
 import com.composeunstyled.AnchorAlignment
 import dev.hermeskotlin.designsystem.components.DropdownMenu
@@ -433,6 +435,7 @@ fun SessionsSidebar(
     var scheduledOpen by remember { mutableStateOf(false) }
     var inboxOpen by remember { mutableStateOf(false) }
     var tasksOpen by remember { mutableStateOf(false) }
+    var calendarOpen by remember { mutableStateOf(false) }
     // A tapped Inbox notification, passed on by the app once it opened the drawer: the Inbox, at that run. The
     // page takes the key and opens the run itself.
     var inboxOpenKey by remember { mutableStateOf<String?>(null) }
@@ -547,12 +550,13 @@ fun SessionsSidebar(
         viewModel.query.clearText()
     }
 
-    // Pages open in the center workspace when the sidebar is docked (desktop or tablet); Tasks always opens there.
-    val pageInMain = mainPage != null && (mainPage.enabled || tasksOpen)
+    // Pages open in the center workspace when the sidebar is docked (desktop or tablet); Tasks & Calendar always open there.
+    val pageInMain = mainPage != null && (mainPage.enabled || tasksOpen || calendarOpen)
     fun closePages() {
         scheduledOpen = false
         inboxOpen = false
         tasksOpen = false
+        calendarOpen = false
         if (routinesOf != null) {
             routinesOf = null
             // What was fixed there shows on the roster at once.
@@ -563,7 +567,7 @@ fun SessionsSidebar(
         pluginsOpen = false
         insightsOpen = false
     }
-    val pageOpen = scheduledOpen || inboxOpen || tasksOpen || routinesOf != null || capabilitiesOpen || configOpen || pluginsOpen || insightsOpen
+    val pageOpen = scheduledOpen || inboxOpen || tasksOpen || calendarOpen || routinesOf != null || capabilitiesOpen || configOpen || pluginsOpen || insightsOpen
 
     LaunchedEffect(activeGatewayUrl, dispatchCoordinator, isConnected) {
         val coord = dispatchCoordinator ?: return@LaunchedEffect
@@ -681,6 +685,7 @@ fun SessionsSidebar(
                 scheduledOpen = false
                 inboxOpen = false
                 tasksOpen = false
+                calendarOpen = false
                 routinesOf = null
                 capabilitiesOpen = false
                 configOpen = false
@@ -692,6 +697,7 @@ fun SessionsSidebar(
                     SidebarPage.Bots -> pickMode(SidebarMode.Bots)
                     SidebarPage.Inbox -> inboxOpen = true
                     SidebarPage.Tasks -> tasksOpen = true
+                    SidebarPage.Calendar -> calendarOpen = true
                     SidebarPage.Scheduled -> scheduledOpen = true
                     SidebarPage.Archived -> {
                         pickMode(SidebarMode.Chats)
@@ -729,6 +735,7 @@ fun SessionsSidebar(
     val pageKey = when {
         inboxOpen -> "inbox"
         tasksOpen -> "tasks"
+        calendarOpen -> "calendar"
         scheduledOpen -> "scheduled"
         routinesOf != null -> "routines:${routinesOf?.name}"
         capabilitiesOpen -> "capabilities"
@@ -764,6 +771,17 @@ fun SessionsSidebar(
                     closePages()
                     onOpenRoom(room)
                 },
+                onOpenCalendar = {
+                    closePages()
+                    calendarOpen = true
+                },
+                onToggleSidebar = onToggleSidebar,
+            )
+            calendarOpen -> CalendarPage(
+                gateway = gateway,
+                visible = pageVisible,
+                onBack = { calendarOpen = false },
+                onSessionExpired = onSessionExpired,
                 onToggleSidebar = onToggleSidebar,
             )
             scheduledOpen -> ScheduledPage(
@@ -830,6 +848,10 @@ fun SessionsSidebar(
                         closePages()
                         tasksOpen = true
                     }
+                    SidebarPage.Calendar -> NavLink(icon, label, selected = pageInMain && calendarOpen) {
+                        closePages()
+                        calendarOpen = true
+                    }
                     SidebarPage.Scheduled -> NavLink(icon, label, selected = pageInMain && scheduledOpen) { closePages(); scheduledOpen = true }
                     SidebarPage.Insights -> NavLink(icon, label, selected = pageInMain && insightsOpen) { closePages(); insightsOpen = true }
                     SidebarPage.Capabilities -> NavLink(icon, label, selected = pageInMain && capabilitiesOpen) { closePages(); capabilitiesOpen = true }
@@ -855,9 +877,9 @@ fun SessionsSidebar(
         val latest by rememberUpdatedState(pageView)
         DisposableEffect(pageKey, pageInMain) {
             val key = pageKey
-            // Scheduled, Config, and Tasks lay a list beside what's open in it, so they take a wider page.
-            val wide = key == "scheduled" || key == "config" || key == "tasks" || key?.startsWith("routines:") == true
-            val fullWidth = key == "tasks"
+            // Scheduled, Config, Tasks, and Calendar lay a list beside what's open in it, so they take a wider page.
+            val wide = key == "scheduled" || key == "config" || key == "tasks" || key == "calendar" || key?.startsWith("routines:") == true
+            val fullWidth = key == "tasks" || key == "calendar"
             if (key != null) mainPage.show(key, { latest() }, close = { closePages() }, wide = wide, fullWidth = fullWidth)
             onDispose { if (key != null) mainPage.clear(key) }
         }
@@ -1822,6 +1844,7 @@ internal class NavLink(
 internal val NAV_PAGES = listOf(
     SidebarPage.Inbox,
     SidebarPage.Tasks,
+    SidebarPage.Calendar,
     SidebarPage.Scheduled,
     SidebarPage.Insights,
     SidebarPage.Capabilities,
@@ -1845,6 +1868,7 @@ internal fun navIcon(page: SidebarPage): ImageVector = when (page) {
     SidebarPage.Bots -> Lucide.Bot
     SidebarPage.Inbox -> Lucide.Inbox
     SidebarPage.Tasks -> Lucide.ListTodo
+    SidebarPage.Calendar -> Lucide.Calendar
     SidebarPage.Scheduled -> Lucide.CalendarClock
     SidebarPage.Insights -> Lucide.ChartColumn
     SidebarPage.Capabilities -> Lucide.Blocks
@@ -1859,6 +1883,7 @@ internal fun navLabel(page: SidebarPage): StringResource = when (page) {
     SidebarPage.Bots -> Res.string.sessions_mode_bots
     SidebarPage.Inbox -> Res.string.sessions_nav_inbox
     SidebarPage.Tasks -> Res.string.tasks_title
+    SidebarPage.Calendar -> Res.string.app_page_calendar
     SidebarPage.Scheduled -> Res.string.sessions_nav_scheduled
     SidebarPage.Insights -> Res.string.sessions_nav_insights
     SidebarPage.Capabilities -> Res.string.sessions_nav_capabilities

@@ -81,6 +81,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.composables.icons.lucide.Bot
+import com.composables.icons.lucide.Calendar
+import com.composables.icons.lucide.CalendarClock
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronRight
@@ -114,6 +116,9 @@ import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.bots.Bot
+import dev.hermeskotlin.core.calendar.DispatchTimeBlock
+import dev.hermeskotlin.core.calendar.calendarZonedFromIso
+import dev.hermeskotlin.core.calendar.formatClockCompact
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
@@ -200,6 +205,8 @@ import dev.hermeskotlin.designsystem.well
 import dev.hermeskotlin.ui.LocalAppSettings
 import dev.hermeskotlin.ui.PlatformBackHandler
 import dev.hermeskotlin.ui.bots.BotAvatar
+import dev.hermeskotlin.ui.calendar.ScheduleProposalConflictDialog
+import dev.hermeskotlin.ui.calendar.ScheduleTaskBlockDialog
 import dev.hermeskotlin.ui.chat.AttachButton
 import dev.hermeskotlin.ui.chat.AttachSheet
 import dev.hermeskotlin.ui.chat.AttachmentPicker
@@ -296,6 +303,12 @@ internal data class TasksBoardActions(
     val onApprovePlan: (DirectusTask, ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit = { _, _, _, _ -> },
     val onOpenFullscreen: (DirectusTask, TaskChannel) -> Unit = { _, _ -> },
     val onDismissFeedback: () -> Unit = {},
+    val onOpenScheduleBlock: (DirectusTask, DispatchTimeBlock?) -> Unit = { _, _ -> },
+    val onDeleteTimeBlock: (String) -> Unit = {},
+    val onOpenCalendar: (() -> Unit)? = null,
+    val onApplyProposal: (String, List<String>, Boolean) -> Unit = { _, _, _ -> },
+    val onDiscardProposal: (String) -> Unit = {},
+    val onRevertProposal: (String) -> Unit = {},
 )
 
 private val DEFAULT_DISPATCH_RAIL_WIDTH = 460.dp
@@ -321,6 +334,7 @@ internal fun TasksPage(
     onSessionExpired: () -> Unit,
     onOpenSession: (sessionId: String, title: String, profile: String?) -> Unit = { _, _, _ -> },
     onOpenRoom: (Room) -> Unit = {},
+    onOpenCalendar: (() -> Unit)? = null,
     onToggleSidebar: (() -> Unit)? = null,
     viewModel: TasksViewModel = koinViewModel(),
 ) {
@@ -479,6 +493,12 @@ internal fun TasksPage(
             onApprovePlan = viewModel::approveStagedPlan,
             onOpenFullscreen = viewModel::openChannelFullscreen,
             onDismissFeedback = viewModel::clearFeedback,
+            onOpenScheduleBlock = viewModel::openScheduleTaskBlock,
+            onDeleteTimeBlock = viewModel::deleteTaskTimeBlock,
+            onOpenCalendar = onOpenCalendar,
+            onApplyProposal = viewModel::applyScheduleProposal,
+            onDiscardProposal = viewModel::discardScheduleProposal,
+            onRevertProposal = viewModel::revertScheduleProposal,
         )
     }
 
@@ -506,6 +526,24 @@ internal fun TasksPage(
             petController.bind(state.coordinatorConfig.profile.ifBlank { Bot.DEFAULT })
         },
         onAdopted = { petSheetOpen = false },
+    )
+
+    ScheduleTaskBlockDialog(
+        draft = state.schedulingTaskDraft,
+        freeSlots = state.freeSlots,
+        findingSlots = state.findingFreeSlots,
+        mutating = state.calendarMutating,
+        onDismiss = viewModel::closeScheduleTaskBlock,
+        onRefreshSlots = viewModel::refreshCalendarFreeSlots,
+        onSave = viewModel::saveTaskTimeBlock,
+        onDeleteBlock = viewModel::deleteTaskTimeBlock,
+    )
+
+    ScheduleProposalConflictDialog(
+        conflict = state.pendingProposalConflict,
+        busy = state.pendingProposalConflict?.proposalId in state.busyProposalIds,
+        onDismiss = viewModel::dismissProposalConflict,
+        onForceApply = viewModel::confirmForceApplyProposal,
     )
 }
 
@@ -630,6 +668,10 @@ internal fun TasksBoardContent(
                     },
                     onOpenModels = { modelsOpen = true },
                     onAnswerRequest = actions.onAnswerRequest,
+                    appliedProposalStatuses = state.proposalStatuses,
+                    onApplyProposal = actions.onApplyProposal,
+                    onDiscardProposal = actions.onDiscardProposal,
+                    onRevertProposal = actions.onRevertProposal,
                 )
             } else if (selected != null) {
                 TaskDetailInspector(
@@ -643,6 +685,9 @@ internal fun TasksBoardContent(
                     coordinatorPetSprite = petSprite,
                     coordinatorPetState = coordinatorPetState,
                     busy = selected.id in state.busyTaskIds,
+                    timeBlocks = state.taskTimeBlocks[selected.id].orEmpty(),
+                    calendarPluginAvailable = state.calendarPluginAvailable,
+                    calendarTimezone = state.calendarTimezone,
                     activeChannelIdx = state.activeChannelIdx,
                     activeChannel = state.activeChannel,
                     channelLoading = state.channelLoading,
@@ -680,6 +725,13 @@ internal fun TasksBoardContent(
                     },
                     onOpenModels = { modelsOpen = true },
                     onAnswerRequest = actions.onAnswerRequest,
+                    appliedProposalStatuses = state.proposalStatuses,
+                    onApplyProposal = actions.onApplyProposal,
+                    onDiscardProposal = actions.onDiscardProposal,
+                    onRevertProposal = actions.onRevertProposal,
+                    onOpenScheduleBlock = { blk -> actions.onOpenScheduleBlock(selected, blk) },
+                    onDeleteTimeBlock = actions.onDeleteTimeBlock,
+                    onOpenCalendar = actions.onOpenCalendar,
                 )
             }
         },
@@ -2363,6 +2415,10 @@ private fun CoordinatorInspector(
     onAttach: () -> Unit,
     onOpenModels: () -> Unit,
     onAnswerRequest: (InputRequest, JsonObject) -> Unit,
+    appliedProposalStatuses: Map<String, String> = emptyMap(),
+    onApplyProposal: (String, List<String>, Boolean) -> Unit = { _, _, _ -> },
+    onDiscardProposal: (String) -> Unit = {},
+    onRevertProposal: (String) -> Unit = {},
 ) {
     val steerState = rememberTextFieldState("")
     val quickScroll = rememberScrollState()
@@ -2453,6 +2509,10 @@ private fun CoordinatorInspector(
             onOpenFullscreen = if (activeChannel != null) onOpenFullscreen else null,
             onSelectInteraction = onSendToCoordinator,
             onFillInteraction = { text -> steerState.setTextAndPlaceCursorAtEnd(text) },
+            appliedProposalStatuses = appliedProposalStatuses,
+            onApplyProposal = onApplyProposal,
+            onDiscardProposal = onDiscardProposal,
+            onRevertProposal = onRevertProposal,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
 
@@ -2536,6 +2596,9 @@ private fun TaskDetailInspector(
     coordinatorPetSprite: PetSprite? = null,
     coordinatorPetState: PetState = PetState.Idle,
     busy: Boolean,
+    timeBlocks: List<DispatchTimeBlock> = emptyList(),
+    calendarPluginAvailable: Boolean = false,
+    calendarTimezone: String = "Asia/Ho_Chi_Minh",
     activeChannelIdx: Int,
     activeChannel: TaskChannel?,
     channelLoading: Boolean,
@@ -2569,6 +2632,13 @@ private fun TaskDetailInspector(
     onAttach: () -> Unit,
     onOpenModels: () -> Unit,
     onAnswerRequest: (InputRequest, JsonObject) -> Unit,
+    appliedProposalStatuses: Map<String, String> = emptyMap(),
+    onApplyProposal: (String, List<String>, Boolean) -> Unit = { _, _, _ -> },
+    onDiscardProposal: (String) -> Unit = {},
+    onRevertProposal: (String) -> Unit = {},
+    onOpenScheduleBlock: (DispatchTimeBlock?) -> Unit = {},
+    onDeleteTimeBlock: (String) -> Unit = {},
+    onOpenCalendar: (() -> Unit)? = null,
 ) {
     val steerState = rememberTextFieldState("")
     LaunchedEffect(task.id) { steerState.clearText() }
@@ -2796,6 +2866,17 @@ private fun TaskDetailInspector(
                     onOpenPickSession = onOpenPickSession,
                     onOpenPickRoom = onOpenPickRoom,
                 )
+
+                if (calendarPluginAvailable || timeBlocks.isNotEmpty() || task.estimatedMinutes != null) {
+                    TaskTimeBlocksSection(
+                        task = task,
+                        timeBlocks = timeBlocks,
+                        timezone = calendarTimezone,
+                        onScheduleBlock = onOpenScheduleBlock,
+                        onDeleteBlock = onDeleteTimeBlock,
+                        onOpenCalendar = onOpenCalendar,
+                    )
+                }
             }
         }
 
@@ -2820,6 +2901,10 @@ private fun TaskDetailInspector(
                 onOpenFullscreen = activeChannel?.let { ch -> { onOpenFullscreen(ch) } },
                 onSelectInteraction = onSendToChannel,
                 onFillInteraction = { text -> steerState.setTextAndPlaceCursorAtEnd(text) },
+                appliedProposalStatuses = appliedProposalStatuses,
+                onApplyProposal = onApplyProposal,
+                onDiscardProposal = onDiscardProposal,
+                onRevertProposal = onRevertProposal,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -3114,6 +3199,104 @@ private fun TaskChannelsSection(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TaskTimeBlocksSection(
+    task: DirectusTask,
+    timeBlocks: List<DispatchTimeBlock>,
+    timezone: String,
+    onScheduleBlock: (DispatchTimeBlock?) -> Unit,
+    onDeleteBlock: (String) -> Unit,
+    onOpenCalendar: (() -> Unit)?,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Theme[colors][surface], RoundedCornerShape(Theme[radii][radiusMedium]))
+            .border(1.dp, Theme[colors][stroke], RoundedCornerShape(Theme[radii][radiusMedium]))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            UnstyledIcon(Lucide.Calendar, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(14.dp))
+            Text(
+                stringResource(Res.string.cal_time_blocks_heading),
+                style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                color = Theme[colors][textColor],
+                modifier = Modifier.weight(1f),
+            )
+            task.estimatedMinutes?.let { est ->
+                Text(
+                    stringResource(Res.string.cal_estimated_minutes, est),
+                    style = Theme[typography][caption],
+                    color = Theme[colors][accentText],
+                )
+            }
+            if (onOpenCalendar != null) {
+                ActionPill(
+                    icon = Lucide.ExternalLink,
+                    label = stringResource(Res.string.cal_view_in_calendar),
+                    loading = false,
+                    enabled = true,
+                    onClick = onOpenCalendar,
+                )
+            }
+        }
+        if (timeBlocks.isEmpty()) {
+            Text(
+                stringResource(Res.string.cal_no_time_blocks),
+                style = Theme[typography][caption],
+                color = Theme[colors][textTertiary],
+            )
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                timeBlocks.forEach { blk ->
+                    val s = calendarZonedFromIso(blk.startAt, timezone.ifBlank { null })
+                    val e = calendarZonedFromIso(blk.endAt, timezone.ifBlank { null })
+                    val timeLabel = if (s != null && e != null) {
+                        "${s.date.iso.drop(5)} ${formatClockCompact(s.minuteOfDay, use24Hour = true)}–${formatClockCompact(e.minuteOfDay, use24Hour = true)}"
+                    } else blk.startAt
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                            .background(Theme[colors][surface2])
+                            .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(Theme[radii][radiusSmall]))
+                            .clickable(role = Role.Button) { onScheduleBlock(blk) }
+                            .handCursor()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(timeLabel, style = Theme[typography][caption], color = Theme[colors][textColor])
+                        Box(
+                            Modifier
+                                .clip(CircleShape)
+                                .clickable(role = Role.Button) { onDeleteBlock(blk.id) }
+                                .padding(2.dp),
+                        ) {
+                            UnstyledIcon(Lucide.X, contentDescription = stringResource(Res.string.cal_unschedule_block), tint = Theme[colors][textTertiary], modifier = Modifier.size(11.dp))
+                        }
+                    }
+                }
+            }
+        }
+        ActionPill(
+            icon = Lucide.CalendarClock,
+            label = stringResource(Res.string.cal_schedule_task),
+            loading = false,
+            enabled = true,
+            onClick = { onScheduleBlock(null) },
+        )
+    }
+}
+
 @Composable
 private fun TaskChannelLog(
     activeChannel: TaskChannel?,
@@ -3132,6 +3315,10 @@ private fun TaskChannelLog(
     onOpenFullscreen: (() -> Unit)?,
     onSelectInteraction: ((String) -> Unit)? = null,
     onFillInteraction: ((String) -> Unit)? = null,
+    appliedProposalStatuses: Map<String, String> = emptyMap(),
+    onApplyProposal: ((String, List<String>, Boolean) -> Unit)? = null,
+    onDiscardProposal: ((String) -> Unit)? = null,
+    onRevertProposal: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
@@ -3313,6 +3500,10 @@ private fun TaskChannelLog(
                                     sendEnabled = !turnRunning,
                                     onSend = { text -> onSelectInteraction?.invoke(text) },
                                     onFill = { text -> onFillInteraction?.invoke(text) },
+                                    onApplyProposal = onApplyProposal,
+                                    onDiscardProposal = onDiscardProposal,
+                                    onRevertProposal = onRevertProposal,
+                                    appliedProposalStatuses = appliedProposalStatuses,
                                 )
                             }
                         }

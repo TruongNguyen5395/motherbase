@@ -91,4 +91,25 @@
     <string name="cal_plugin_missing">A MotherBase Calendar bővítmény nincs engedélyezve ezen az átjárón.</string>
     <string name="cal_ask_agent_plan">Nap tervezése: %1$s</string>
     <string name="cal_ask_agent_hint">Kérd meg %1$s-t a napod megtervezésére vagy szabad hely keresésére…</string>
+    <string name="cal_previous">Előző időszak</string>
+    <string name="cal_next">Következő időszak</string>
+    <string name="cal_toggle_calendars">Naptárpanel váltása</string>
+    <string name="cal_read_only">Csak olvasható</string>
+    <string name="cal_view_in_calendar">Megnyitás a Naptárban</string>
+    <string name="cal_plan_my_day">Napom megtervezése</string>
+    <string name="cal_find_free_slots">Szabad helyek keresése</string>
+    <string name="cal_no_free_slots">Nincs szabad idősáv ebben az időszakban.</string>
+    <string name="cal_unscheduled_tasks">Ütemezetlen feladatok</string>
+    <string name="cal_scheduled_tasks">Ütemezett blokkok</string>
+    <string name="cal_task_due">Határidő %1$s</string>
+    <string name="cal_event_all_day">Egész napos</string>
+    <string name="cal_delete_attendee_confirm">A külső résztvevők értesítést kapnak, ha engedélyezve van.</string>
+    <string name="cal_proposal_conflict_title">Időpont-ütközés észlelve</string>
+    <string name="cal_proposal_conflict_message">Egy vagy több művelet foglalt eseményekkel ütközik:</string>
+    <string name="cal_agent_panel_empty">Kérd meg a Dispatch koordinátort a napod megtervezésére vagy idősávok javaslására.</string>
+    <string name="cal_agent_staged_empty">Nincsenek függőben lévő javaslatok.</string>
+    <string name="cal_status_synced">Szinkronizálva %1$s</string>
+    <string name="cal_back">Vissza</string>
+    <string name="cal_estimate_input">Becslés (perc)</string>
+    <string name="cal_view_settings">Nézet és szűrők</string>
 </resources>

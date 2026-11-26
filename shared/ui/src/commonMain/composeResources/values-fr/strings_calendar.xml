@@ -91,4 +91,25 @@
     <string name="cal_plugin_missing">Le plugin MotherBase Calendar n&apos;est pas activé sur cette passerelle.</string>
     <string name="cal_ask_agent_plan">Planifier la journée avec %1$s</string>
     <string name="cal_ask_agent_hint">Demander à %1$s d&apos;organiser la journée ou trouver un créneau…</string>
+    <string name="cal_previous">Période précédente</string>
+    <string name="cal_next">Période suivante</string>
+    <string name="cal_toggle_calendars">Afficher ou masquer les calendriers</string>
+    <string name="cal_read_only">Lecture seule</string>
+    <string name="cal_view_in_calendar">Voir dans le calendrier</string>
+    <string name="cal_plan_my_day">Organiser ma journée</string>
+    <string name="cal_find_free_slots">Trouver des créneaux</string>
+    <string name="cal_no_free_slots">Aucun créneau libre trouvé.</string>
+    <string name="cal_unscheduled_tasks">Tâches non planifiées</string>
+    <string name="cal_scheduled_tasks">Blocs planifiés</string>
+    <string name="cal_task_due">Échéance %1$s</string>
+    <string name="cal_event_all_day">Journée entière</string>
+    <string name="cal_delete_attendee_confirm">Les participants externes seront avertis si l&apos;option est activée.</string>
+    <string name="cal_proposal_conflict_title">Conflit d&apos;horaire détecté</string>
+    <string name="cal_proposal_conflict_message">Une ou plusieurs actions chevauchent des événements occupés :</string>
+    <string name="cal_agent_panel_empty">Demandez au coordinateur Dispatch d&apos;analyser votre agenda ou de proposer des créneaux.</string>
+    <string name="cal_agent_staged_empty">Aucune proposition en attente.</string>
+    <string name="cal_status_synced">Synchronisé %1$s</string>
+    <string name="cal_back">Retour</string>
+    <string name="cal_estimate_input">Estimation (min)</string>
+    <string name="cal_view_settings">Vue et filtres</string>
 </resources>

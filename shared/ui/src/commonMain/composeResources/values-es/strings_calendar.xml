@@ -91,4 +91,25 @@
     <string name="cal_plugin_missing">El plugin MotherBase Calendar no está activado en esta pasarela.</string>
     <string name="cal_ask_agent_plan">Planificar día con %1$s</string>
     <string name="cal_ask_agent_hint">Pide a %1$s que organice tu día, mueva reuniones o busque huecos…</string>
+    <string name="cal_previous">Periodo anterior</string>
+    <string name="cal_next">Periodo siguiente</string>
+    <string name="cal_toggle_calendars">Alternar panel de calendarios</string>
+    <string name="cal_read_only">Solo lectura</string>
+    <string name="cal_view_in_calendar">Ver en Calendario</string>
+    <string name="cal_plan_my_day">Organizar mi día</string>
+    <string name="cal_find_free_slots">Buscar huecos libres</string>
+    <string name="cal_no_free_slots">No se encontraron huecos libres.</string>
+    <string name="cal_unscheduled_tasks">Tareas sin programar</string>
+    <string name="cal_scheduled_tasks">Bloques programados</string>
+    <string name="cal_task_due">Vence %1$s</string>
+    <string name="cal_event_all_day">Todo el día</string>
+    <string name="cal_delete_attendee_confirm">Se notificará a los asistentes externos si está activado.</string>
+    <string name="cal_proposal_conflict_title">Conflicto de horario detectado</string>
+    <string name="cal_proposal_conflict_message">Una o más operaciones se solapan con eventos ocupados:</string>
+    <string name="cal_agent_panel_empty">Pide al coordinador de Dispatch que revise tu agenda o proponga bloques.</string>
+    <string name="cal_agent_staged_empty">No hay propuestas pendientes.</string>
+    <string name="cal_status_synced">Sincronizado %1$s</string>
+    <string name="cal_back">Atrás</string>
+    <string name="cal_estimate_input">Estimación (min)</string>
+    <string name="cal_view_settings">Vista y filtros</string>
 </resources>

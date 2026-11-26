@@ -4,6 +4,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.bots.BotsApi
+import dev.hermeskotlin.core.calendar.CalendarApi
+import dev.hermeskotlin.core.calendar.CreateTimeBlockRequest
+import dev.hermeskotlin.core.calendar.DispatchCalendarTask
+import dev.hermeskotlin.core.calendar.DispatchTimeBlock
+import dev.hermeskotlin.core.calendar.FreeSlot
+import dev.hermeskotlin.core.calendar.UpdateTimeBlockRequest
+import dev.hermeskotlin.core.calendar.calendarDateFromIso
+import dev.hermeskotlin.core.calendar.calendarNowZoned
+import dev.hermeskotlin.core.calendar.calendarToUtcIso
+import dev.hermeskotlin.core.calendar.calendarZonedFromIso
+import dev.hermeskotlin.core.calendar.formatClock24
+import dev.hermeskotlin.core.calendar.plusDays
 import dev.hermeskotlin.core.chat.AttachmentKind
 import dev.hermeskotlin.core.chat.AttentionTracker
 import dev.hermeskotlin.core.chat.ChatState
@@ -37,6 +49,7 @@ import dev.hermeskotlin.core.rpc.JsonRpcClient
 import dev.hermeskotlin.core.rpc.RpcException
 import dev.hermeskotlin.core.rpc.ServerRequest
 import dev.hermeskotlin.core.sessions.SeenStore
+import dev.hermeskotlin.core.sessions.SessionMessage
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.tasks.ApproveTaskRequest
 import dev.hermeskotlin.core.tasks.CreateProjectRequest
@@ -57,6 +70,11 @@ import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.core.tasks.UpdateTaskRequest
 import dev.hermeskotlin.core.tasks.UpsertContextRequest
 import dev.hermeskotlin.core.tasks.matrixSyncedPriority
+import dev.hermeskotlin.ui.calendar.PendingProposalConflict
+import dev.hermeskotlin.ui.calendar.ScheduleProposalCoordinator
+import dev.hermeskotlin.ui.calendar.TaskBlockDraft
+import dev.hermeskotlin.ui.calendar.errorTextOrNull
+import dev.hermeskotlin.ui.calendar.parseTimeHHMM
 import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.chat.PendingSwitch
 import dev.hermeskotlin.ui.components.localMoment
@@ -151,6 +169,16 @@ data class TasksUiState(
     val channelInputRequests: List<InputRequest> = emptyList(),
     val gatewayConnected: Boolean = true,
     val actionFeedback: String? = null,
+    val taskTimeBlocks: Map<String, List<DispatchTimeBlock>> = emptyMap(),
+    val calendarPluginAvailable: Boolean = false,
+    val calendarTimezone: String = "Asia/Ho_Chi_Minh",
+    val freeSlots: List<FreeSlot> = emptyList(),
+    val findingFreeSlots: Boolean = false,
+    val schedulingTaskDraft: TaskBlockDraft? = null,
+    val calendarMutating: Boolean = false,
+    val proposalStatuses: Map<String, String> = emptyMap(),
+    val busyProposalIds: Set<String> = emptySet(),
+    val pendingProposalConflict: PendingProposalConflict? = null,
 ) {
     val selectedTask: DirectusTask?
         get() = selectedTaskId?.let { id -> tasks.firstOrNull { it.id == id } }
@@ -216,6 +244,7 @@ class TasksViewModel(
     private val seenStore: SeenStore? = null,
     private val roomSeenStore: RoomSeenStore? = null,
     private val attentionTracker: AttentionTracker? = null,
+    private val calendarApi: CalendarApi? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TasksUiState())
@@ -234,6 +263,16 @@ class TasksViewModel(
     private var pageVisible: Boolean = false
     private var lastAutoTriggeredSlot: String? = null
     private var dismissedCheckinSlot: String? = null
+
+    private val proposalCoordinator = ScheduleProposalCoordinator(
+        calendarApi = calendarApi,
+        scope = viewModelScope,
+        onError = { msg -> _state.update { it.copy(actionFeedback = msg) } },
+        onSessionExpired = { _state.update { it.copy(sessionExpired = true) } },
+        onProposalChanged = {
+            boundGateway?.let { gw -> refreshTaskTimeBlocksSilently(gw) }
+        },
+    )
 
     init {
         viewModelScope.launch {
@@ -265,6 +304,15 @@ class TasksViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            proposalCoordinator.statuses.collect { map -> _state.update { it.copy(proposalStatuses = map) } }
+        }
+        viewModelScope.launch {
+            proposalCoordinator.busyProposalIds.collect { ids -> _state.update { it.copy(busyProposalIds = ids) } }
+        }
+        viewModelScope.launch {
+            proposalCoordinator.pendingConflict.collect { c -> _state.update { it.copy(pendingProposalConflict = c) } }
+        }
     }
 
     override fun onCleared() {
@@ -283,6 +331,7 @@ class TasksViewModel(
         lastAutoTriggeredSlot = null
         dismissedCheckinSlot = null
         boundGateway = gateway
+        proposalCoordinator.clear()
         _state.update {
             TasksUiState(
                 loading = true,
@@ -433,6 +482,7 @@ class TasksViewModel(
                 loadBotAvatars(gateway, bots)
             }
         }
+        refreshTaskTimeBlocksSilently(gateway)
     }
 
     private suspend fun loadBotAvatars(gateway: SavedGateway, roster: List<Bot>) {
@@ -1210,44 +1260,7 @@ class TasksViewModel(
         channel: TaskChannel,
     ): Pair<List<ChannelChatLine>, String?> =
         when (val res = sessionsApi.messages(gateway.gatewayUrl, channel.id, limit = 40, profile = channel.profile)) {
-            is ApiResult.Success -> {
-                val botLabel = channel.profile ?: "Hermes"
-                val allMessages = res.value.messages
-                val toolResults = allMessages
-                    .filter { it.role == "tool" && !it.toolCallId.isNullOrBlank() }
-                    .associate { it.toolCallId!! to it.content }
-                val parsed = allMessages
-                    .filterNot { it.isHidden || it.role == "tool" || it.role == "system" }
-                    .mapNotNull { msg ->
-                        val raw = msg.text.trim()
-                        val key = "sess-${msg.id ?: raw.hashCode()}"
-                        val isUser = msg.role == "user"
-                        val (refs, cleanText) = if (isUser) splitAttachmentRefs(raw, key) else emptyList<ShownAttachment>() to raw
-                        val attachments = if (isUser) {
-                            List(msg.imageCount) { ShownAttachment("$key-img$it", "Image", AttachmentKind.Image) } + refs
-                        } else {
-                            emptyList()
-                        }
-                        val interaction = if (!isUser) {
-                            msg.storedToolCalls.asReversed().firstNotNullOfOrNull { call ->
-                                ReplyInteraction.from(call.name, call.arguments, toolResults[call.id])
-                            }
-                        } else {
-                            null
-                        }
-                        if (cleanText.isEmpty() && attachments.isEmpty() && interaction == null) null else ChannelChatLine(
-                            key = key,
-                            speaker = if (isUser) null else botLabel,
-                            text = cleanText,
-                            fromUser = isUser,
-                            profile = channel.profile,
-                            attachments = attachments,
-                            interaction = interaction,
-                        )
-                    }
-                    .takeLast(30)
-                parsed to null
-            }
+            is ApiResult.Success -> parseSessionChatLines(res.value.messages, channel.profile) to null
             is ApiResult.Failed -> emptyList<ChannelChatLine>() to res.message
             is ApiResult.Unavailable -> emptyList<ChannelChatLine>() to res.message
             is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited -> {
@@ -2028,6 +2041,16 @@ class TasksViewModel(
     }
 
     private fun handleGatewayEvent(event: GatewayEvent) {
+        proposalCoordinator.observeGatewayEvent(event)
+        if (event.type in setOf(
+                ScheduleProposalCoordinator.EVENT_CHANGED,
+                ScheduleProposalCoordinator.EVENT_SYNCED,
+                ScheduleProposalCoordinator.EVENT_PROPOSAL_UPDATED,
+            )
+        ) {
+            boundGateway?.let { gw -> viewModelScope.launch { refreshTaskTimeBlocksSilently(gw) } }
+            return
+        }
         val runtimeId = activeRuntimeSessionId ?: return
         if (event.sessionId != runtimeId) return
         val payload = event.payload as? JsonObject
@@ -2398,7 +2421,174 @@ class TasksViewModel(
             cur.copy(busyTaskIds = next)
         }
     }
+
+    // ── Calendar Time-Block & Schedule Proposal Integration ──────────────────
+
+    private suspend fun refreshTaskTimeBlocksSilently(gateway: SavedGateway) {
+        val api = calendarApi ?: return
+        val health = api.health(gateway.gatewayUrl)
+        if (health is ApiResult.Success && boundGateway == gateway) {
+            val tz = health.value.settings.timezone.ifBlank { "Asia/Ho_Chi_Minh" }
+            _state.update { it.copy(calendarPluginAvailable = true, calendarTimezone = tz) }
+            val overviewRes = api.dispatchOverview(gateway.gatewayUrl, includeDone = _state.value.includeDone)
+            if (overviewRes is ApiResult.Success && boundGateway == gateway) {
+                val grouped = overviewRes.value.timeBlocks.groupBy { it.taskId }
+                _state.update { it.copy(taskTimeBlocks = grouped) }
+            }
+        }
+    }
+
+    fun openScheduleTaskBlock(task: DirectusTask, existingBlock: DispatchTimeBlock? = null) {
+        val blocks = _state.value.taskTimeBlocks[task.id].orEmpty()
+        val tz = _state.value.calendarTimezone.ifBlank { null }
+        val moment = existingBlock?.startAt?.let { calendarZonedFromIso(it, tz) }
+        val today = calendarNowZoned(tz).date
+        val defaultDate = moment?.date?.iso ?: task.dueDate?.take(10) ?: today.iso
+        val defaultStart = moment?.let { formatClock24(it.hour, it.minute) } ?: "09:00"
+        val duration = task.estimatedMinutes?.coerceIn(15, 480) ?: 60
+        _state.update {
+            it.copy(
+                schedulingTaskDraft = TaskBlockDraft(
+                    task = task.toDispatchCalendarTask(blocks),
+                    existingBlockId = existingBlock?.id,
+                    label = existingBlock?.label ?: task.title,
+                    dateIso = defaultDate,
+                    startTime = defaultStart,
+                    durationMinutes = duration,
+                ),
+            )
+        }
+        refreshCalendarFreeSlots(duration)
+    }
+
+    fun closeScheduleTaskBlock() {
+        _state.update { it.copy(schedulingTaskDraft = null) }
+    }
+
+    fun refreshCalendarFreeSlots(minDurationMinutes: Int = 30) {
+        val gateway = boundGateway ?: return
+        val api = calendarApi ?: return
+        val tz = _state.value.calendarTimezone.ifBlank { null }
+        val today = calendarNowZoned(tz).date
+        viewModelScope.launch {
+            _state.update { it.copy(findingFreeSlots = true) }
+            val res = api.findFreeSlots(
+                gateway.gatewayUrl,
+                startDate = today.iso,
+                endDate = today.plusDays(6).iso,
+                minDurationMinutes = minDurationMinutes.coerceAtLeast(15),
+                bufferMinutes = 10,
+            )
+            if (boundGateway == gateway) {
+                _state.update {
+                    it.copy(
+                        findingFreeSlots = false,
+                        freeSlots = (res as? ApiResult.Success)?.value ?: it.freeSlots,
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveTaskTimeBlock(draft: TaskBlockDraft) {
+        val gateway = boundGateway ?: return
+        val api = calendarApi ?: return
+        val date = calendarDateFromIso(draft.dateIso.trim()) ?: run {
+            _state.update { it.copy(actionFeedback = "Invalid date (YYYY-MM-DD).") }
+            return
+        }
+        val (sh, sm) = parseTimeHHMM(draft.startTime) ?: (9 to 0)
+        val endMin = (sh * 60 + sm + draft.durationMinutes.coerceIn(15, 720)).coerceAtMost(23 * 60 + 59)
+        val tz = _state.value.calendarTimezone.ifBlank { "Asia/Ho_Chi_Minh" }
+        val startUtc = calendarToUtcIso(date, sh, sm, tz)
+        val endUtc = calendarToUtcIso(date, endMin / 60, endMin % 60, tz)
+        viewModelScope.launch {
+            _state.update { it.copy(calendarMutating = true) }
+            val res = if (draft.existingBlockId == null) {
+                api.createTimeBlock(
+                    gateway.gatewayUrl,
+                    CreateTimeBlockRequest(
+                        taskId = draft.task.id,
+                        startAt = startUtc,
+                        endAt = endUtc,
+                        label = draft.label.trim().ifEmpty { draft.task.title },
+                        timezone = tz,
+                    ),
+                )
+            } else {
+                api.updateTimeBlock(
+                    gateway.gatewayUrl,
+                    draft.existingBlockId,
+                    UpdateTimeBlockRequest(
+                        startAt = startUtc,
+                        endAt = endUtc,
+                        label = draft.label.trim().ifEmpty { draft.task.title },
+                    ),
+                )
+            }
+            when (res) {
+                is ApiResult.Success -> {
+                    _state.update { it.copy(calendarMutating = false, schedulingTaskDraft = null) }
+                    refreshTaskTimeBlocksSilently(gateway)
+                }
+                is ApiResult.SessionExpired -> _state.update { it.copy(calendarMutating = false, sessionExpired = true) }
+                else -> _state.update { it.copy(calendarMutating = false, actionFeedback = res.errorTextOrNull()) }
+            }
+        }
+    }
+
+    fun deleteTaskTimeBlock(blockId: String) {
+        val gateway = boundGateway ?: return
+        val api = calendarApi ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(calendarMutating = true) }
+            when (val res = api.deleteTimeBlock(gateway.gatewayUrl, blockId)) {
+                is ApiResult.Success -> {
+                    _state.update { it.copy(calendarMutating = false, schedulingTaskDraft = null) }
+                    refreshTaskTimeBlocksSilently(gateway)
+                }
+                is ApiResult.SessionExpired -> _state.update { it.copy(calendarMutating = false, sessionExpired = true) }
+                else -> _state.update { it.copy(calendarMutating = false, actionFeedback = res.errorTextOrNull()) }
+            }
+        }
+    }
+
+    fun applyScheduleProposal(proposalId: String, selectedOpIds: List<String>, force: Boolean = false) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.apply(gw.gatewayUrl, proposalId, selectedOpIds, force)
+    }
+
+    fun discardScheduleProposal(proposalId: String) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.discard(gw.gatewayUrl, proposalId)
+    }
+
+    fun revertScheduleProposal(proposalId: String) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.revert(gw.gatewayUrl, proposalId, force = true)
+    }
+
+    fun dismissProposalConflict() = proposalCoordinator.dismissConflict()
+
+    fun confirmForceApplyProposal() {
+        val gw = boundGateway ?: return
+        proposalCoordinator.confirmForceApply(gw.gatewayUrl)
+    }
 }
+
+private fun DirectusTask.toDispatchCalendarTask(blocks: List<DispatchTimeBlock>): DispatchCalendarTask =
+    DispatchCalendarTask(
+        id = id,
+        title = title,
+        status = status,
+        priority = priority,
+        dueDate = dueDate,
+        completedAt = completedAt,
+        projectId = projectId,
+        agentState = agentState,
+        estimatedMinutes = estimatedMinutes,
+        timeBlocks = blocks,
+    )
 
 private fun ChatState.withChannelInfo(info: JsonObject?): ChatState {
     if (info == null) return this
@@ -2413,6 +2603,47 @@ private fun ChatState.withChannelInfo(info: JsonObject?): ChatState {
 
 internal fun formatIsoDate(year: Int, month: Int, day: Int): String =
     "${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}"
+
+internal fun parseSessionChatLines(
+    allMessages: List<SessionMessage>,
+    profile: String?,
+    limit: Int = 30,
+): List<ChannelChatLine> {
+    val botLabel = profile ?: "Hermes"
+    val toolResults = allMessages
+        .filter { it.role == "tool" && !it.toolCallId.isNullOrBlank() }
+        .associate { it.toolCallId!! to it.content }
+    return allMessages
+        .filterNot { it.isHidden || it.role == "tool" || it.role == "system" }
+        .mapNotNull { msg ->
+            val raw = msg.text.trim()
+            val key = "sess-${msg.id ?: raw.hashCode()}"
+            val isUser = msg.role == "user"
+            val (refs, cleanText) = if (isUser) splitAttachmentRefs(raw, key) else emptyList<ShownAttachment>() to raw
+            val attachments = if (isUser) {
+                List(msg.imageCount) { ShownAttachment("$key-img$it", "Image", AttachmentKind.Image) } + refs
+            } else {
+                emptyList()
+            }
+            val interaction = if (!isUser) {
+                msg.storedToolCalls.asReversed().firstNotNullOfOrNull { call ->
+                    ReplyInteraction.from(call.name, call.arguments, toolResults[call.id])
+                }
+            } else {
+                null
+            }
+            if (cleanText.isEmpty() && attachments.isEmpty() && interaction == null) null else ChannelChatLine(
+                key = key,
+                speaker = if (isUser) null else botLabel,
+                text = cleanText,
+                fromUser = isUser,
+                profile = profile,
+                attachments = attachments,
+                interaction = interaction,
+            )
+        }
+        .takeLast(limit)
+}
 
 private fun JsonObject?.str(key: String): String? = (this?.get(key) as? JsonPrimitive)?.contentOrNull
 private fun JsonObject?.bool(key: String): Boolean? = (this?.get(key) as? JsonPrimitive)?.booleanOrNull

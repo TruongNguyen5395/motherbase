@@ -1,8 +1,21 @@
 package dev.hermeskotlin.ui.preview
 
 import dev.hermeskotlin.core.capabilities.Skill
+import dev.hermeskotlin.core.calendar.CalendarAccount
+import dev.hermeskotlin.core.calendar.CalendarEvent
+import dev.hermeskotlin.core.calendar.CalendarInfo
+import dev.hermeskotlin.core.calendar.CalendarSettings
+import dev.hermeskotlin.core.calendar.DispatchCalendarOverview
+import dev.hermeskotlin.core.calendar.DispatchCalendarTask
+import dev.hermeskotlin.core.calendar.DispatchProjectSummary
+import dev.hermeskotlin.core.calendar.DispatchTimeBlock
+import dev.hermeskotlin.core.calendar.ScheduleOperation
+import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.calendarDateFromIso
 import dev.hermeskotlin.core.config.ConfigCatalog
 import dev.hermeskotlin.core.config.ConfigSchema
+import dev.hermeskotlin.ui.calendar.CalendarUiState
+import dev.hermeskotlin.ui.calendar.CalendarViewMode
 import dev.hermeskotlin.ui.sessions.ConfigPlace
 import dev.hermeskotlin.ui.sessions.ConfigUiState
 import kotlinx.serialization.json.Json
@@ -577,6 +590,146 @@ internal object PageSamples {
                 ChannelChatLine("l1", "ops", "Scanned backup volumes; 18 snapshots eligible for pruning.", fromUser = false, profile = "ops"),
                 ChannelChatLine("l2", null, "@ops Hold 14 days by default unless critical.", fromUser = true),
             ),
+        )
+    }
+
+    fun calendar(viewMode: CalendarViewMode = CalendarViewMode.FOUR_DAYS): CalendarUiState {
+        val anchor = calendarDateFromIso("2026-11-26")!!
+        val calendars = listOf(
+            CalendarInfo(
+                id = "cal-primary",
+                accountId = "acc-1",
+                name = "Work Primary",
+                colorHex = "#E67C73",
+                isPrimary = true,
+                writable = true,
+                provider = "google",
+            ),
+            CalendarInfo(
+                id = "cal-mb",
+                accountId = "acc-1",
+                name = "MotherBase",
+                colorHex = "#0F766E",
+                isTaskTarget = true,
+                writable = true,
+                provider = "google",
+            ),
+            CalendarInfo(
+                id = "cal-holidays",
+                accountId = "acc-2",
+                name = "Public Holidays",
+                colorHex = "#10B981",
+                writable = false,
+                provider = "ics",
+            ),
+        )
+        val events = listOf(
+            CalendarEvent(
+                id = "ev-1",
+                calendarId = "cal-primary",
+                accountId = "acc-1",
+                title = "Engineering Standup",
+                startAt = "2026-11-26T02:00:00Z",
+                endAt = "2026-11-26T03:00:00Z",
+                timezone = "Asia/Ho_Chi_Minh",
+                location = "Room A",
+                colorHex = "#E67C73",
+                calendarName = "Work Primary",
+            ),
+            CalendarEvent(
+                id = "ev-2",
+                calendarId = "cal-mb",
+                accountId = "acc-1",
+                title = "[Task] Release Packaging Audit",
+                startAt = "2026-11-26T07:00:00Z",
+                endAt = "2026-11-26T08:30:00Z",
+                timezone = "Asia/Ho_Chi_Minh",
+                sourceKind = "dispatch_block",
+                taskId = "task-1",
+                timeBlockId = "blk-1",
+                colorHex = "#0F766E",
+                calendarName = "MotherBase",
+            ),
+            CalendarEvent(
+                id = "ev-3",
+                calendarId = "cal-holidays",
+                accountId = "acc-2",
+                title = "Company Offsite",
+                allDay = true,
+                startDate = "2026-11-27",
+                endDate = "2026-11-29",
+                colorHex = "#10B981",
+                calendarName = "Public Holidays",
+                calendarWritable = false,
+            ),
+        )
+        val dispatchTasks = listOf(
+            DispatchCalendarTask(
+                id = "task-1",
+                title = "Release Packaging Audit",
+                status = "in_progress",
+                dueDate = "2026-11-26",
+                estimatedMinutes = 90,
+                timeBlocks = listOf(
+                    DispatchTimeBlock(
+                        id = "blk-1",
+                        taskId = "task-1",
+                        label = "Release Packaging Audit",
+                        startAt = "2026-11-26T07:00:00Z",
+                        endAt = "2026-11-26T08:30:00Z",
+                    ),
+                ),
+            ),
+            DispatchCalendarTask(
+                id = "task-2",
+                title = "Review Gateway Schema PR",
+                status = "todo",
+                dueDate = "2026-11-28",
+                estimatedMinutes = 45,
+            ),
+        )
+        val proposal = ScheduleProposal(
+            id = "prop-1",
+            title = "Afternoon Focus Block",
+            summary = "Schedule PR review in open afternoon window",
+            targetDate = "2026-11-26",
+            status = ScheduleProposal.STATUS_STAGED,
+            operations = listOf(
+                ScheduleOperation(
+                    opId = "op-1",
+                    kind = "schedule_task",
+                    title = "Review Gateway Schema PR",
+                    taskId = "task-2",
+                    startAt = "2026-11-26T10:00:00Z",
+                    endAt = "2026-11-26T10:45:00Z",
+                    reason = "Open slot before end of workday",
+                ),
+            ),
+        )
+        return CalendarUiState(
+            viewMode = viewMode,
+            anchorDate = anchor,
+            todayDate = anchor,
+            currentMinuteOfDay = 15 * 60 + 30,
+            settings = CalendarSettings(timezone = "Asia/Ho_Chi_Minh"),
+            accounts = listOf(
+                CalendarAccount(
+                    id = "acc-1",
+                    provider = "google",
+                    authMode = "oauth",
+                    label = "Work Google",
+                    email = "team@example.com",
+                ),
+            ),
+            calendars = calendars,
+            events = events,
+            dispatchOverview = DispatchCalendarOverview(
+                configured = true,
+                projects = listOf(DispatchProjectSummary(id = "proj-1", name = "Core", color = "#0284C7")),
+                tasks = dispatchTasks,
+                timeBlocks = dispatchTasks.first().timeBlocks,
+            ),
+            proposals = listOf(proposal),
         )
     }
 }

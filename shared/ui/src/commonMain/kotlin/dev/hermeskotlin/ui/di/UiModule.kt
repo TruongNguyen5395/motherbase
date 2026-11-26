@@ -24,6 +24,7 @@ import dev.hermeskotlin.ui.sessions.SessionsViewModel
 import dev.hermeskotlin.ui.settings.PhoneToolsViewModel
 import dev.hermeskotlin.ui.settings.SettingsViewModel
 import dev.hermeskotlin.ui.signin.SignInViewModel
+import dev.hermeskotlin.ui.calendar.CalendarViewModel
 import dev.hermeskotlin.ui.tasks.TasksViewModel
 import dev.hermeskotlin.core.phone.NoWatchedPlaces
 import dev.hermeskotlin.core.phone.WatchedPlaces
@@ -56,6 +57,17 @@ val uiModule = module {
             seenStore = getOrNull(),
             roomSeenStore = getOrNull(),
             attentionTracker = getOrNull(),
+            calendarApi = getOrNull(),
+        )
+    }
+    viewModel {
+        CalendarViewModel(
+            get(),
+            get(),
+            cacheStore = getOrNull(),
+            directusApi = getOrNull(),
+            sessionsApi = getOrNull(),
+            botsApi = getOrNull(),
         )
     }
     // Spelled out: past 22 parameters viewModelOf has no overload, and the last two are optional.
@@ -71,6 +83,7 @@ val uiModule = module {
             deviceLock = getOrNull() ?: DeviceLock.None,
             nextPromptApi = get(),
             directusTasksApi = get(),
+            calendarApi = getOrNull(),
         )
     }
     // A chat in a window of its own (the desktop's Open in new window), with the host it's handed: the app's one
@@ -86,6 +99,7 @@ val uiModule = module {
             deviceLock = getOrNull() ?: DeviceLock.None,
             nextPromptApi = get(),
             directusTasksApi = get(),
+            calendarApi = getOrNull(),
         )
     }
     viewModelOf(::SettingsViewModel)

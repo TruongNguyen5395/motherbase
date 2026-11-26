@@ -91,4 +91,25 @@
     <string name="cal_plugin_missing">当前网关未启用 MotherBase Calendar 插件。</string>
     <string name="cal_ask_agent_plan">让 %1$s 规划今日日程</string>
     <string name="cal_ask_agent_hint">向 %1$s 发送指令以规划日程、调整会议或查找空闲时间…</string>
+    <string name="cal_previous">上一时段</string>
+    <string name="cal_next">下一时段</string>
+    <string name="cal_toggle_calendars">切换日历侧栏</string>
+    <string name="cal_read_only">只读</string>
+    <string name="cal_view_in_calendar">在日历中查看</string>
+    <string name="cal_plan_my_day">规划我的一天</string>
+    <string name="cal_find_free_slots">查找空闲时段</string>
+    <string name="cal_no_free_slots">范围内未找到空闲时段。</string>
+    <string name="cal_unscheduled_tasks">未排期任务</string>
+    <string name="cal_scheduled_tasks">已排期时间块</string>
+    <string name="cal_task_due">截止 %1$s</string>
+    <string name="cal_event_all_day">全天事件</string>
+    <string name="cal_delete_attendee_confirm">启用后将通知外部参与者。</string>
+    <string name="cal_proposal_conflict_title">检测到日程冲突</string>
+    <string name="cal_proposal_conflict_message">以下操作与现有忙碌日程重叠：</string>
+    <string name="cal_agent_panel_empty">请让 Dispatch 协调器检查日程、提议时间块或重新安排任务。</string>
+    <string name="cal_agent_staged_empty">暂无待确认的排期提案。</string>
+    <string name="cal_status_synced">已同步 %1$s</string>
+    <string name="cal_back">返回</string>
+    <string name="cal_estimate_input">预估耗时（分钟）</string>
+    <string name="cal_view_settings">视图与筛选</string>
 </resources>

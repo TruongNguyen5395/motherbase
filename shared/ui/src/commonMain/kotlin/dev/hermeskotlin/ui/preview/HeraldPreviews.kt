@@ -118,6 +118,8 @@ import dev.hermeskotlin.ui.settings.SettingsView
 import dev.hermeskotlin.ui.settings.StartInstructionView
 import dev.hermeskotlin.ui.settings.SidebarPagesView
 import dev.hermeskotlin.ui.SidebarPage
+import dev.hermeskotlin.ui.calendar.CalendarPageContent
+import dev.hermeskotlin.ui.calendar.CalendarViewMode
 import dev.hermeskotlin.ui.update.LocalRenameOffer
 import dev.hermeskotlin.ui.update.RenameOffer
 import androidx.compose.ui.tooling.preview.Preview
@@ -184,6 +186,9 @@ enum class PreviewScene(val label: String) {
     AssistantAnswer("The assistant, after a question about the screen"),
     Scheduled("Scheduled jobs"),
     Tasks("Directus Tasks command board"),
+    Calendar("Calendar workspace (4-day grid)"),
+    CalendarSchedule("Calendar workspace (Schedule agenda)"),
+    CalendarMonth("Calendar workspace (Month grid)"),
     Inbox("The Inbox's folders"),
     InboxFolder("A folder in the Inbox"),
     InboxReport("A report read in full"),
@@ -519,6 +524,9 @@ fun HeraldPreview(scene: PreviewScene, dark: Boolean = true, accent: String = DE
                     onBack = {},
                     onToggleSidebar = {},
                 )
+                PreviewScene.Calendar -> CalendarPageContent(state = PageSamples.calendar(CalendarViewMode.FOUR_DAYS))
+                PreviewScene.CalendarSchedule -> CalendarPageContent(state = PageSamples.calendar(CalendarViewMode.SCHEDULE))
+                PreviewScene.CalendarMonth -> CalendarPageContent(state = PageSamples.calendar(CalendarViewMode.MONTH))
                 PreviewScene.Scheduled, PreviewScene.ScheduledJob -> OpenSidebar {
                     SidebarPage {
                         ScheduledView(
@@ -959,6 +967,14 @@ private fun SignInPreview() = HeraldPreview(PreviewScene.SignIn)
 @Preview(widthDp = 412, heightDp = 892)
 @Composable
 private fun TasksPreview() = HeraldPreview(PreviewScene.Tasks)
+
+@Preview(widthDp = 1280, heightDp = 800)
+@Composable
+private fun CalendarDesktopPreview() = HeraldPreview(PreviewScene.Calendar)
+
+@Preview(widthDp = 360, heightDp = 760)
+@Composable
+private fun CalendarPhoneSchedulePreview() = HeraldPreview(PreviewScene.CalendarSchedule)
 
 /** The welcome screen after a test of [address] came back with [result]. */
 @Composable

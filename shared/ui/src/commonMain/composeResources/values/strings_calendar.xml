@@ -91,4 +91,25 @@
     <string name="cal_plugin_missing">MotherBase Calendar plugin is not enabled on this gateway.</string>
     <string name="cal_ask_agent_plan">Plan my day with %1$s</string>
     <string name="cal_ask_agent_hint">Ask %1$s to schedule your day, move meetings, or find free slots…</string>
+    <string name="cal_previous">Previous period</string>
+    <string name="cal_next">Next period</string>
+    <string name="cal_toggle_calendars">Toggle calendars panel</string>
+    <string name="cal_read_only">Read-only</string>
+    <string name="cal_view_in_calendar">View in Calendar</string>
+    <string name="cal_plan_my_day">Plan my day</string>
+    <string name="cal_find_free_slots">Find free slots</string>
+    <string name="cal_no_free_slots">No open free slots found in range.</string>
+    <string name="cal_unscheduled_tasks">Unscheduled tasks</string>
+    <string name="cal_scheduled_tasks">Scheduled blocks</string>
+    <string name="cal_task_due">Due %1$s</string>
+    <string name="cal_event_all_day">All-day event</string>
+    <string name="cal_delete_attendee_confirm">External attendees will be notified if enabled.</string>
+    <string name="cal_proposal_conflict_title">Schedule conflict detected</string>
+    <string name="cal_proposal_conflict_message">One or more operations overlap existing busy events:</string>
+    <string name="cal_agent_panel_empty">Ask the Dispatch coordinator to inspect your agenda, propose time blocks, or reschedule tasks.</string>
+    <string name="cal_agent_staged_empty">No pending schedule proposals.</string>
+    <string name="cal_status_synced">Synced %1$s</string>
+    <string name="cal_back">Back</string>
+    <string name="cal_estimate_input">Estimate (min)</string>
+    <string name="cal_view_settings">View &amp; filters</string>
 </resources>

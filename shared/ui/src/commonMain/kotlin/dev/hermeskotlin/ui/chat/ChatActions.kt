@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.JsonObject
 
 private val DefaultRunningSend: StateFlow<RunningSend> = MutableStateFlow(RunningSend.Steer).asStateFlow()
+private val DefaultProposalStatuses: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap<String, String>()).asStateFlow()
 
 /**
  * What the chat's layout ([ChatView]) asks of whatever runs the chat: [ChatViewModel] in the app,
@@ -72,6 +73,15 @@ interface ChatActions {
         optionLabel: String,
         tweaks: List<TweakDeltaInput>,
     ) {}
+
+    /** Staged calendar proposal status overrides (`proposal_id` -> status). */
+    val appliedProposalStatuses: StateFlow<Map<String, String>> get() = DefaultProposalStatuses
+
+    fun applyScheduleProposal(proposalId: String, selectedOpIds: List<String>, force: Boolean = false) {}
+
+    fun discardScheduleProposal(proposalId: String) {}
+
+    fun revertScheduleProposal(proposalId: String, force: Boolean = true) {}
 
     /** Closes the suggested next message. */
     fun dismissSuggestedReply() {}

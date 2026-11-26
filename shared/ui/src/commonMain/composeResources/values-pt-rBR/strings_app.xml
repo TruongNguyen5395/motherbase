@@ -19,6 +19,7 @@
     <string name="app_page_bots">Bots</string>
     <string name="app_page_inbox">Caixa de entrada</string>
     <string name="app_page_tasks">Dispatch</string>
+    <string name="app_page_calendar">Agenda</string>
     <string name="app_page_scheduled">Agendadas</string>
     <string name="app_page_archived">Conversas arquivadas</string>
     <string name="app_page_capabilities">Recursos</string>

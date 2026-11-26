@@ -19,6 +19,7 @@
     <string name="app_page_bots">机器人</string>
     <string name="app_page_inbox">收件箱</string>
     <string name="app_page_tasks">Dispatch</string>
+    <string name="app_page_calendar">日历</string>
     <string name="app_page_scheduled">定时任务</string>
     <string name="app_page_archived">已归档的对话</string>
     <string name="app_page_capabilities">能力</string>

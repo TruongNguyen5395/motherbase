@@ -19,6 +19,7 @@
     <string name="app_page_bots">Botok</string>
     <string name="app_page_inbox">Beérkezett</string>
     <string name="app_page_tasks">Dispatch</string>
+    <string name="app_page_calendar">Naptár</string>
     <string name="app_page_scheduled">Ütemezett</string>
     <string name="app_page_archived">Archivált csevegések</string>
     <string name="app_page_capabilities">Képességek</string>

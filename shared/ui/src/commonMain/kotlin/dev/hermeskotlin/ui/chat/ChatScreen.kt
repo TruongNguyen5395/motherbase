@@ -35,6 +35,8 @@ import dev.hermeskotlin.core.chat.screenViews
 import dev.hermeskotlin.core.projects.PathEntry
 import dev.hermeskotlin.core.projects.ProjectsApi
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
+import dev.hermeskotlin.core.chat.ReplyInteraction
+import dev.hermeskotlin.ui.calendar.ScheduleProposalConflictDialog
 import kotlin.coroutines.cancellation.CancellationException
 import dev.hermeskotlin.core.media.GatewayFileKind
 import androidx.compose.ui.draw.drawWithContent
@@ -516,8 +518,11 @@ fun ChatScreen(
     LaunchedEffect(target) { if (!rightRail.docked && rightRail.isOpen) rightRail.close() }
     val docked = previewing?.let { rightRail.docked && it.dockedEligible } == true
     // Over a sheet or a viewer, typing and shortcuts are the dialog's, not the chat's behind it.
+    val proposalConflict by viewModel.proposalConflict.collectAsStateWithLifecycle()
+    val proposalBusyIds by viewModel.proposalBusyIds.collectAsStateWithLifecycle()
     val dialogOpen = modelsOpen || attachOpen || petsOpen || journeyOpen || usageOpen || processesOpen ||
-        checkpointsOpen || controlOpen || viewing != null || (previewing != null && (!docked || railExpanded)) ||
+        checkpointsOpen || controlOpen || viewing != null || proposalConflict != null ||
+        (previewing != null && (!docked || railExpanded)) ||
         (screenOpenForChat && !rightRail.docked)
     ShortcutHandler(enabled = keysEnabled && isDesktop) { shortcut ->
         (shortcut == Shortcut.ToggleRail).also {
@@ -872,6 +877,12 @@ fun ChatScreen(
             ImageViewer(image, onDismiss = { viewing = null })
         }
     }
+    ScheduleProposalConflictDialog(
+        conflict = proposalConflict,
+        busy = proposalConflict?.proposalId in proposalBusyIds,
+        onDismiss = viewModel::dismissProposalConflict,
+        onForceApply = viewModel::confirmForceApplyProposal,
+    )
     ModelSheet(
         visible = modelsOpen,
         onDismiss = { modelsOpen = false },
@@ -2102,6 +2113,7 @@ private fun Messages(
     var confirm by remember { mutableStateOf<Pair<MessageChange, String>?>(null) }
     val lastPrompt = messages.lastOrNull { it is ChatMessage.User }?.key
     val lastReply = messages.lastOrNull { it is ChatMessage.Assistant && it.text.isNotBlank() }?.key
+    val appliedProposalStatuses by actions.appliedProposalStatuses.collectAsStateWithLifecycle()
     val activeInteractionReplyKey = if (!running && editing == null) {
         messages.lastOrNull { it is ChatMessage.User || it is ChatMessage.Assistant }?.let { (it as? ChatMessage.Assistant)?.key }
     } else {
@@ -2350,6 +2362,10 @@ private fun Messages(
                                     onInteractionSend = actions::sendPrompt,
                                     onInteractionFill = onInteractionFill,
                                     onInteractionTweaks = actions::recordTaskTweaks,
+                                    appliedProposalStatuses = appliedProposalStatuses,
+                                    onApplyProposal = actions::applyScheduleProposal,
+                                    onDiscardProposal = actions::discardScheduleProposal,
+                                    onRevertProposal = { proposalId -> actions.revertScheduleProposal(proposalId) },
                                 )
                             }
                             // An answer to another bot's message folds under it; never while it's still being written.
@@ -3034,6 +3050,10 @@ internal fun AssistantReply(
     onInteractionSend: ((String) -> Unit)? = null,
     onInteractionFill: ((String) -> Unit)? = null,
     onInteractionTweaks: ((String, String?, String?, String, List<TweakDeltaInput>) -> Unit)? = null,
+    appliedProposalStatuses: Map<String, String> = emptyMap(),
+    onApplyProposal: ((String, List<String>, Boolean) -> Unit)? = null,
+    onDiscardProposal: ((String) -> Unit)? = null,
+    onRevertProposal: ((String) -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
     val showReasoning = settings.showReasoning && message.reasoning.isNotBlank()
@@ -3041,10 +3061,15 @@ internal fun AssistantReply(
     val listedTools = message.tools.filter {
         it.name != MESSAGE_AGENT_TOOL && it.name !in INTERACTIVE_REPLY_TOOLS && it.interaction == null
     }
-    val interaction = if (showInteraction && !message.streaming) {
+    val rawInteraction = if (!message.streaming) {
         message.tools.mapNotNull { it.interaction }.lastOrNull()
     } else {
         null
+    }
+    val interaction = when (rawInteraction) {
+        is ReplyInteraction.ScheduleProposal -> rawInteraction
+        null -> null
+        else -> if (showInteraction) rawInteraction else null
     }
     val showTools = settings.showToolActivity && listedTools.isNotEmpty()
     // Pictures and files the reply delivered show as themselves, not as Markdown a renderer can't load.
@@ -3122,6 +3147,10 @@ internal fun AssistantReply(
                 onSend = onInteractionSend,
                 onFill = onInteractionFill,
                 onTweaks = onInteractionTweaks,
+                onApplyProposal = onApplyProposal,
+                onDiscardProposal = onDiscardProposal,
+                onRevertProposal = onRevertProposal,
+                appliedProposalStatuses = appliedProposalStatuses,
             )
         }
         when (message.outcome) {

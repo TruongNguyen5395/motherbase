@@ -16,6 +16,7 @@ import dev.hermeskotlin.core.chat.ChatSession
 import dev.hermeskotlin.core.threads.ChatThread
 import dev.hermeskotlin.core.threads.ThreadsRepository
 import dev.hermeskotlin.core.bots.BotsApi
+import dev.hermeskotlin.core.calendar.CalendarApi
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.ComposeDraft
 import dev.hermeskotlin.core.chat.ControlAction
@@ -59,6 +60,8 @@ import dev.hermeskotlin.core.pet.PetApi
 import dev.hermeskotlin.core.journey.JourneyApi
 import dev.hermeskotlin.ui.pet.PetController
 import dev.hermeskotlin.ui.journey.JourneyController
+import dev.hermeskotlin.ui.calendar.PendingProposalConflict
+import dev.hermeskotlin.ui.calendar.ScheduleProposalCoordinator
 import dev.hermeskotlin.core.voice.AudioApi
 import dev.hermeskotlin.core.voice.LiveCalls
 import dev.hermeskotlin.core.voice.VoiceKeepAlive
@@ -225,6 +228,7 @@ class ChatViewModel(
     /** The Next Prompt plugin's suggestions; none without it. */
     nextPromptApi: NextPromptApi? = null,
     private val directusTasksApi: DirectusTasksApi? = null,
+    calendarApi: CalendarApi? = null,
 ) : ViewModel(), ChatActions {
 
     /** Dictation, voice chat and Read aloud for the open chat. */
@@ -256,6 +260,21 @@ class ChatViewModel(
 
     /** The message the gateway's Next Prompt plugin expects next in the open chat. */
     val nextPrompt = NextPromptController(nextPromptApi, viewModelScope)
+
+    private val proposalCoordinator = ScheduleProposalCoordinator(
+        calendarApi = calendarApi,
+        scope = viewModelScope,
+        onError = { showNotice(ComposerNotice.Said(it)) },
+    )
+
+    override val appliedProposalStatuses: StateFlow<Map<String, String>>
+        get() = proposalCoordinator.statuses
+
+    val proposalConflict: StateFlow<PendingProposalConflict?>
+        get() = proposalCoordinator.pendingConflict
+
+    val proposalBusyIds: StateFlow<Set<String>>
+        get() = proposalCoordinator.busyProposalIds
 
     override val composer = TextFieldState()
     val connectionState: StateFlow<ConnectionState> = connection.state
@@ -367,6 +386,7 @@ class ChatViewModel(
         }
         // Off the gateway the chat hears of no new turns, while the lists may read them on reconnecting first.
         viewModelScope.launch { connectionState.collect { if (it !is ConnectionState.Connected) releaseCaughtUp() } }
+        viewModelScope.launch { connection.events.collect { proposalCoordinator.observeGatewayEvent(it) } }
         // A chat opened under the checkpoints sheet shows its own checkpoints, not the last chat's.
         viewModelScope.launch { session.collect { checkpoints.follow(it) } }
         viewModelScope.launch { session.collect { control.follow(it) } }
@@ -1056,6 +1076,31 @@ class ChatViewModel(
                 )
             }
         }
+    }
+
+    private fun proposalGatewayUrl(): GatewayUrl? =
+        widgetSession.value?.second?.gateway?.gatewayUrl ?: target?.gateway?.gatewayUrl
+
+    override fun applyScheduleProposal(proposalId: String, selectedOpIds: List<String>, force: Boolean) {
+        val url = proposalGatewayUrl() ?: return
+        proposalCoordinator.apply(url, proposalId, selectedOpIds, force)
+    }
+
+    override fun discardScheduleProposal(proposalId: String) {
+        val url = proposalGatewayUrl() ?: return
+        proposalCoordinator.discard(url, proposalId)
+    }
+
+    override fun revertScheduleProposal(proposalId: String, force: Boolean) {
+        val url = proposalGatewayUrl() ?: return
+        proposalCoordinator.revert(url, proposalId, force)
+    }
+
+    fun dismissProposalConflict() = proposalCoordinator.dismissConflict()
+
+    fun confirmForceApplyProposal() {
+        val url = proposalGatewayUrl() ?: return
+        proposalCoordinator.confirmForceApply(url)
     }
 
     private fun isSlashQuery(text: String): Boolean = '\n' !in text && SlashCommand.looksLikeCommand(text) || text == "/"

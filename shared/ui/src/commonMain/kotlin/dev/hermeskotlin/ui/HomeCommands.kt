@@ -13,6 +13,7 @@ import com.composables.icons.lucide.Archive
 import com.composables.icons.lucide.AppWindow
 import com.composables.icons.lucide.Blocks
 import com.composables.icons.lucide.Bot
+import com.composables.icons.lucide.Calendar
 import com.composables.icons.lucide.CalendarClock
 import com.composables.icons.lucide.ChartColumn
 import com.composables.icons.lucide.Ellipsis
@@ -147,6 +148,7 @@ private val PAGE_ICONS = listOf(
     SidebarPage.Bots to Lucide.Bot,
     SidebarPage.Inbox to Lucide.Inbox,
     SidebarPage.Tasks to Lucide.ListTodo,
+    SidebarPage.Calendar to Lucide.Calendar,
     SidebarPage.Scheduled to Lucide.CalendarClock,
     SidebarPage.Archived to Lucide.Archive,
     SidebarPage.Capabilities to Lucide.Wrench,
