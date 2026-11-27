@@ -1934,6 +1934,8 @@ class TasksViewModelTest {
                             }
                         """.trimIndent()
                     }
+                    rec.path.endsWith("/mutation-snapshot") ->
+                        HttpStatusCode.OK to """{"exists":true,"runtime_revision":1,"runtime_generation":1}"""
                     rec.method == HttpMethod.Patch && rec.path.startsWith("/api/sessions/") -> {
                         archivedPaths += rec.path
                         HttpStatusCode.OK to "{}"
