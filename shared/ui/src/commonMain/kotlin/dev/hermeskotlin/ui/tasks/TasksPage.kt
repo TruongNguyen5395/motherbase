@@ -2999,23 +2999,25 @@ private fun TaskDetailInspector(
                 error = channelError,
                 turnRunning = sendingToChannel || channelTurnRunning,
                 turnStatus = channelTurnStatus,
-                channelHeaderChip = {
-                    TaskChannelHandlerBadge(
-                        channels = task.channels,
-                        activeIdx = activeChannelIdx,
-                        activeChannel = activeChannel,
-                        bots = bots,
-                        botAvatars = botAvatars,
-                        assignedBots = task.assignedBots,
-                        busy = busy,
-                        onSelectChannel = onSelectChannel,
-                        onOpenPickSession = onOpenPickSession,
-                        onOpenPickRoom = onOpenPickRoom,
-                        onReplaceWithSession = onReplaceWithSession,
-                        onReplaceWithRoom = onReplaceWithRoom,
-                        onUnlinkChannel = onUnlinkChannel,
-                    )
-                },
+                channelHeaderChip = if (!detailsExpanded) {
+                    {
+                        TaskChannelHandlerBadge(
+                            channels = task.channels,
+                            activeIdx = activeChannelIdx,
+                            activeChannel = activeChannel,
+                            bots = bots,
+                            botAvatars = botAvatars,
+                            assignedBots = task.assignedBots,
+                            busy = busy,
+                            onSelectChannel = onSelectChannel,
+                            onOpenPickSession = onOpenPickSession,
+                            onOpenPickRoom = onOpenPickRoom,
+                            onReplaceWithSession = onReplaceWithSession,
+                            onReplaceWithRoom = onReplaceWithRoom,
+                            onUnlinkChannel = onUnlinkChannel,
+                        )
+                    }
+                } else null,
                 onRefresh = onRefreshChannel,
                 onOpenFullscreen = activeChannel?.let { ch -> { onOpenFullscreen(ch) } },
                 onSelectInteraction = onSendToChannel,
@@ -3412,9 +3414,15 @@ private fun resolveChannelHandler(
         botLabel != null && !botLabel.equals(effectiveProfile, ignoreCase = true) -> "$botLabel (@$effectiveProfile)"
         else -> "@$effectiveProfile"
     }
+    val rawLabel = channel.label.trim()
+    val fullLabel = when {
+        rawLabel.isBlank() || rawLabel.equals("Session (@Hermes)", ignoreCase = true) -> displayName
+        effectiveProfile.lowercase() in rawLabel.lowercase() -> rawLabel
+        else -> "$rawLabel ($displayName)"
+    }
     return ChannelHandlerInfo(
         shortLabel = displayName,
-        fullChipLabel = displayName,
+        fullChipLabel = fullLabel,
         bot = matchedBot,
         effectiveProfile = effectiveProfile,
     )

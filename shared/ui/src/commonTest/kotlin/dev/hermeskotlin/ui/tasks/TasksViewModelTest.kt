@@ -1934,7 +1934,7 @@ class TasksViewModelTest {
                             }
                         """.trimIndent()
                     }
-                    rec.path.startsWith("/api/sessions/") && rec.path.endsWith("/archive") -> {
+                    rec.method == HttpMethod.Patch && rec.path.startsWith("/api/sessions/") -> {
                         archivedPaths += rec.path
                         HttpStatusCode.OK to "{}"
                     }
