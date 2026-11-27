@@ -1216,6 +1216,7 @@ private fun BoardScrollGrid(
         EmptyState(
             icon = Lucide.Check,
             title = stringResource(Res.string.tasks_unread_empty),
+            body = stringResource(Res.string.tasks_unread_empty_body),
         )
         return
     }

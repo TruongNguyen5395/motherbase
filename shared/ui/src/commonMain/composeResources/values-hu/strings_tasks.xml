@@ -156,4 +156,5 @@
     <string name="tasks_filter_unread">Olvasatlan</string>
     <string name="tasks_unread_empty">Nincs olvasatlan válaszú feladat</string>
     <string name="tasks_panel_title">Feladat</string>
+    <string name="tasks_unread_empty_body">Minden ügynökválaszt elolvastál.</string>
 </resources>

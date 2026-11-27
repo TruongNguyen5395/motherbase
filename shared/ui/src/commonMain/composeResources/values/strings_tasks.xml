@@ -156,4 +156,5 @@
     <string name="tasks_filter_unread">Unread</string>
     <string name="tasks_unread_empty">No tasks with unread replies</string>
     <string name="tasks_panel_title">Task</string>
+    <string name="tasks_unread_empty_body">You are caught up on all agent replies.</string>
 </resources>

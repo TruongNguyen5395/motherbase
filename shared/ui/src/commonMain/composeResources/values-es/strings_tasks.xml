@@ -156,4 +156,5 @@
     <string name="tasks_filter_unread">Sin leer</string>
     <string name="tasks_unread_empty">No hay tareas con respuestas sin leer</string>
     <string name="tasks_panel_title">Tarea</string>
+    <string name="tasks_unread_empty_body">Estás al día con todas las respuestas de agentes.</string>
 </resources>

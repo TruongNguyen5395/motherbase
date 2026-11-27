@@ -483,7 +483,7 @@ fun ChatScreen(
     var viewing by remember { mutableStateOf<ViewerImage?>(null) }
     var previewing by remember(target) { mutableStateOf<PreviewTarget?>(null) }
     var screenInRail by remember(target) { mutableStateOf(false) }
-    var taskRailOpen by remember(chatKey) { mutableStateOf(false) }
+    var taskRailOpen by remember(target) { mutableStateOf(false) }
     var railExpanded by remember(target) { mutableStateOf(false) }
     var nextArtifactId by remember { mutableLongStateOf(0L) }
     val chatKey = target.copy(readUpTo = null)

@@ -156,4 +156,5 @@
     <string name="tasks_filter_unread">未读</string>
     <string name="tasks_unread_empty">暂无未读回复的任务</string>
     <string name="tasks_panel_title">任务</string>
+    <string name="tasks_unread_empty_body">所有智能体回复都已查看。</string>
 </resources>

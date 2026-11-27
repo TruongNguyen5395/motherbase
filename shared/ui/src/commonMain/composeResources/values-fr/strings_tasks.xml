@@ -156,4 +156,5 @@
     <string name="tasks_filter_unread">Non lu</string>
     <string name="tasks_unread_empty">Aucune tâche avec réponse non lue</string>
     <string name="tasks_panel_title">Tâche</string>
+    <string name="tasks_unread_empty_body">Toutes les réponses des agents ont été consultées.</string>
 </resources>

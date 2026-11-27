@@ -2615,7 +2615,8 @@ class TasksViewModel(
                 }
                 return
             }
-            val backgroundTaskId = runningTaskSessions.remove(event.sessionId) ?: resolveOwningTaskId(event.sessionId)
+            val evSessionId = event.sessionId ?: return
+            val backgroundTaskId = runningTaskSessions.remove(evSessionId) ?: resolveOwningTaskId(evSessionId)
             if (backgroundTaskId != null) {
                 val viewingExternally = externalContextOnly && externalViewingTaskId == backgroundTaskId
                 if (!viewingExternally) {
