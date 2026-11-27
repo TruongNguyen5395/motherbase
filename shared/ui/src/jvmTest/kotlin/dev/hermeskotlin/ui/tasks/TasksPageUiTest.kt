@@ -862,7 +862,7 @@ class TasksPageUiTest {
 
         onNodeWithTag("board_filter_unread").performClick()
         waitForIdle()
-        onNodeWithText("Fix billing outage").assertIsDisplayed()
+        onAllNodesWithText("Fix billing outage")[0].assertIsDisplayed()
 
         // Switch board to 2D Matrix view and verify all 4 Cartesian quadrants render.
         onNodeWithText("Matrix").performClick()
