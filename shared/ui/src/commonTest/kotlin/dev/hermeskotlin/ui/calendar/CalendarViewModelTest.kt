@@ -225,6 +225,7 @@ class CalendarViewModelTest {
         """
         rec.path.endsWith("/bots") -> HttpStatusCode.OK to """{"bots":[]}"""
         rec.path.contains("/sessions/") && rec.path.endsWith("/messages") -> HttpStatusCode.OK to """{"messages":[]}"""
+        rec.path.endsWith("/mutation-snapshot") -> HttpStatusCode.OK to """{"exists":true,"runtime_revision":1,"runtime_generation":1}"""
         else -> HttpStatusCode.OK to """{}"""
     }
 
@@ -465,12 +466,12 @@ class CalendarViewModelTest {
 
             h.vm.resetAgentSession()
             withTimeout(5_000) { h.vm.state.first { !it.resettingAgent && it.agentSessionId == "sess-cal-new" } }
-            assertTrue(h.requests.any { it.path.contains("/sessions/cal-agent-1") && it.method == HttpMethod.Patch })
+            assertTrue(h.requests.any { it.path.endsWith("/sessions/cal-agent-1") && it.method == HttpMethod.Patch })
 
             h.vm.saveSettings("Asia/Ho_Chi_Minh", "09:00", "18:00", "Tasks", agentProfile = "planner")
             withTimeout(5_000) { h.vm.state.first { !it.mutating && it.agentProfile == "planner" } }
             assertNull(h.vm.state.value.agentSessionId)
-            assertTrue(h.requests.any { it.path.contains("/sessions/sess-cal-new") && it.method == HttpMethod.Patch })
+            assertTrue(h.requests.any { it.path.endsWith("/sessions/sess-cal-new") && it.method == HttpMethod.Patch })
         } finally {
             h.connection.stop()
             h.vm.stopForTest()
