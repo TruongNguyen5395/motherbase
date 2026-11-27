@@ -447,6 +447,8 @@ fun ChatScreen(
     greetingPlaces: GreetingPlaces? = null,
     /** Jumps back to Dispatch with this session's owning task open; shown only for Dispatch-linked sessions. */
     onBackToDispatch: (() -> Unit)? = null,
+    /** Jumps back to Calendar with the dedicated Calendar Agent panel open. */
+    onBackToCalendar: (() -> Unit)? = null,
     /** True when this Dispatch session's owning task has an unapproved staged proposal. */
     taskHasPendingPlan: Boolean = false,
     /** Side-rail content for editing this Dispatch session's owning task and Action Proposal. */
@@ -737,6 +739,7 @@ fun ChatScreen(
         // Already on an untouched new chat: nothing to start over from.
         onNewChat = onNewChat.takeIf { target.storedSessionId != null || state.messages.isNotEmpty() },
         onBackToDispatch = onBackToDispatch,
+        onBackToCalendar = onBackToCalendar,
         onOpenMenu = onOpenMenu,
         onOpenModels = { modelsOpen = true },
         // A desktop has no camera, and its file dialog picks photos as well: + goes straight to it.
@@ -1050,6 +1053,7 @@ internal fun ChatView(
     railWidth: Dp = DEFAULT_RAIL_WIDTH,
     onRailWidthChange: ((Dp) -> Unit)? = null,
     onBackToDispatch: (() -> Unit)? = null,
+    onBackToCalendar: (() -> Unit)? = null,
     taskPanelOpen: Boolean = false,
     taskHasPendingPlan: Boolean = false,
     onToggleTaskPanel: (() -> Unit)? = null,
@@ -1110,6 +1114,7 @@ internal fun ChatView(
                     onNewChat = onNewChat,
                     onOpenMenu = onOpenMenu,
                     onBackToDispatch = onBackToDispatch,
+                    onBackToCalendar = onBackToCalendar,
                     taskPanelOpen = taskPanelOpen,
                     taskHasPendingPlan = taskHasPendingPlan,
                     onToggleTaskPanel = onToggleTaskPanel,
@@ -1850,6 +1855,8 @@ internal fun TopBar(
     trailing: (@Composable () -> Unit)? = null,
     /** Jumps back to Dispatch with this session/room's owning task open. */
     onBackToDispatch: (() -> Unit)? = null,
+    /** Jumps back to Calendar with the dedicated Calendar Agent panel open. */
+    onBackToCalendar: (() -> Unit)? = null,
     taskPanelOpen: Boolean = false,
     taskHasPendingPlan: Boolean = false,
     onToggleTaskPanel: (() -> Unit)? = null,
@@ -1902,6 +1909,9 @@ internal fun TopBar(
         ) {
             if (onBackToDispatch != null) {
                 BackToDispatchButton(onBackToDispatch)
+            }
+            if (onBackToCalendar != null) {
+                BackToCalendarButton(onBackToCalendar)
             }
             if (onToggleTaskPanel != null) {
                 TaskPanelBarButton(
@@ -2016,6 +2026,16 @@ private fun BackToDispatchButton(onClick: () -> Unit) {
         contentDescription = stringResource(Res.string.tasks_back_to_dispatch),
         onClick = onClick,
         modifier = Modifier.testTag("topbar_back_to_dispatch"),
+    )
+}
+
+@Composable
+private fun BackToCalendarButton(onClick: () -> Unit) {
+    BarButton(
+        icon = Lucide.ArrowLeft,
+        contentDescription = stringResource(Res.string.cal_back_to_calendar),
+        onClick = onClick,
+        modifier = Modifier.testTag("topbar_back_to_calendar"),
     )
 }
 

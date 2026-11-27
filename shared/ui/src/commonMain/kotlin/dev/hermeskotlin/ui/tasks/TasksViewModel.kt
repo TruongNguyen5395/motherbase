@@ -3201,7 +3201,7 @@ private fun DirectusTask.toDispatchCalendarTask(blocks: List<DispatchTimeBlock>)
         timeBlocks = blocks,
     )
 
-private fun ChatState.withChannelInfo(info: JsonObject?): ChatState {
+internal fun ChatState.withChannelInfo(info: JsonObject?): ChatState {
     if (info == null) return this
     return copy(
         model = info.str("model")?.takeIf { it.isNotBlank() } ?: model,

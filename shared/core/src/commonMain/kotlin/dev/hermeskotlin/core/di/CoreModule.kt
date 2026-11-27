@@ -24,6 +24,7 @@ import dev.hermeskotlin.core.plugins.NextPromptApi
 import dev.hermeskotlin.core.plugins.PluginsApi
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
+import dev.hermeskotlin.core.calendar.CalendarAgentStore
 import dev.hermeskotlin.core.calendar.CalendarApi
 import dev.hermeskotlin.core.calendar.CalendarCacheStore
 import dev.hermeskotlin.core.display.DisplayApi
@@ -112,6 +113,7 @@ val coreModule = module {
     single { DispatchSessionsStore(get()) }
     single { CalendarApi(get()) }
     single { CalendarCacheStore(get()) }
+    single { CalendarAgentStore(get()) }
     single { InsightsApi(get()) }
     single { ConfigApi(get()) }
     single { LastChatStore(get()) }

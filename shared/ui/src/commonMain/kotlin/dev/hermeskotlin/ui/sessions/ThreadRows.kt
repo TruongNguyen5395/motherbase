@@ -1,5 +1,6 @@
 package dev.hermeskotlin.ui.sessions
 
+import dev.hermeskotlin.core.calendar.CalendarAgentConfig
 import dev.hermeskotlin.core.projects.Project
 import dev.hermeskotlin.core.projects.ProjectIndex
 import dev.hermeskotlin.core.sessions.SessionSummary
@@ -18,21 +19,23 @@ data class DispatchRow(val entry: DispatchSessionEntry, val session: SessionSumm
 }
 
 /**
- * The recent list split for the sidebar: the Threads section, Dispatch task sessions, then every
- * other chat, each shown once.
+ * The recent list split for the sidebar: the Threads section, Dispatch task sessions, the dedicated
+ * Calendar Agent session, then every other chat, each shown once.
  */
 data class ThreadSections(
     val threads: List<ThreadRow>,
     val dispatch: List<DispatchRow>,
+    val calendar: SessionSummary? = null,
     val others: List<SessionSummary>,
 )
 
 /**
- * Splits [listed] (what the list shows) around [threads] and [dispatchSessions]. A thread's chat is
- * found among [rows] (every chat the list loaded) or [listed], by its id or its compression lineage; one not
- * loaded yet still shows, by the id the thread keeps. Remaining chats present in [dispatchSessions] (by id
- * or lineage) move into [ThreadSections.dispatch] so they stay grouped cleanly under `THREADS` instead of
- * cluttering regular Chats. Each chat appears in at most one section.
+ * Splits [listed] (what the list shows) around [threads], [dispatchSessions], and [calendarAgent]. A
+ * thread's chat is found among [rows] (every chat the list loaded) or [listed], by its id or its
+ * compression lineage; one not loaded yet still shows, by the id the thread keeps. Remaining chats
+ * matching [calendarAgent] move into [ThreadSections.calendar] and those in [dispatchSessions] move into
+ * [ThreadSections.dispatch] so they stay grouped cleanly instead of cluttering regular Chats. Each chat
+ * appears in at most one section.
  */
 internal fun threadSections(
     threads: List<ChatThread>,
@@ -41,6 +44,7 @@ internal fun threadSections(
     project: Project?,
     index: ProjectIndex,
     dispatchSessions: Map<String, DispatchSessionEntry> = emptyMap(),
+    calendarAgent: CalendarAgentConfig? = null,
 ): ThreadSections {
     val shown = threads.mapNotNull { thread ->
         val inList = ThreadsRepository.chatOf(thread, listed)
@@ -50,16 +54,24 @@ internal fun threadSections(
         ThreadRow(thread, session).takeIf { belongs }
     }
     val afterThreads = listed.filterNot { session -> threads.any { it.holds(session) } }
-    if (dispatchSessions.isEmpty()) {
-        return ThreadSections(shown, emptyList(), afterThreads)
+    val calendarSid = calendarAgent?.sessionId?.trim()?.takeIf { it.isNotEmpty() }
+    if (dispatchSessions.isEmpty() && calendarSid == null) {
+        return ThreadSections(shown, emptyList(), null, afterThreads)
     }
+    var calendarSession: SessionSummary? = null
     val dispatch = ArrayList<DispatchRow>()
     val others = ArrayList<SessionSummary>(afterThreads.size)
     for (session in afterThreads) {
+        val matchesCalendar = calendarSid != null &&
+            (session.id == calendarSid || session.lineageIds?.contains(calendarSid) == true)
+        if (matchesCalendar && calendarSession == null) {
+            calendarSession = session
+            continue
+        }
         val entry = dispatchSessions[session.id]
             ?: session.lineageIds?.firstNotNullOfOrNull { dispatchSessions[it] }
         if (entry != null) dispatch += DispatchRow(entry, session)
         else others += session
     }
-    return ThreadSections(shown, dispatch, others)
+    return ThreadSections(shown, dispatch, calendarSession, others)
 }

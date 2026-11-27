@@ -217,6 +217,7 @@ import dev.hermeskotlin.designsystem.rememberHoverIndication
 import androidx.compose.foundation.LocalIndication
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.bots.SidebarMode
+import dev.hermeskotlin.core.calendar.CalendarAgentStore
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.designsystem.components.SegmentedControl
 import dev.hermeskotlin.ui.bots.BotActions
@@ -436,6 +437,7 @@ fun SessionsSidebar(
     var inboxOpen by remember { mutableStateOf(false) }
     var tasksOpen by remember { mutableStateOf(false) }
     var calendarOpen by remember { mutableStateOf(false) }
+    var calendarOpenAgent by remember { mutableStateOf(false) }
     // A tapped Inbox notification, passed on by the app once it opened the drawer: the Inbox, at that run. The
     // page takes the key and opens the run itself.
     var inboxOpenKey by remember { mutableStateOf<String?>(null) }
@@ -540,6 +542,8 @@ fun SessionsSidebar(
     val dispatchSessions by viewModel.dispatchSessions.collectAsStateWithLifecycle()
     val dispatchCoordinator by viewModel.dispatchCoordinator.collectAsStateWithLifecycle()
     val dispatchJump by viewModel.dispatchJump.collectAsStateWithLifecycle()
+    val calendarAgent by viewModel.calendarAgent.collectAsStateWithLifecycle()
+    val calendarJump by viewModel.calendarJump.collectAsStateWithLifecycle()
     var autoRoutedDispatchForGateway by remember { mutableStateOf<String?>(null) }
     var threadActions by remember { mutableStateOf<ThreadRow?>(null) }
     var renameThread by remember { mutableStateOf<ChatThread?>(null) }
@@ -558,6 +562,7 @@ fun SessionsSidebar(
         inboxOpen = false
         tasksOpen = false
         calendarOpen = false
+        calendarOpenAgent = false
         if (routinesOf != null) {
             routinesOf = null
             // What was fixed there shows on the roster at once.
@@ -578,6 +583,16 @@ fun SessionsSidebar(
             closePages()
             tasksOpen = true
         }
+    }
+
+    LaunchedEffect(calendarJump, activeGatewayUrl) {
+        val jump = calendarJump ?: return@LaunchedEffect
+        if (jump.gateway.value != activeGatewayUrl) return@LaunchedEffect
+        if (searchOpen) closeSearch()
+        closePages()
+        calendarOpen = true
+        calendarOpenAgent = jump.openAgent
+        viewModel.consumeCalendarJump(jump)
     }
 
     LaunchedEffect(activeGatewayUrl, dispatchCoordinator, isConnected) {
@@ -634,12 +649,13 @@ fun SessionsSidebar(
     }
 
     val projectIndex = remember(state.projects) { ProjectIndex(state.projects) }
-    val sections = remember(threads, state.listed, state.sessions, state.project, projectIndex, dispatchSessions) {
-        threadSections(threads, state.listed, state.sessions, state.project, projectIndex, dispatchSessions)
+    val sections = remember(threads, state.listed, state.sessions, state.project, projectIndex, dispatchSessions, calendarAgent) {
+        threadSections(threads, state.listed, state.sessions, state.project, projectIndex, dispatchSessions, calendarAgent)
     }
     // The thread rows as the section shows them; moving one goes past its neighbour here, not in the whole list.
     val shownThreads = sections.threads.filter { attentionFilter.keeps(statuses[it.session.id]) }
     val shownDispatch = sections.dispatch.filter { attentionFilter.keeps(statuses[it.session.id]) }
+    val shownCalendar = sections.calendar?.takeIf { attentionFilter.keeps(statuses[it.id]) }
     val openHere: (SessionSummary) -> Unit = {
         // The viewport decides when the new messages have actually been read.
         val readUpTo = viewModel.readUpTo(it)
@@ -674,6 +690,7 @@ fun SessionsSidebar(
     // The desktop's keys for the list: search, and stepping through the chats in the order they're listed.
     val listed = shownThreads.map { it.session } +
         shownDispatch.map { it.session } +
+        listOfNotNull(shownCalendar) +
         sections.others.filter { attentionFilter.keeps(statuses[it.id]) }
     val modals = LocalOpenModals.current
     ShortcutHandler { shortcut ->
@@ -697,6 +714,7 @@ fun SessionsSidebar(
                 inboxOpen = false
                 tasksOpen = false
                 calendarOpen = false
+                calendarOpenAgent = false
                 routinesOf = null
                 capabilitiesOpen = false
                 configOpen = false
@@ -791,7 +809,12 @@ fun SessionsSidebar(
             calendarOpen -> CalendarPage(
                 gateway = gateway,
                 visible = pageVisible,
-                onBack = { calendarOpen = false },
+                initialOpenAgent = calendarOpenAgent,
+                onConsumedOpenAgent = { calendarOpenAgent = false },
+                onBack = {
+                    calendarOpen = false
+                    calendarOpenAgent = false
+                },
                 onSessionExpired = onSessionExpired,
                 onOpenSession = { sessionId, title, targetProfile ->
                     closePages()
@@ -1050,7 +1073,8 @@ fun SessionsSidebar(
                     // the keyboard as often as not) never shows a blank list. A phone keeps the field alone.
                     searchOpen && searchResults == null && !isDesktop -> Unit
                     searchOpen && searchResults == null -> SessionList(
-                        sections.dispatch.map { it.displaySession } + sections.others, selectedId, click, rowActions,
+                        sections.dispatch.map { it.displaySession } + listOfNotNull(sections.calendar) + sections.others,
+                        selectedId, click, rowActions,
                         menu = rowMenu,
                         swipeRight = pinSwipe,
                         swipeLeft = archiveSwipe,
@@ -1093,6 +1117,7 @@ fun SessionsSidebar(
                             if (ids != shownThreads.map { it.thread.id }) viewModel.reorderThreads(ids)
                         },
                         dispatch = shownDispatch,
+                        calendar = shownCalendar,
                         dispatchCollapsed = dispatchCollapsed,
                         onToggleDispatch = { settingsStore.update { it.copy(dispatchCollapsed = !it.dispatchCollapsed) } },
                         // A filtered list stays short, so the end is always in sight: paging on would
@@ -2226,6 +2251,8 @@ internal fun SessionList(
     onReordered: (List<String>) -> Unit = {},
     /** Directus Dispatch session rows, shown directly below Threads when present. */
     dispatch: List<DispatchRow> = emptyList(),
+    /** Dedicated Calendar Agent session row, shown below Dispatch when present. */
+    calendar: SessionSummary? = null,
     /** The Dispatch section is folded to the chats [visibleDispatch] keeps. */
     dispatchCollapsed: Boolean = false,
     /** Folds or unfolds the Dispatch section; null, its label is plain text. */
@@ -2278,13 +2305,15 @@ internal fun SessionList(
         // take it on to the composer.
         if (event.type == KeyEventType.Unknown) return@jump TypeAhead.isLetter(event)
         // The chats as listed: one in a folded section isn't there to go to.
-        val listed = (dispatch.map { it.displaySession } + sessions).filter { it.id in positions }.sortedBy { positions[it.id] }
+        val listed = (dispatch.map { it.displaySession } + listOfNotNull(calendar) + sessions)
+            .filter { it.id in positions }
+            .sortedBy { positions[it.id] }
         val target = typeAhead.next(event, listed) ?: return@jump false
         focusRow(target.id, 3)
         true
     }
     if (focus != null) {
-        val listed by rememberUpdatedState(dispatch.map { it.displaySession } + sessions)
+        val listed by rememberUpdatedState(dispatch.map { it.displaySession } + listOfNotNull(calendar) + sessions)
         DisposableEffect(focus) {
             val first = first@{
                 val top = listed.filter { it.id in positions }.minByOrNull { positions.getValue(it.id) } ?: return@first false
@@ -2300,32 +2329,29 @@ internal fun SessionList(
         header()
         // Pinned chats stay on top, marked with a pin.
         val (pinned, rest) = sessions.partition { it.pinned }
-        val row: @Composable (SessionSummary, SessionSummary, Boolean) -> Unit = { displaySession, actionSession, showProjectLabel ->
-            val focus = remember(actionSession.id) { FocusRequester() }
-            DisposableEffect(actionSession.id) {
-                requesters[actionSession.id] = focus
-                onDispose { if (requesters[actionSession.id] === focus) requesters.remove(actionSession.id) }
-            }
-            SwipeRow(
-                start = swipeRight(actionSession),
-                end = swipeLeft(actionSession),
-                shape = RoundedCornerShape(Theme[radii][radiusMedium]),
-            ) { swipeActions ->
-                SessionRow(
-                    displaySession,
-                    selected = actionSession.id == selectedId,
-                    showSnippet = showSnippets,
-                    status = statuses[actionSession.id],
-                    draft = actionSession.id in drafts,
-                    // Pinned and Dispatch chats sit apart from their project's others, so their row names it.
-                    projectLabel = if (sectioned && showProjectLabel) projectIndex.labelFor(actionSession, shownProject) else null,
-                    onClick = { onOpen(actionSession) },
-                    onActions = { onActions(actionSession) },
-                    menu = menu?.let { items -> { items(actionSession) } },
-                    modifier = swipeActions.focusRequester(focus),
+        val row: @Composable (SessionSummary, SessionSummary, Boolean, ImageVector?, String?) -> Unit =
+            { displaySession, actionSession, showProjectLabel, markIcon, markDescription ->
+                SessionListSwipeRow(
+                    displaySession = displaySession,
+                    actionSession = actionSession,
+                    showProjectLabel = showProjectLabel,
+                    selectedId = selectedId,
+                    showSnippets = showSnippets,
+                    sectioned = sectioned,
+                    statuses = statuses,
+                    drafts = drafts,
+                    projectIndex = projectIndex,
+                    shownProject = shownProject,
+                    requesters = requesters,
+                    swipeRight = swipeRight,
+                    swipeLeft = swipeLeft,
+                    onOpen = onOpen,
+                    onActions = onActions,
+                    menu = menu,
+                    markIcon = markIcon,
+                    markDescription = markDescription,
                 )
             }
-        }
         if (sectioned) {
             if (threads.isNotEmpty()) {
                 if (reorderingThreads) {
@@ -2388,7 +2414,21 @@ internal fun SessionList(
                     visibleDispatch(dispatch, dispatchCollapsed, selectedId, statuses, drafts),
                     key = { it.session.id },
                     contentType = { SessionRowType },
-                ) { d -> row(d.displaySession, d.session, true) }
+                ) { d -> row(d.displaySession, d.session, true, null, null) }
+            }
+            if (calendar != null) {
+                item(key = "label-calendar", contentType = SectionLabelType) {
+                    ListLabel(stringResource(Res.string.sessions_section_calendar))
+                }
+                item(key = calendar.id, contentType = SessionRowType) {
+                    val calLabel = stringResource(Res.string.sessions_section_calendar)
+                    val display = if (calendar.title.isNullOrBlank()) {
+                        calendar.copy(title = CalendarAgentStore.AGENT_SESSION_TITLE)
+                    } else {
+                        calendar
+                    }
+                    row(display, calendar, false, Lucide.Calendar, calLabel)
+                }
             }
             if (pinned.isNotEmpty()) {
                 item(key = "label-pinned", contentType = SectionLabelType) {
@@ -2409,15 +2449,15 @@ internal fun SessionList(
                     visiblePinned(pinned, pinnedCollapsed, selectedId, statuses, drafts),
                     key = { it.id },
                     contentType = { SessionRowType },
-                ) { row(it, it, true) }
+                ) { row(it, it, true, null, null) }
             }
             // The filter chips head the rest, with no label of their own.
             status()
-            items(rest, key = { it.id }, contentType = { SessionRowType }) { row(it, it, false) }
+            items(rest, key = { it.id }, contentType = { SessionRowType }) { row(it, it, false, null, null) }
             if (loadingMore) item(key = "loading-more") { ListSpinner() }
             return@rows
         }
-        items(pinned + rest, key = { it.id }, contentType = { SessionRowType }) { row(it, it, false) }
+        items(pinned + rest, key = { it.id }, contentType = { SessionRowType }) { row(it, it, false, null, null) }
         if (loadingMore) item(key = "loading-more") { ListSpinner() }
     }
     Box(Modifier.fillMaxSize()) {
@@ -2842,6 +2882,56 @@ private fun rowStatusLine(status: RowStatus?, draft: Boolean): String? =
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+@Composable
+private fun SessionListSwipeRow(
+    displaySession: SessionSummary,
+    actionSession: SessionSummary,
+    showProjectLabel: Boolean,
+    selectedId: String?,
+    showSnippets: Boolean,
+    sectioned: Boolean,
+    statuses: Map<String, RowStatus>,
+    drafts: Set<String>,
+    projectIndex: ProjectIndex,
+    shownProject: Project?,
+    requesters: MutableMap<String, FocusRequester>,
+    swipeRight: (SessionSummary) -> SwipeAction?,
+    swipeLeft: (SessionSummary) -> SwipeAction?,
+    onOpen: (SessionSummary) -> Unit,
+    onActions: (SessionSummary) -> Unit,
+    menu: ((SessionSummary) -> List<RowMenuItem>)?,
+    markIcon: ImageVector? = null,
+    markDescription: String? = null,
+) {
+    val focus = remember(actionSession.id) { FocusRequester() }
+    DisposableEffect(actionSession.id) {
+        requesters[actionSession.id] = focus
+        onDispose { if (requesters[actionSession.id] === focus) requesters.remove(actionSession.id) }
+    }
+    SwipeRow(
+        start = swipeRight(actionSession),
+        end = swipeLeft(actionSession),
+        shape = RoundedCornerShape(Theme[radii][radiusMedium]),
+    ) { swipeActions ->
+        SessionRow(
+            displaySession,
+            selected = actionSession.id == selectedId,
+            showSnippet = showSnippets,
+            status = statuses[actionSession.id],
+            draft = actionSession.id in drafts,
+            // Pinned and Dispatch chats sit apart from their project's others, so their row names it.
+            projectLabel = if (sectioned && showProjectLabel) projectIndex.labelFor(actionSession, shownProject) else null,
+            markIcon = markIcon,
+            markDescription = markDescription,
+            onClick = { onOpen(actionSession) },
+            onActions = { onActions(actionSession) },
+            menu = menu?.let { items -> { items(actionSession) } },
+            modifier = swipeActions.focusRequester(focus),
+        )
+    }
+}
+
+@Composable
 internal fun SessionRow(
     session: SessionSummary,
     selected: Boolean,
@@ -2852,6 +2942,9 @@ internal fun SessionRow(
     projectLabel: String? = null,
     /** The row is a thread's: marked as one rather than as pinned. */
     thread: Boolean = false,
+    /** Optional custom icon mark for dedicated sections such as Calendar Agent. */
+    markIcon: ImageVector? = null,
+    markDescription: String? = null,
     onClick: () -> Unit,
     onActions: () -> Unit,
     /** The row's right-click menu, on the desktop; null, a right-click does nothing. */
@@ -2859,10 +2952,16 @@ internal fun SessionRow(
     /** Goes on the row's clickable node, as [SwipeRow]'s screen-reader actions must. */
     modifier: Modifier = Modifier,
 ) {
-    if (menu == null) return SessionRowContent(session, selected, showSnippet, status, draft, projectLabel, thread, onClick, onActions, modifier)
+    if (menu == null) {
+        return SessionRowContent(
+            session, selected, showSnippet, status, draft, projectLabel, thread,
+            markIcon, markDescription, onClick, onActions, modifier,
+        )
+    }
     var menuOpen by remember { mutableStateOf(false) }
     SessionRowContent(
-        session, selected, showSnippet, status, draft, projectLabel, thread, onClick, onActions,
+        session, selected, showSnippet, status, draft, projectLabel, thread,
+        markIcon, markDescription, onClick, onActions,
         modifier.onSecondaryPress { menuOpen = true }.menuKeys(menu),
         menuOpen = menuOpen,
     )
@@ -2933,6 +3032,8 @@ private fun SessionRowContent(
     draft: Boolean,
     projectLabel: String?,
     thread: Boolean,
+    markIcon: ImageVector?,
+    markDescription: String?,
     onClick: () -> Unit,
     onActions: () -> Unit,
     modifier: Modifier,
@@ -2975,9 +3076,9 @@ private fun SessionRowContent(
         horizontalArrangement = Arrangement.spacedBy(if (isDesktop) 10.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val marked = thread || session.pinned
-        val mark = if (thread) Lucide.Hash else Lucide.Pin
-        val markLabel = stringResource(if (thread) Res.string.sessions_thread else Res.string.sessions_section_pinned)
+        val marked = markIcon != null || thread || session.pinned
+        val mark = markIcon ?: if (thread) Lucide.Hash else Lucide.Pin
+        val markLabel = markDescription ?: stringResource(if (thread) Res.string.sessions_thread else Res.string.sessions_section_pinned)
         val pinOnly = marked && tone == RowTone.Idle
         if (pinOnly) {
             Box(Modifier.size(if (isDesktop) DESKTOP_DISC else 28.dp), contentAlignment = Alignment.Center) {

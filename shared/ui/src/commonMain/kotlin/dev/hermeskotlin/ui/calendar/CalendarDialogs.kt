@@ -52,6 +52,7 @@ import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.Users
+import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.calendar.CalendarAccount
 import dev.hermeskotlin.core.calendar.CalendarEvent
 import dev.hermeskotlin.core.calendar.CalendarHealthStatus
@@ -65,6 +66,8 @@ import dev.hermeskotlin.core.calendar.calendarDateFromIso
 import dev.hermeskotlin.core.calendar.calendarToday
 import dev.hermeskotlin.core.calendar.calendarZonedFromIso
 import dev.hermeskotlin.core.calendar.formatClockCompact
+import dev.hermeskotlin.core.pet.PetSprite
+import dev.hermeskotlin.core.pet.PetState
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.accentText
 import dev.hermeskotlin.designsystem.bodySmall
@@ -80,6 +83,7 @@ import dev.hermeskotlin.designsystem.components.TextField
 import dev.hermeskotlin.designsystem.components.handCursor
 import dev.hermeskotlin.designsystem.danger
 import dev.hermeskotlin.designsystem.dangerSoft
+import dev.hermeskotlin.designsystem.label as labelStyle
 import dev.hermeskotlin.designsystem.stroke
 import dev.hermeskotlin.designsystem.surface
 import dev.hermeskotlin.designsystem.surface2
@@ -88,9 +92,16 @@ import dev.hermeskotlin.designsystem.textSecondary
 import dev.hermeskotlin.designsystem.textTertiary
 import dev.hermeskotlin.designsystem.typography
 import dev.hermeskotlin.designsystem.warning
+import dev.hermeskotlin.ui.bots.BotAvatar
+import dev.hermeskotlin.ui.pet.PetAvatar
 import dev.hermeskotlin.ui.resources.Res
 import dev.hermeskotlin.ui.resources.app_save
 import dev.hermeskotlin.ui.resources.cal_accounts_heading
+import dev.hermeskotlin.ui.resources.cal_agent_choose_bot
+import dev.hermeskotlin.ui.resources.cal_agent_choose_pet
+import dev.hermeskotlin.ui.resources.cal_agent_reset_session
+import dev.hermeskotlin.ui.resources.cal_agent_settings_desc
+import dev.hermeskotlin.ui.resources.cal_agent_settings_heading
 import dev.hermeskotlin.ui.resources.cal_all_day
 import dev.hermeskotlin.ui.resources.cal_block_slot
 import dev.hermeskotlin.ui.resources.cal_connect_caldav_hint
@@ -151,6 +162,7 @@ import dev.hermeskotlin.ui.resources.cal_task_due
 import dev.hermeskotlin.ui.resources.cal_task_no_blocks
 import dev.hermeskotlin.ui.resources.cal_unschedule_block
 import dev.hermeskotlin.ui.resources.common_cancel
+import dev.hermeskotlin.ui.tasks.SettingsSectionCard
 import org.jetbrains.compose.resources.stringResource
 
 private enum class ConnectProviderTab {
@@ -1337,16 +1349,24 @@ private enum class SettingsTimePicker {
     END,
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun CalendarSettingsDialog(
     visible: Boolean,
     settings: CalendarSettings,
     accounts: List<CalendarAccount>,
     use24Hour: Boolean = false,
+    bots: List<Bot> = emptyList(),
+    botAvatars: Map<String, ByteArray> = emptyMap(),
+    petSprite: PetSprite? = null,
+    petState: PetState = PetState.Idle,
+    resettingAgent: Boolean = false,
     mutating: Boolean,
     onDismiss: () -> Unit,
-    onSave: (timezone: String, workStart: String, workEnd: String, subcalendarName: String) -> Unit,
+    onSave: (timezone: String, workStart: String, workEnd: String, subcalendarName: String, agentProfile: String?) -> Unit,
     onDisconnectAccount: (accountId: String) -> Unit,
+    onOpenPetPicker: ((String) -> Unit)? = null,
+    onResetAgentSession: (() -> Unit)? = null,
 ) {
     val defaultHours = remember(settings) {
         settings.workingHours["mon"] ?: settings.workingHours.values.firstOrNull() ?: listOf("09:00", "18:00")
@@ -1356,6 +1376,22 @@ internal fun CalendarSettingsDialog(
     var workEnd by remember(settings) { mutableStateOf(defaultHours.getOrNull(1) ?: "18:00") }
     var activePicker by remember { mutableStateOf<SettingsTimePicker?>(null) }
     val subcalState = rememberTextFieldState(settings.dispatchSyncTarget.subcalendarName)
+    var selectedAgentProfile by remember(settings) {
+        mutableStateOf(settings.agent.profile.trim().removePrefix("@").ifEmpty { Bot.DEFAULT })
+    }
+
+    val visibleBots = remember(bots) {
+        val list = bots.filterNot { it.meta.hidden }
+        if (list.any { it.name.equals(Bot.DEFAULT, ignoreCase = true) }) {
+            list
+        } else {
+            listOf(Bot(name = Bot.DEFAULT, isDefault = true)) + list
+        }
+    }
+    val activeBot = remember(visibleBots, selectedAgentProfile) {
+        visibleBots.firstOrNull { it.name.equals(selectedAgentProfile, ignoreCase = true) }
+            ?: Bot(name = selectedAgentProfile, isDefault = selectedAgentProfile.equals(Bot.DEFAULT, ignoreCase = true))
+    }
 
     LaunchedEffect(visible, settings) {
         if (visible) {
@@ -1364,6 +1400,7 @@ internal fun CalendarSettingsDialog(
             workEnd = defaultHours.getOrNull(1) ?: "18:00"
             activePicker = null
             subcalState.setTextAndPlaceCursorAtEnd(settings.dispatchSyncTarget.subcalendarName)
+            selectedAgentProfile = settings.agent.profile.trim().removePrefix("@").ifEmpty { Bot.DEFAULT }
         }
     }
 
@@ -1387,6 +1424,7 @@ internal fun CalendarSettingsDialog(
                         workStart,
                         workEnd,
                         subcalState.text.toString(),
+                        selectedAgentProfile,
                     )
                 },
                 variant = ButtonVariant.Primary,
@@ -1396,7 +1434,7 @@ internal fun CalendarSettingsDialog(
         },
     ) {
         Column(
-            Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             TextField(state = tzState, label = stringResource(Res.string.cal_settings_timezone), leadingIcon = GlobeIcon)
@@ -1439,6 +1477,69 @@ internal fun CalendarSettingsDialog(
                 null -> Unit
             }
             TextField(state = subcalState, label = stringResource(Res.string.cal_settings_subcal_name), leadingIcon = CalendarIcon)
+
+            SettingsSectionCard(
+                title = stringResource(Res.string.cal_agent_settings_heading),
+                description = stringResource(Res.string.cal_agent_settings_desc),
+                leading = {
+                    if (petSprite != null) {
+                        PetAvatar(
+                            sprite = petSprite,
+                            state = petState,
+                            size = 34.dp,
+                        )
+                    } else {
+                        BotAvatar(
+                            bot = activeBot,
+                            picture = botAvatars[activeBot.name],
+                            size = 34.dp,
+                        )
+                    }
+                },
+                trailing = {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (onOpenPetPicker != null) {
+                            Button(
+                                text = stringResource(Res.string.cal_agent_choose_pet),
+                                onClick = { onOpenPetPicker(selectedAgentProfile) },
+                                variant = ButtonVariant.Outline,
+                                size = ButtonSize.Small,
+                            )
+                        }
+                        if (onResetAgentSession != null) {
+                            Button(
+                                text = stringResource(Res.string.cal_agent_reset_session),
+                                onClick = onResetAgentSession,
+                                variant = ButtonVariant.Ghost,
+                                size = ButtonSize.Small,
+                                enabled = !resettingAgent && !mutating && settings.agent.sessionId.isNotBlank(),
+                            )
+                        }
+                    }
+                },
+            ) {
+                Text(
+                    stringResource(Res.string.cal_agent_choose_bot),
+                    style = Theme[typography][labelStyle],
+                    color = Theme[colors][textSecondary],
+                )
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    visibleBots.forEach { bot ->
+                        Chip(
+                            text = "${bot.label} (@${bot.name})",
+                            selected = selectedAgentProfile.equals(bot.name, ignoreCase = true),
+                            onClick = { selectedAgentProfile = bot.name },
+                        )
+                    }
+                }
+            }
 
             if (accounts.isNotEmpty()) {
                 Text(

@@ -45,6 +45,7 @@
     <string name="sessions_filter_needs_you">待你处理</string>
     <string name="sessions_section_threads">话题</string>
     <string name="sessions_section_dispatch">Dispatch</string>
+    <string name="sessions_section_calendar">日历</string>
     <string name="sessions_section_pinned">已置顶</string>
     <string name="sessions_show_threads">显示话题</string>
     <string name="sessions_hide_threads">隐藏话题</string>

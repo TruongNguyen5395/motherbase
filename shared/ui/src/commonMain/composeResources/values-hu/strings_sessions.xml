@@ -46,6 +46,7 @@
     <string name="sessions_filter_needs_you">Rád vár</string>
     <string name="sessions_section_threads">Szálak</string>
     <string name="sessions_section_dispatch">Dispatch</string>
+    <string name="sessions_section_calendar">Naptár</string>
     <string name="sessions_section_pinned">Kitűzött</string>
     <string name="sessions_show_threads">Szálak mutatása</string>
     <string name="sessions_hide_threads">Szálak elrejtése</string>

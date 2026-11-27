@@ -106,7 +106,7 @@
     <string name="cal_delete_attendee_confirm">Externe Teilnehmende werden bei Aktivierung benachrichtigt.</string>
     <string name="cal_proposal_conflict_title">Terminkonflikt erkannt</string>
     <string name="cal_proposal_conflict_message">Mindestens eine Aktion überschneidet sich mit belegten Terminen:</string>
-    <string name="cal_agent_panel_empty">Bitten Sie den Dispatch-Koordinator, Ihren Tag zu planen oder Zeitblöcke vorzuschlagen.</string>
+    <string name="cal_agent_panel_empty">Bitten Sie den Kalender-Agenten, Ihren Terminplan zu prüfen, Termine anzulegen oder zu verschieben.</string>
     <string name="cal_agent_staged_empty">Keine ausstehenden Terminvorschläge.</string>
     <string name="cal_status_synced">Synchronisiert %1$s</string>
     <string name="cal_back">Zurück</string>
@@ -120,4 +120,15 @@
     <string name="cal_pick_minute">Minute</string>
     <string name="cal_done_action">Fertig</string>
     <string name="cal_task_no_blocks">Noch kein Zeitblock geplant</string>
+    <string name="cal_agent_title">Kalender-Agent</string>
+    <string name="cal_agent_ask">%1$s fragen</string>
+    <string name="cal_agent_reset_session">Neue Sitzung starten</string>
+    <string name="cal_agent_open_fullscreen">Im Chat öffnen</string>
+    <string name="cal_agent_settings">Agent-Einstellungen</string>
+    <string name="cal_agent_settings_heading">Kalender-Agent</string>
+    <string name="cal_agent_settings_desc">Wählen Sie den Hermes-Agenten, der Ihren Kalender in einer eigenen Sitzung verwaltet.</string>
+    <string name="cal_agent_choose_bot">Agenten-Profil</string>
+    <string name="cal_agent_choose_pet">Begleiter wählen</string>
+    <string name="cal_agent_session_reset_done">Neue Kalender-Agent-Sitzung gestartet.</string>
+    <string name="cal_back_to_calendar">Zurück zum Kalender</string>
 </resources>

@@ -46,6 +46,7 @@
     <string name="sessions_filter_needs_you">Esperam você</string>
     <string name="sessions_section_threads">Tópicos</string>
     <string name="sessions_section_dispatch">Dispatch</string>
+    <string name="sessions_section_calendar">Calendário</string>
     <string name="sessions_section_pinned">Fixadas</string>
     <string name="sessions_show_threads">Mostrar tópicos</string>
     <string name="sessions_hide_threads">Ocultar tópicos</string>

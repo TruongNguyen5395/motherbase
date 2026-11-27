@@ -111,4 +111,42 @@ class CalendarApiTest {
         ).value
         assertEquals(ScheduleProposal.STATUS_APPLIED, assertIs<ApplyProposalOutcome.Applied>(applied).proposal.status)
     }
+
+    @Test
+    fun getsAndSavesDedicatedCalendarAgentConfig() = runTest {
+        val api = CalendarApi(
+            createHttpClient(
+                MockEngine { req ->
+                    assertEquals("/api/plugins/motherbase-calendar/agent", req.url.encodedPath)
+                    when (req.method) {
+                        HttpMethod.Get -> respond(
+                            """{"agent":{"profile":"arnold","session_id":"cal-sess-1","last_interaction_at":42.0}}""",
+                            HttpStatusCode.OK,
+                            jsonHeaders,
+                        )
+                        HttpMethod.Put -> {
+                            val body = req.body.toByteArray().decodeToString()
+                            assertTrue("cal-sess-2" in body)
+                            respond(
+                                """{"agent":{"profile":"ops","session_id":"cal-sess-2","last_interaction_at":99.0}}""",
+                                HttpStatusCode.OK,
+                                jsonHeaders,
+                            )
+                        }
+                        else -> respond("{}", HttpStatusCode.MethodNotAllowed, jsonHeaders)
+                    }
+                },
+            ),
+        )
+
+        val current = assertIs<ApiResult.Success<CalendarAgentConfig>>(api.getAgentConfig(gatewayUrl)).value
+        assertEquals("arnold", current.profile)
+        assertEquals("cal-sess-1", current.sessionId)
+
+        val saved = assertIs<ApiResult.Success<CalendarAgentConfig>>(
+            api.saveAgentConfig(gatewayUrl, CalendarAgentUpdate(profile = "ops", sessionId = "cal-sess-2")),
+        ).value
+        assertEquals("ops", saved.profile)
+        assertEquals("cal-sess-2", saved.sessionId)
+    }
 }

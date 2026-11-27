@@ -7,6 +7,11 @@ import androidx.lifecycle.viewModelScope
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.AuthUser
 import dev.hermeskotlin.core.cache.OfflineCache
+import dev.hermeskotlin.core.calendar.CalendarAgentConfig
+import dev.hermeskotlin.core.calendar.CalendarAgentStore
+import dev.hermeskotlin.core.calendar.CalendarAgentUpdate
+import dev.hermeskotlin.core.calendar.CalendarApi
+import dev.hermeskotlin.core.calendar.CalendarJumpTarget
 import dev.hermeskotlin.core.chat.AttentionTracker
 import dev.hermeskotlin.core.chat.DraftStore
 import dev.hermeskotlin.core.chat.LastChatStore
@@ -178,6 +183,8 @@ class SessionsViewModel(
     private val files: MediaApi? = null,
     private val directusTasksApi: DirectusTasksApi? = null,
     private val dispatchStore: DispatchSessionsStore? = null,
+    private val calendarApi: CalendarApi? = null,
+    private val calendarAgentStore: CalendarAgentStore? = null,
 ) : ViewModel() {
 
     /** Stamps an archive's undo offer, so it runs out on time even if the screen goes and comes back. */
@@ -240,6 +247,46 @@ class SessionsViewModel(
             dispatchStore?.coordinatorFor(url) ?: flowOf(null)
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Synced dedicated Calendar Agent config (profile + persisted session id) for the bound gateway. */
+    val calendarAgent: StateFlow<CalendarAgentConfig?> = bound
+        .flatMapLatest { scope ->
+            val url = scope?.first ?: return@flatMapLatest flowOf(null)
+            calendarAgentStore?.agentFor(url) ?: flowOf(null)
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Pending request from fullscreen chat to jump back into Calendar with the Agent panel open. */
+    val calendarJump: StateFlow<CalendarJumpTarget?> =
+        calendarAgentStore?.pendingJump ?: MutableStateFlow(null)
+
+    fun consumeCalendarJump(expected: CalendarJumpTarget) {
+        calendarAgentStore?.consumeJump(expected)
+    }
+
+    /** True when [sessionId] matches the bound gateway's dedicated Calendar Agent session (including lineage). */
+    fun isCalendarAgentSession(sessionId: String?): Boolean =
+        resolveCalendarAgentMatch(sessionId, calendarAgent.value, _state.value.sessions) != null
+
+    /** Observes [calendarAgent] when [sessionId] matches the dedicated Calendar Agent session, else null. */
+    fun calendarAgentFlow(sessionId: String?): kotlinx.coroutines.flow.Flow<CalendarAgentConfig?> {
+        if (sessionId == null) return flowOf(null)
+        return combine(calendarAgent, _state.map { it.sessions }.distinctUntilChanged()) { cfg, listed ->
+            resolveCalendarAgentMatch(sessionId, cfg, listed)
+        }.distinctUntilChanged()
+    }
+
+    private fun resolveCalendarAgentMatch(
+        sessionId: String?,
+        cfg: CalendarAgentConfig?,
+        listed: List<SessionSummary>,
+    ): CalendarAgentConfig? {
+        val sid = sessionId ?: return null
+        val activeSid = cfg?.sessionId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (sid == activeSid) return cfg
+        val summary = listed.firstOrNull { s -> s.id == sid || (s.lineageIds?.contains(sid) == true) } ?: return null
+        return if (summary.id == activeSid || (summary.lineageIds?.contains(activeSid) == true)) cfg else null
+    }
 
     /** The gateway and profile the list (and its projects) are of; null before the first. */
     val listedFor: StateFlow<Pair<GatewayUrl, String?>?> = bound.asStateFlow()
@@ -733,10 +780,21 @@ class SessionsViewModel(
     fun delete(session: SessionSummary) = mutate(
         apply = { list -> list.filterNot { it.id == session.id } },
         call = { url, profile ->
+            val wasCalendarAgent = resolveCalendarAgentMatch(session.id, calendarAgent.value, _state.value.sessions) != null
             api.delete(url, session.id, profile).also {
                 if (it is ApiResult.Success) {
                     lastChats.forget(url, session.id, profile)
                     cache?.forgetChat(url, profile, session.id)
+                    if (wasCalendarAgent) {
+                        val res = calendarApi?.saveAgentConfig(url, CalendarAgentUpdate(sessionId = ""))
+                        if (res is ApiResult.Success) {
+                            calendarAgentStore?.syncAgent(url, res.value)
+                        } else {
+                            calendarAgent.value?.let { cur ->
+                                calendarAgentStore?.syncAgent(url, cur.copy(sessionId = ""))
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -953,35 +1011,48 @@ class SessionsViewModel(
     }
 
     private fun warmAndSyncDispatch(url: GatewayUrl, force: Boolean) {
-        val store = dispatchStore ?: return
-        viewModelScope.launch {
-            store.warm(url)
-            val api = directusTasksApi ?: return@launch
-            store.refreshIfNeeded(url, api, force = force)
+        dispatchStore?.let { store ->
+            viewModelScope.launch {
+                store.warm(url)
+                val api = directusTasksApi ?: return@launch
+                store.refreshIfNeeded(url, api, force = force)
+            }
+        }
+        calendarAgentStore?.let { store ->
+            viewModelScope.launch {
+                store.warm(url)
+                val api = calendarApi ?: return@launch
+                store.refreshIfNeeded(url, api, force = force)
+            }
         }
     }
 
     private fun observeDispatchChanges() {
-        val store = dispatchStore ?: return
-        viewModelScope.launch {
-            store.lifecycleChanges.collect { change ->
-                val currentUrl = gateway?.gatewayUrl ?: return@collect
-                if (change.gateway != currentUrl) return@collect
-                val archivedIds = change.archivedIds
-                if (archivedIds.isNotEmpty() && _state.value.filter == SessionListFilter.Recent) {
-                    _state.update { cur ->
-                        cur.copy(
-                            sessions = cur.sessions.filterNot { it.id in archivedIds },
-                            searchResults = cur.searchResults?.filterNot { it.id in archivedIds },
-                            projectSessions = cur.projectSessions?.filterNot { it.id in archivedIds },
-                        )
+        val flows = listOfNotNull(
+            dispatchStore?.lifecycleChanges,
+            calendarAgentStore?.lifecycleChanges,
+        )
+        flows.forEach { changes ->
+            viewModelScope.launch {
+                changes.collect { change ->
+                    val currentUrl = gateway?.gatewayUrl ?: return@collect
+                    if (change.gateway != currentUrl) return@collect
+                    val archivedIds = change.archivedIds
+                    if (archivedIds.isNotEmpty() && _state.value.filter == SessionListFilter.Recent) {
+                        _state.update { cur ->
+                            cur.copy(
+                                sessions = cur.sessions.filterNot { it.id in archivedIds },
+                                searchResults = cur.searchResults?.filterNot { it.id in archivedIds },
+                                projectSessions = cur.projectSessions?.filterNot { it.id in archivedIds },
+                            )
+                        }
+                        cache?.saveList(currentUrl, profile, SessionListFilter.Recent, _state.value.sessions)
                     }
-                    cache?.saveList(currentUrl, profile, SessionListFilter.Recent, _state.value.sessions)
-                }
-                if (change.unarchivedIds.isNotEmpty() ||
-                    (archivedIds.isNotEmpty() && _state.value.filter == SessionListFilter.Archived)
-                ) {
-                    load(refresh = false)
+                    if (change.unarchivedIds.isNotEmpty() ||
+                        (archivedIds.isNotEmpty() && _state.value.filter == SessionListFilter.Archived)
+                    ) {
+                        load(refresh = false)
+                    }
                 }
             }
         }

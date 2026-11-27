@@ -46,6 +46,7 @@
     <string name="sessions_filter_needs_you">Vous attendent</string>
     <string name="sessions_section_threads">Fils</string>
     <string name="sessions_section_dispatch">Dispatch</string>
+    <string name="sessions_section_calendar">Calendrier</string>
     <string name="sessions_section_pinned">Épinglées</string>
     <string name="sessions_show_threads">Afficher les fils</string>
     <string name="sessions_hide_threads">Masquer les fils</string>

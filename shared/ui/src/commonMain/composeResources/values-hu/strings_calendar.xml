@@ -106,7 +106,7 @@
     <string name="cal_delete_attendee_confirm">A külső résztvevők értesítést kapnak, ha engedélyezve van.</string>
     <string name="cal_proposal_conflict_title">Időpont-ütközés észlelve</string>
     <string name="cal_proposal_conflict_message">Egy vagy több művelet foglalt eseményekkel ütközik:</string>
-    <string name="cal_agent_panel_empty">Kérd meg a Dispatch koordinátort a napod megtervezésére vagy idősávok javaslására.</string>
+    <string name="cal_agent_panel_empty">Kérd meg a Naptár ügynököt a naptárad áttekintésére, események létrehozására vagy átszervezésére.</string>
     <string name="cal_agent_staged_empty">Nincsenek függőben lévő javaslatok.</string>
     <string name="cal_status_synced">Szinkronizálva %1$s</string>
     <string name="cal_back">Vissza</string>
@@ -120,4 +120,15 @@
     <string name="cal_pick_minute">Perc</string>
     <string name="cal_done_action">Kész</string>
     <string name="cal_task_no_blocks">Még nincs ütemezett idősáv</string>
+    <string name="cal_agent_title">Naptár ügynök</string>
+    <string name="cal_agent_ask">%1$s kérdezése</string>
+    <string name="cal_agent_reset_session">Új munkamenet indítása</string>
+    <string name="cal_agent_open_fullscreen">Megnyitás csevegésben</string>
+    <string name="cal_agent_settings">Ügynök beállításai</string>
+    <string name="cal_agent_settings_heading">Naptár ügynök</string>
+    <string name="cal_agent_settings_desc">Válaszd ki, melyik Hermes ügynök kezelje a naptáradat külön munkamenetben.</string>
+    <string name="cal_agent_choose_bot">Ügynök profil</string>
+    <string name="cal_agent_choose_pet">Kedvenc választása</string>
+    <string name="cal_agent_session_reset_done">Új naptárügynök-munkamenet elindítva.</string>
+    <string name="cal_back_to_calendar">Vissza a Naptárhoz</string>
 </resources>

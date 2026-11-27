@@ -4,6 +4,22 @@ import dev.hermeskotlin.core.tasks.TaskChannel
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/** Dedicated Calendar Agent session + profile persisted on the gateway inside `motherbase-calendar`. */
+@Serializable
+data class CalendarAgentConfig(
+    val profile: String = "default",
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("last_interaction_at") val lastInteractionAt: Double = 0.0,
+)
+
+/** Partial update payload for `PUT /api/plugins/motherbase-calendar/agent`. */
+@Serializable
+data class CalendarAgentUpdate(
+    val profile: String? = null,
+    @SerialName("session_id") val sessionId: String? = null,
+    @SerialName("last_interaction_at") val lastInteractionAt: Double? = null,
+)
+
 /** Sync target configuration for 2-way Dispatch task time-blocks. */
 @Serializable
 data class DispatchSyncTarget(
@@ -24,6 +40,7 @@ data class CalendarSettings(
     @SerialName("show_weekends") val showWeekends: Boolean = true,
     @SerialName("show_declined") val showDeclined: Boolean = false,
     @SerialName("show_completed_tasks") val showCompletedTasks: Boolean = true,
+    val agent: CalendarAgentConfig = CalendarAgentConfig(),
 ) {
     companion object {
         const val VIEW_DAY = "day"

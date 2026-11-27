@@ -115,6 +115,7 @@ import kotlinx.coroutines.launch
 import dev.hermeskotlin.core.inbox.InboxLink
 import dev.hermeskotlin.core.inbox.InboxLinks
 import dev.hermeskotlin.core.inbox.InboxStore
+import dev.hermeskotlin.core.calendar.CalendarAgentStore
 import dev.hermeskotlin.core.rooms.RoomLinks
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.ui.tasks.DispatchTaskPanelHost
@@ -840,11 +841,15 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
     ) {
         CompositionLocalProvider(LocalBotFaces provides faces) {
             val dispatchStore: DispatchSessionsStore = koinInject()
+            val calendarAgentStore: CalendarAgentStore = koinInject()
             val dispatchRooms by sessions.dispatchRooms.collectAsStateWithLifecycle()
             val activeRoomEntry = openRoom?.room?.roomId?.let { dispatchRooms[it] }
             val activeSessionKey = openSessionId ?: route.target.storedSessionId
             val activeDispatchSession by remember(sessions, activeSessionKey) {
                 sessions.dispatchEntryFlow(activeSessionKey)
+            }.collectAsStateWithLifecycle(null)
+            val activeCalendarAgent by remember(sessions, activeSessionKey) {
+                sessions.calendarAgentFlow(activeSessionKey)
             }.collectAsStateWithLifecycle(null)
             val page = mainPage.content
             val activeTaskBinding = when {
@@ -980,6 +985,13 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                             {
                                 dispatchStore.requestOpenTask(route.gateway.gatewayUrl, entry.taskId, entry.sessionId)
                             }
+                        },
+                        onBackToCalendar = if (activeCalendarAgent != null) {
+                            {
+                                calendarAgentStore.requestOpenCalendar(route.gateway.gatewayUrl, openAgent = true)
+                            }
+                        } else {
+                            null
                         },
                         taskHasPendingPlan = currentTaskHasPendingPlan,
                         taskPanel = currentTaskPanel,

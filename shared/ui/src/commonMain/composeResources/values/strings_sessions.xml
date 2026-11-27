@@ -49,6 +49,7 @@
     <string name="sessions_filter_needs_you">Needs you</string>
     <string name="sessions_section_threads">Threads</string>
     <string name="sessions_section_dispatch">Dispatch</string>
+    <string name="sessions_section_calendar">Calendar</string>
     <string name="sessions_section_pinned">Pinned</string>
     <string name="sessions_show_threads">Show threads</string>
     <string name="sessions_hide_threads">Hide threads</string>

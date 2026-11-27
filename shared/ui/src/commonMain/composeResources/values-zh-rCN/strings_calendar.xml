@@ -106,7 +106,7 @@
     <string name="cal_delete_attendee_confirm">启用后将通知外部参与者。</string>
     <string name="cal_proposal_conflict_title">检测到日程冲突</string>
     <string name="cal_proposal_conflict_message">以下操作与现有忙碌日程重叠：</string>
-    <string name="cal_agent_panel_empty">请让 Dispatch 协调器检查日程、提议时间块或重新安排任务。</string>
+    <string name="cal_agent_panel_empty">请让日历助手查看你的日程、创建或调整日程事件，或查找空闲时间。</string>
     <string name="cal_agent_staged_empty">暂无待确认的排期提案。</string>
     <string name="cal_status_synced">已同步 %1$s</string>
     <string name="cal_back">返回</string>
@@ -120,4 +120,15 @@
     <string name="cal_pick_minute">分钟</string>
     <string name="cal_done_action">完成</string>
     <string name="cal_task_no_blocks">尚未安排时间块</string>
+    <string name="cal_agent_title">日历助手</string>
+    <string name="cal_agent_ask">向 %1$s 提问</string>
+    <string name="cal_agent_reset_session">开启新会话</string>
+    <string name="cal_agent_open_fullscreen">在对话中打开</string>
+    <string name="cal_agent_settings">助手设置</string>
+    <string name="cal_agent_settings_heading">日历助手</string>
+    <string name="cal_agent_settings_desc">选择在独立会话中管理日历的 Hermes 助手。</string>
+    <string name="cal_agent_choose_bot">助手档案</string>
+    <string name="cal_agent_choose_pet">选择宠物</string>
+    <string name="cal_agent_session_reset_done">已开启新的日历助手会话。</string>
+    <string name="cal_back_to_calendar">返回日历</string>
 </resources>

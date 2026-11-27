@@ -106,7 +106,7 @@
     <string name="cal_delete_attendee_confirm">Se notificará a los asistentes externos si está activado.</string>
     <string name="cal_proposal_conflict_title">Conflicto de horario detectado</string>
     <string name="cal_proposal_conflict_message">Una o más operaciones se solapan con eventos ocupados:</string>
-    <string name="cal_agent_panel_empty">Pide al coordinador de Dispatch que revise tu agenda o proponga bloques.</string>
+    <string name="cal_agent_panel_empty">Pide al agente de Calendario que revise tu agenda, cree o reprograme eventos o busque huecos libres.</string>
     <string name="cal_agent_staged_empty">No hay propuestas pendientes.</string>
     <string name="cal_status_synced">Sincronizado %1$s</string>
     <string name="cal_back">Atrás</string>
@@ -120,4 +120,15 @@
     <string name="cal_pick_minute">Minuto</string>
     <string name="cal_done_action">Listo</string>
     <string name="cal_task_no_blocks">Aún no hay bloques programados</string>
+    <string name="cal_agent_title">Agente de Calendario</string>
+    <string name="cal_agent_ask">Preguntar a %1$s</string>
+    <string name="cal_agent_reset_session">Iniciar nueva sesión</string>
+    <string name="cal_agent_open_fullscreen">Abrir en el chat</string>
+    <string name="cal_agent_settings">Ajustes del agente</string>
+    <string name="cal_agent_settings_heading">Agente de Calendario</string>
+    <string name="cal_agent_settings_desc">Elige qué agente de Hermes gestiona tu calendario en una sesión dedicada.</string>
+    <string name="cal_agent_choose_bot">Perfil del agente</string>
+    <string name="cal_agent_choose_pet">Elegir mascota</string>
+    <string name="cal_agent_session_reset_done">Nueva sesión del agente de calendario iniciada.</string>
+    <string name="cal_back_to_calendar">Volver al Calendario</string>
 </resources>

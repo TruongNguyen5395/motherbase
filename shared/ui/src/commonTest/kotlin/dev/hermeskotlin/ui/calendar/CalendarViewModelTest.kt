@@ -3,6 +3,8 @@ package dev.hermeskotlin.ui.calendar
 import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
 import dev.hermeskotlin.core.bots.BotsApi
+import dev.hermeskotlin.core.calendar.CalendarAgentConfig
+import dev.hermeskotlin.core.calendar.CalendarAgentStore
 import dev.hermeskotlin.core.calendar.CalendarApi
 import dev.hermeskotlin.core.calendar.CalendarCacheStore
 import dev.hermeskotlin.core.calendar.ScheduleProposal
@@ -10,6 +12,8 @@ import dev.hermeskotlin.core.calendar.calendarDateFromIso
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.models.ModelOption
+import dev.hermeskotlin.core.models.ModelsApi
 import dev.hermeskotlin.core.network.createHttpClient
 import dev.hermeskotlin.core.rpc.RpcTransport
 import dev.hermeskotlin.core.sessions.SessionsApi
@@ -163,7 +167,8 @@ class CalendarViewModelTest {
                 "default_view": "four_days",
                 "show_weekends": true,
                 "show_declined": false,
-                "show_completed_tasks": true
+                "show_completed_tasks": true,
+                "agent": {"profile": "default", "session_id": "cal-agent-1"}
               }
             }
         """
@@ -322,12 +327,12 @@ class CalendarViewModelTest {
         val h = buildHarness(::defaultRespond)
         try {
             h.vm.bind(gateway, isVisible = true)
-            withTimeout(5_000) { h.vm.state.first { !it.loading && it.coordinatorSessionId != null } }
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.agentSessionId != null } }
 
-            h.vm.askCoordinator("Plan my afternoon tasks")
+            h.vm.askAgent("Plan my afternoon tasks")
 
             withTimeout(5_000) { h.vm.state.first { it.agentTurnRunning } }
-            assertTrue(h.socket.calls.any { it.first == "session.resume" && it.second["session_id"]?.jsonPrimitive?.content == "coord-1" })
+            assertTrue(h.socket.calls.any { it.first == "session.resume" && it.second["session_id"]?.jsonPrimitive?.content == "cal-agent-1" })
             assertTrue(h.socket.calls.any { it.first == "prompt.submit" && it.second["text"]?.jsonPrimitive?.content == "Plan my afternoon tasks" })
         } finally {
             h.connection.stop()

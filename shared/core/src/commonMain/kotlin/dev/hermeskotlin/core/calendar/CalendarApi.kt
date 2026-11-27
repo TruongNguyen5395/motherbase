@@ -29,6 +29,9 @@ import kotlinx.serialization.json.put
 private data class SettingsEnvelope(val settings: CalendarSettings)
 
 @Serializable
+private data class AgentEnvelope(val agent: CalendarAgentConfig)
+
+@Serializable
 private data class AccountsEnvelope(
     val accounts: List<CalendarAccount> = emptyList(),
     val calendars: List<CalendarInfo> = emptyList(),
@@ -84,6 +87,17 @@ class CalendarApi(private val client: HttpClient) {
             setBody(settings)
         }
     }.map { lenientJson.decodeFromString<SettingsEnvelope>(it.bodyAsText()).settings }
+
+    suspend fun getAgentConfig(url: GatewayUrl): ApiResult<CalendarAgentConfig> = apiCall {
+        client.get(url.resolve("api/plugins/$PLUGIN/agent"))
+    }.map { lenientJson.decodeFromString<AgentEnvelope>(it.bodyAsText()).agent }
+
+    suspend fun saveAgentConfig(url: GatewayUrl, update: CalendarAgentUpdate): ApiResult<CalendarAgentConfig> = apiCall {
+        client.put(url.resolve("api/plugins/$PLUGIN/agent")) {
+            contentType(ContentType.Application.Json)
+            setBody(update)
+        }
+    }.map { lenientJson.decodeFromString<AgentEnvelope>(it.bodyAsText()).agent }
 
     suspend fun listAccounts(url: GatewayUrl): ApiResult<Pair<List<CalendarAccount>, List<CalendarInfo>>> = apiCall {
         client.get(url.resolve("api/plugins/$PLUGIN/accounts"))

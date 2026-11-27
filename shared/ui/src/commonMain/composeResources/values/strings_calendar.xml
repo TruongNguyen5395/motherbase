@@ -106,7 +106,7 @@
     <string name="cal_delete_attendee_confirm">External attendees will be notified if enabled.</string>
     <string name="cal_proposal_conflict_title">Schedule conflict detected</string>
     <string name="cal_proposal_conflict_message">One or more operations overlap existing busy events:</string>
-    <string name="cal_agent_panel_empty">Ask the Dispatch coordinator to inspect your agenda, propose time blocks, or reschedule tasks.</string>
+    <string name="cal_agent_panel_empty">Ask the Calendar agent to inspect your agenda, create or reschedule events, or find free slots.</string>
     <string name="cal_agent_staged_empty">No pending schedule proposals.</string>
     <string name="cal_status_synced">Synced %1$s</string>
     <string name="cal_back">Back</string>
@@ -120,4 +120,15 @@
     <string name="cal_pick_minute">Minute</string>
     <string name="cal_done_action">Done</string>
     <string name="cal_task_no_blocks">No time block scheduled yet</string>
+    <string name="cal_agent_title">Calendar Agent</string>
+    <string name="cal_agent_ask">Ask %1$s</string>
+    <string name="cal_agent_reset_session">Start fresh session</string>
+    <string name="cal_agent_open_fullscreen">Open in chat</string>
+    <string name="cal_agent_settings">Agent settings</string>
+    <string name="cal_agent_settings_heading">Calendar Agent</string>
+    <string name="cal_agent_settings_desc">Choose which Hermes agent manages your calendar in a dedicated session.</string>
+    <string name="cal_agent_choose_bot">Agent profile</string>
+    <string name="cal_agent_choose_pet">Choose pet</string>
+    <string name="cal_agent_session_reset_done">Started a fresh calendar agent session.</string>
+    <string name="cal_back_to_calendar">Back to Calendar</string>
 </resources>

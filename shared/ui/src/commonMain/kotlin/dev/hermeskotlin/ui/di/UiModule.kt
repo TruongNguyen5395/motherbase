@@ -69,6 +69,8 @@ val uiModule = module {
             sessionsApi = getOrNull(),
             botsApi = getOrNull(),
             roomsApi = getOrNull(),
+            modelsApi = getOrNull(),
+            calendarAgentStore = getOrNull(),
         )
     }
     // Spelled out: past 22 parameters viewModelOf has no overload, and the last two are optional.
