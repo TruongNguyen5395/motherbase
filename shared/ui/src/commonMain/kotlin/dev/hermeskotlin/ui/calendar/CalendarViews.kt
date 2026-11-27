@@ -63,6 +63,7 @@ import dev.hermeskotlin.core.calendar.PlacedTimedBlock
 import dev.hermeskotlin.core.calendar.TimeGridLayout
 import dev.hermeskotlin.core.calendar.formatClockCompact
 import dev.hermeskotlin.designsystem.accent
+import dev.hermeskotlin.designsystem.accentText
 import dev.hermeskotlin.designsystem.bodySmall
 import dev.hermeskotlin.designsystem.caption
 import dev.hermeskotlin.designsystem.colors
@@ -858,7 +859,12 @@ internal fun CalendarMonthGridView(
                                                 Text(
                                                     stringResource(Res.string.cal_more_count, overflow),
                                                     style = Theme[typography][caption].copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
-                                                    color = Theme[colors][textSecondary],
+                                                    color = Theme[colors][accentText],
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .clickable(role = Role.Button) { onSelectDate(day) }
+                                                        .handCursor()
+                                                        .padding(horizontal = 2.dp, vertical = 1.dp),
                                                 )
                                             }
                                         }

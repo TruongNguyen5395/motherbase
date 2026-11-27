@@ -3,6 +3,7 @@ package dev.hermeskotlin.ui.calendar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -25,28 +27,35 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,7 +64,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ArrowRight
-import com.composables.icons.lucide.Bot
 import com.composables.icons.lucide.Calendar
 import com.composables.icons.lucide.CalendarClock
 import com.composables.icons.lucide.CalendarDays
@@ -64,6 +72,7 @@ import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.Circle
 import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Clock
+import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.ListTodo
 import com.composables.icons.lucide.MessageSquare
@@ -71,7 +80,7 @@ import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.PanelRight
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
-import com.composables.icons.lucide.Send
+import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.Target
@@ -79,6 +88,7 @@ import com.composables.icons.lucide.X
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
+import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.calendar.CalendarDate
 import dev.hermeskotlin.core.calendar.CalendarEvent
 import dev.hermeskotlin.core.calendar.CalendarInfo
@@ -93,8 +103,21 @@ import dev.hermeskotlin.core.calendar.calendarZonedFromIso
 import dev.hermeskotlin.core.calendar.formatClockCompact
 import dev.hermeskotlin.core.calendar.plusDays
 import dev.hermeskotlin.core.chat.InputRequest
+import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.models.ModelOption
+import dev.hermeskotlin.core.models.ReasoningEffort
+import dev.hermeskotlin.core.pet.PetApi
+import dev.hermeskotlin.core.pet.PetSprite
+import dev.hermeskotlin.core.pet.PetState
+import dev.hermeskotlin.core.pet.petStateOf
 import dev.hermeskotlin.core.rooms.Room
+import dev.hermeskotlin.core.settings.AppSettings
+import dev.hermeskotlin.core.settings.SettingsStore
+import dev.hermeskotlin.core.voice.AudioApi
+import dev.hermeskotlin.core.voice.DeviceDictation
+import dev.hermeskotlin.core.voice.SpeechPlayer
+import dev.hermeskotlin.core.voice.VoiceRecorder
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.accentSoft
 import dev.hermeskotlin.designsystem.accentText
@@ -110,15 +133,13 @@ import dev.hermeskotlin.designsystem.components.Chip
 import dev.hermeskotlin.designsystem.components.DropdownMenu
 import dev.hermeskotlin.designsystem.components.IconButton
 import dev.hermeskotlin.designsystem.components.LocalOpenModals
-import dev.hermeskotlin.designsystem.components.MarkdownText
 import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.Spinner
-import dev.hermeskotlin.designsystem.components.TextField
 import dev.hermeskotlin.designsystem.components.VerticalScrollbar
 import dev.hermeskotlin.designsystem.components.handCursor
+import dev.hermeskotlin.designsystem.components.scrollbar
 import dev.hermeskotlin.designsystem.danger
 import dev.hermeskotlin.designsystem.dangerSoft
-import dev.hermeskotlin.designsystem.onAccent
 import dev.hermeskotlin.designsystem.sidebar
 import dev.hermeskotlin.designsystem.stroke
 import dev.hermeskotlin.designsystem.strokeStrong
@@ -128,17 +149,29 @@ import dev.hermeskotlin.designsystem.text as textColor
 import dev.hermeskotlin.designsystem.textSecondary
 import dev.hermeskotlin.designsystem.textTertiary
 import dev.hermeskotlin.designsystem.typography
+import dev.hermeskotlin.ui.bots.BotAvatar
+import dev.hermeskotlin.ui.chat.AttachSheet
+import dev.hermeskotlin.ui.chat.AttachmentPicker
 import dev.hermeskotlin.ui.chat.InputRequestPanel
-import dev.hermeskotlin.ui.chat.ReplyInteractionCard
+import dev.hermeskotlin.ui.chat.LocalModelPillBounds
+import dev.hermeskotlin.ui.chat.ModelConfirmDialog
+import dev.hermeskotlin.ui.chat.ModelSheet
 import dev.hermeskotlin.ui.chat.ScheduleProposalContent
+import dev.hermeskotlin.ui.chat.rememberAttachmentPicker
 import dev.hermeskotlin.ui.clearOfWindowControls
 import dev.hermeskotlin.ui.components.EmptyState
 import dev.hermeskotlin.ui.isDesktop
+import dev.hermeskotlin.ui.pet.PetAvatar
+import dev.hermeskotlin.ui.pet.PetController
+import dev.hermeskotlin.ui.pet.PetSheet
 import dev.hermeskotlin.ui.resources.Res
 import dev.hermeskotlin.ui.resources.app_try_again
+import dev.hermeskotlin.ui.resources.cal_agent_ask
+import dev.hermeskotlin.ui.resources.cal_agent_open_fullscreen
 import dev.hermeskotlin.ui.resources.cal_agent_panel_empty
-import dev.hermeskotlin.ui.resources.cal_agent_staged_empty
-import dev.hermeskotlin.ui.resources.cal_ask_agent_hint
+import dev.hermeskotlin.ui.resources.cal_agent_reset_session
+import dev.hermeskotlin.ui.resources.cal_agent_settings
+import dev.hermeskotlin.ui.resources.cal_agent_title
 import dev.hermeskotlin.ui.resources.cal_ask_agent_plan
 import dev.hermeskotlin.ui.resources.cal_back
 import dev.hermeskotlin.ui.resources.cal_block_slot
@@ -178,10 +211,20 @@ import dev.hermeskotlin.ui.resources.cal_view_schedule
 import dev.hermeskotlin.ui.resources.cal_view_settings
 import dev.hermeskotlin.ui.resources.cal_view_three_days
 import dev.hermeskotlin.ui.resources.cal_view_week
+import dev.hermeskotlin.ui.resources.chat_notice_dictation_mic
+import dev.hermeskotlin.ui.resources.tasks_close_inspector
+import dev.hermeskotlin.ui.tasks.AgentFloatingTrigger
+import dev.hermeskotlin.ui.tasks.TaskChannelLog
+import dev.hermeskotlin.ui.tasks.TaskChatComposer
+import dev.hermeskotlin.ui.voice.DictationState
+import dev.hermeskotlin.ui.voice.VoiceController
+import dev.hermeskotlin.ui.voice.rememberMicrophonePermission
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 internal enum class CalendarRightTab {
@@ -193,6 +236,8 @@ internal enum class CalendarRightTab {
 internal fun CalendarPage(
     gateway: SavedGateway,
     visible: Boolean,
+    initialOpenAgent: Boolean = false,
+    onConsumedOpenAgent: () -> Unit = {},
     onBack: () -> Unit,
     onSessionExpired: () -> Unit,
     onOpenSession: (sessionId: String, title: String, profile: String?) -> Unit = { _, _, _ -> },
@@ -201,11 +246,61 @@ internal fun CalendarPage(
 ) {
     val viewModel: CalendarViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val settingsStore = koinInject<SettingsStore>()
+    val petApi = koinInject<PetApi>()
+    val audioApi = koinInject<AudioApi>()
+    val voiceRecorder = koinInject<VoiceRecorder>()
+    val speechPlayer = koinInject<SpeechPlayer>()
+    val deviceDictation = koinInject<DeviceDictation>()
+    val appScope = koinInject<CoroutineScope>()
+    val scope = rememberCoroutineScope()
+
+    val petController = remember(petApi, scope) { PetController(petApi, scope) }
+    val petSprite by petController.sprite.collectAsStateWithLifecycle()
+    var petSheetOpen by remember { mutableStateOf(false) }
+
+    val voiceController = remember(audioApi, voiceRecorder, speechPlayer, scope, appScope, deviceDictation) {
+        VoiceController(
+            audio = audioApi,
+            recorder = voiceRecorder,
+            player = speechPlayer,
+            scope = scope,
+            appScope = appScope,
+            deviceDictation = deviceDictation,
+        )
+    }
+    DisposableEffect(voiceController) {
+        onDispose { voiceController.stopAll() }
+    }
+    DisposableEffect(visible) {
+        if (!visible) voiceController.stopAll()
+        onDispose {}
+    }
+
+    val dictation by voiceController.dictation.collectAsStateWithLifecycle()
+    val microphone = rememberMicrophonePermission()
+    val dictationNeedsMic = stringResource(Res.string.chat_notice_dictation_mic)
+    LaunchedEffect(dictation.error) {
+        val err = dictation.error
+        if (!err.isNullOrBlank()) {
+            viewModel.reportAttachmentError(err)
+            voiceController.dismissDictationError()
+        }
+    }
+
+    val attachmentPicker = rememberAttachmentPicker(
+        onPicked = viewModel::addAttachments,
+        onError = viewModel::reportAttachmentError,
+    )
+
     val openSession by rememberUpdatedState(onOpenSession)
     val openRoom by rememberUpdatedState(onOpenRoom)
 
     LaunchedEffect(gateway, visible) {
         viewModel.bind(gateway, visible)
+    }
+    LaunchedEffect(gateway, state.agentProfile) {
+        petController.bind(state.agentProfile)
     }
     LaunchedEffect(visible) {
         if (!visible) return@LaunchedEffect
@@ -215,7 +310,16 @@ internal fun CalendarPage(
         }
     }
     LaunchedEffect(state.sessionExpired) {
-        if (state.sessionExpired) onSessionExpired()
+        if (state.sessionExpired) {
+            viewModel.consumeSessionExpired()
+            onSessionExpired()
+        }
+    }
+    LaunchedEffect(state.feedback) {
+        if (state.feedback != null) {
+            delay(4_000L)
+            viewModel.clearFeedback()
+        }
     }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -226,8 +330,52 @@ internal fun CalendarPage(
         }
     }
 
+    val onToggleDictation: (TextFieldState) -> Unit = { fieldState ->
+        microphone.withMicrophone(onDenied = { viewModel.reportAttachmentError(dictationNeedsMic) }) {
+            if (voiceController.dictation.value.recording) {
+                voiceController.finishDictation()
+            } else {
+                val engine = (settingsStore.settings.value ?: AppSettings()).dictationEngine
+                val profile = state.agentProfile.ifBlank { null }
+                val typed = fieldState.text.toString()
+                var shown = typed
+                fun withSpoken(base: String, spoken: String) = if (base.isBlank()) spoken else "${base.trimEnd()} $spoken"
+                voiceController.startDictation(
+                    gateway = gateway.gatewayUrl,
+                    profile = profile,
+                    engine = engine,
+                    onPartial = { partial ->
+                        if (fieldState.text.toString() == shown) {
+                            shown = withSpoken(typed, partial)
+                            fieldState.setTextAndPlaceCursorAtEnd(shown)
+                        }
+                    },
+                    onCancelled = {
+                        if (shown != typed && fieldState.text.toString() == shown) {
+                            fieldState.setTextAndPlaceCursorAtEnd(typed)
+                        }
+                    },
+                ) { text ->
+                    val current = fieldState.text.toString()
+                    fieldState.setTextAndPlaceCursorAtEnd(withSpoken(if (current == shown) typed else current, text))
+                }
+            }
+        }
+    }
+
     CalendarPageContent(
         state = state,
+        initialOpenAgent = initialOpenAgent,
+        onConsumedOpenAgent = onConsumedOpenAgent,
+        attachmentPicker = attachmentPicker,
+        petSprite = petSprite,
+        dictation = dictation,
+        onToggleDictation = onToggleDictation,
+        onOpenPetPicker = { targetProfile ->
+            val target = targetProfile.trim().ifEmpty { Bot.DEFAULT }
+            petController.bind(target)
+            petSheetOpen = true
+        },
         onBack = onBack,
         onToggleSidebar = onToggleSidebar,
         onRefresh = viewModel::refresh,
@@ -236,6 +384,7 @@ internal fun CalendarPage(
         onStepPeriod = viewModel::stepPeriod,
         onGoToday = viewModel::goToday,
         onSelectDate = viewModel::selectDate,
+        onOpenDay = viewModel::openDay,
         onToggleWeekends = viewModel::toggleShowWeekends,
         onToggleDeclined = viewModel::toggleShowDeclined,
         onToggleCompletedTasks = viewModel::toggleShowCompletedTasks,
@@ -273,17 +422,44 @@ internal fun CalendarPage(
         onCloseSettings = viewModel::closeSettingsDialog,
         onSaveSettings = viewModel::saveSettings,
         onDisconnectAccount = viewModel::disconnectAccount,
-        onAskCoordinator = viewModel::askCoordinator,
+        onAgentPanelOpened = viewModel::onAgentPanelOpened,
+        onAskAgent = viewModel::askAgent,
         onQuickPlanDay = viewModel::quickPlanDay,
-        onRefreshAgentChat = viewModel::refreshCoordinatorChat,
-        onAnswerCoordinatorRequest = viewModel::answerCoordinatorRequest,
+        onRefreshAgentChat = viewModel::refreshAgentChat,
+        onResetAgentSession = viewModel::resetAgentSession,
+        onOpenAgentFullscreen = viewModel::openAgentFullscreen,
+        onAnswerAgentRequest = viewModel::answerAgentRequest,
+        onRemoveAttachment = viewModel::removeAttachment,
+        onRefreshModels = viewModel::loadModels,
+        onSelectModel = viewModel::selectModel,
+        onDismissModelConfirm = viewModel::dismissModelConfirm,
+        onSelectEffort = { viewModel.setReasoningEffort(it.wire) },
+        onSetFast = viewModel::setFast,
+        onUpdateSettings = settingsStore::update,
         onClearFeedback = viewModel::clearFeedback,
+    )
+
+    PetSheet(
+        visible = petSheetOpen,
+        controller = petController,
+        onDismiss = {
+            petSheetOpen = false
+            petController.bind(state.agentProfile)
+        },
+        onAdopted = { petSheetOpen = false },
     )
 }
 
 @Composable
 internal fun CalendarPageContent(
     state: CalendarUiState,
+    initialOpenAgent: Boolean = false,
+    onConsumedOpenAgent: () -> Unit = {},
+    attachmentPicker: AttachmentPicker? = null,
+    petSprite: PetSprite? = null,
+    dictation: DictationState = DictationState(),
+    onToggleDictation: ((TextFieldState) -> Unit)? = null,
+    onOpenPetPicker: ((String) -> Unit)? = null,
     onBack: () -> Unit = {},
     onToggleSidebar: (() -> Unit)? = null,
     onRefresh: () -> Unit = {},
@@ -292,6 +468,10 @@ internal fun CalendarPageContent(
     onStepPeriod: (Int) -> Unit = {},
     onGoToday: () -> Unit = {},
     onSelectDate: (CalendarDate) -> Unit = {},
+    onOpenDay: (CalendarDate) -> Unit = { d ->
+        onSelectDate(d)
+        onSetViewMode(CalendarViewMode.DAY)
+    },
     onToggleWeekends: () -> Unit = {},
     onToggleDeclined: () -> Unit = {},
     onToggleCompletedTasks: () -> Unit = {},
@@ -327,12 +507,22 @@ internal fun CalendarPageContent(
     onConnectIcs: (String, String, String?) -> Unit = { _, _, _ -> },
     onOpenSettings: () -> Unit = {},
     onCloseSettings: () -> Unit = {},
-    onSaveSettings: (String, String, String, String) -> Unit = { _, _, _, _ -> },
+    onSaveSettings: (String, String, String, String, String?) -> Unit = { _, _, _, _, _ -> },
     onDisconnectAccount: (String) -> Unit = {},
-    onAskCoordinator: (String) -> Unit = {},
+    onAgentPanelOpened: () -> Unit = {},
+    onAskAgent: (String) -> Unit = {},
     onQuickPlanDay: () -> Unit = {},
     onRefreshAgentChat: () -> Unit = {},
-    onAnswerCoordinatorRequest: (InputRequest, JsonObject) -> Unit = { _, _ -> },
+    onResetAgentSession: () -> Unit = {},
+    onOpenAgentFullscreen: () -> Unit = {},
+    onAnswerAgentRequest: (InputRequest, JsonObject) -> Unit = { _, _ -> },
+    onRemoveAttachment: (String) -> Unit = {},
+    onRefreshModels: (Boolean) -> Unit = {},
+    onSelectModel: (ModelOption, Boolean) -> Unit = { _, _ -> },
+    onDismissModelConfirm: () -> Unit = {},
+    onSelectEffort: (ReasoningEffort) -> Unit = {},
+    onSetFast: (Boolean) -> Unit = {},
+    onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit = {},
     onClearFeedback: () -> Unit = {},
 ) {
     var leftRailDockedOpen by rememberSaveable { mutableStateOf(true) }
@@ -340,6 +530,9 @@ internal fun CalendarPageContent(
     var leftSheetOpen by remember { mutableStateOf(false) }
     var rightSheetOpen by remember { mutableStateOf(false) }
     var rightTab by rememberSaveable { mutableStateOf(CalendarRightTab.TASKS) }
+    var modelsOpen by remember { mutableStateOf(false) }
+    var attachOpen by remember { mutableStateOf(false) }
+    val modelPillBounds = remember { mutableStateOf<Rect?>(null) }
     var miniMonthAnchor by remember(state.anchorDate.year, state.anchorDate.month) { mutableStateOf(state.anchorDate) }
 
     val modals = LocalOpenModals.current
@@ -352,6 +545,24 @@ internal fun CalendarPageContent(
     }
     val stagedCount = remember(effectiveProposals) {
         effectiveProposals.count { it.status == ScheduleProposal.STATUS_STAGED }
+    }
+    val agentPetState = remember(
+        state.agentError,
+        effectiveProposals,
+        state.agentInputRequests,
+        state.agentTurnRunning,
+        state.agentTurnStatus,
+    ) {
+        petStateOf(
+            failed = state.agentError != null,
+            justFinished = stagedCount > 0,
+            awaitingInput = state.agentInputRequests.isNotEmpty(),
+            toolRunning = state.agentTurnRunning &&
+                !state.agentTurnStatus.isNullOrBlank() && state.agentTurnStatus != "Thinking…",
+            reasoning = state.agentTurnRunning &&
+                (state.agentTurnStatus.isNullOrBlank() || state.agentTurnStatus == "Thinking…"),
+            busy = state.agentTurnRunning,
+        )
     }
 
     val visibleCalIds = remember(state.calendars) {
@@ -414,6 +625,7 @@ internal fun CalendarPageContent(
         formatCalendarRangeTitle(state.viewMode, state.anchorDate, visibleDays)
     }
 
+    CompositionLocalProvider(LocalModelPillBounds provides modelPillBounds) {
     Column(
         Modifier
             .fillMaxSize()
@@ -439,6 +651,19 @@ internal fun CalendarPageContent(
             val wideLeft = maxWidth >= 900.dp
             val wideRight = maxWidth >= 1120.dp
             val compactToolbar = maxWidth < 640.dp
+            val agentCurrentlyVisible = rightTab == CalendarRightTab.AGENT &&
+                if (wideRight) rightRailDockedOpen else rightSheetOpen
+
+            LaunchedEffect(initialOpenAgent, wideRight) {
+                if (initialOpenAgent) {
+                    rightTab = CalendarRightTab.AGENT
+                    if (wideRight) rightRailDockedOpen = true else rightSheetOpen = true
+                    onConsumedOpenAgent()
+                }
+            }
+            LaunchedEffect(agentCurrentlyVisible) {
+                if (agentCurrentlyVisible) onAgentPanelOpened()
+            }
 
             val handleItemClick: (CalendarItem) -> Unit = { item ->
                 when (item) {
@@ -476,7 +701,7 @@ internal fun CalendarPageContent(
                     onToggleCompletedTasks = onToggleCompletedTasks,
                     onOpenSettings = onOpenSettings,
                     onToggleRightPanel = {
-                        if (wideRight) rightRailDockedOpen = !rightRailDockedOpen else rightSheetOpen = true
+                        if (wideRight) rightRailDockedOpen = !rightRailDockedOpen else rightSheetOpen = !rightSheetOpen
                     },
                 )
 
@@ -574,7 +799,7 @@ internal fun CalendarPageContent(
                                         anchorDate = state.anchorDate,
                                         todayDate = state.todayDate,
                                         use24Hour = state.use24Hour,
-                                        onSelectDate = onSelectDate,
+                                        onSelectDate = onOpenDay,
                                         onItemClick = handleItemClick,
                                         onToggleTaskDone = onToggleTaskDone,
                                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -585,20 +810,55 @@ internal fun CalendarPageContent(
 
                         val bannerError = state.error ?: state.feedback
                         if (bannerError != null) {
+                            val isError = state.error != null
                             Row(
                                 Modifier
                                     .align(Alignment.BottomCenter)
-                                    .padding(12.dp)
+                                    .padding(
+                                        start = 12.dp,
+                                        end = if (!agentCurrentlyVisible) 80.dp else 12.dp,
+                                        bottom = 12.dp,
+                                    )
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(Theme[colors][dangerSoft])
-                                    .border(1.dp, Theme[colors][danger].copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                    .background(if (isError) Theme[colors][dangerSoft] else Theme[colors][surface])
+                                    .border(
+                                        1.dp,
+                                        if (isError) Theme[colors][danger].copy(alpha = 0.4f) else Theme[colors][strokeStrong],
+                                        RoundedCornerShape(10.dp),
+                                    )
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(bannerError, style = Theme[typography][caption], color = Theme[colors][danger], modifier = Modifier.weight(1f, fill = false))
+                                Text(
+                                    bannerError,
+                                    style = Theme[typography][caption],
+                                    color = if (isError) Theme[colors][danger] else Theme[colors][textSecondary],
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
                                 IconButton(Lucide.X, contentDescription = stringResource(Res.string.cal_back), onClick = onClearFeedback)
                             }
+                        }
+
+                        if (!agentCurrentlyVisible && !state.pluginMissing) {
+                            AgentFloatingTrigger(
+                                bot = state.agentBot,
+                                avatarBytes = state.botAvatars[state.agentBot.name],
+                                petSprite = petSprite,
+                                petState = agentPetState,
+                                badgeActive = stagedCount > 0 || state.agentInputRequests.isNotEmpty(),
+                                busy = state.agentTurnRunning,
+                                contentDescription = stringResource(Res.string.cal_agent_title),
+                                testTag = "calendar_agent_button",
+                                onClick = {
+                                    rightTab = CalendarRightTab.AGENT
+                                    if (wideRight) rightRailDockedOpen = true else rightSheetOpen = true
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .navigationBarsPadding()
+                                    .padding(end = 16.dp, bottom = if (isDesktop) 16.dp else 20.dp),
+                            )
                         }
                     }
 
@@ -607,8 +867,14 @@ internal fun CalendarPageContent(
                         CalendarRightPanel(
                             state = state,
                             effectiveProposals = effectiveProposals,
+                            petSprite = petSprite,
+                            petState = agentPetState,
+                            attachmentPicker = attachmentPicker,
+                            dictation = dictation,
+                            onToggleDictation = onToggleDictation,
                             selectedTab = rightTab,
                             onSelectTab = { rightTab = it },
+                            onClosePanel = { rightRailDockedOpen = false },
                             onToggleTaskDone = onToggleTaskDone,
                             onSelectTask = onSelectTask,
                             onOpenTaskSession = onOpenTaskSession,
@@ -616,12 +882,21 @@ internal fun CalendarPageContent(
                             onDeleteBlock = onDeleteTaskBlock,
                             onQuickPlanDay = onQuickPlanDay,
                             onRefreshAgentChat = onRefreshAgentChat,
-                            onAskCoordinator = onAskCoordinator,
+                            onResetAgentSession = onResetAgentSession,
+                            onOpenAgentFullscreen = onOpenAgentFullscreen,
+                            onOpenSettings = onOpenSettings,
+                            onAskAgent = onAskAgent,
+                            onRemoveAttachment = onRemoveAttachment,
+                            onAttach = { attachOpen = true },
+                            onOpenModels = {
+                                modelsOpen = true
+                                onRefreshModels(false)
+                            },
                             onApplyProposal = onApplyProposal,
                             onDiscardProposal = onDiscardProposal,
                             onRevertProposal = onRevertProposal,
-                            onAnswerRequest = onAnswerCoordinatorRequest,
-                            modifier = Modifier.width(340.dp).fillMaxHeight(),
+                            onAnswerRequest = onAnswerAgentRequest,
+                            modifier = Modifier.width(360.dp).fillMaxHeight(),
                         )
                     }
                 }
@@ -660,8 +935,14 @@ internal fun CalendarPageContent(
                     CalendarRightPanel(
                         state = state,
                         effectiveProposals = effectiveProposals,
+                        petSprite = petSprite,
+                        petState = agentPetState,
+                        attachmentPicker = attachmentPicker,
+                        dictation = dictation,
+                        onToggleDictation = onToggleDictation,
                         selectedTab = rightTab,
                         onSelectTab = { rightTab = it },
+                        onClosePanel = { rightSheetOpen = false },
                         onToggleTaskDone = onToggleTaskDone,
                         onSelectTask = { t ->
                             rightSheetOpen = false
@@ -678,11 +959,20 @@ internal fun CalendarPageContent(
                         onDeleteBlock = onDeleteTaskBlock,
                         onQuickPlanDay = onQuickPlanDay,
                         onRefreshAgentChat = onRefreshAgentChat,
-                        onAskCoordinator = onAskCoordinator,
+                        onResetAgentSession = onResetAgentSession,
+                        onOpenAgentFullscreen = onOpenAgentFullscreen,
+                        onOpenSettings = onOpenSettings,
+                        onAskAgent = onAskAgent,
+                        onRemoveAttachment = onRemoveAttachment,
+                        onAttach = { attachOpen = true },
+                        onOpenModels = {
+                            modelsOpen = true
+                            onRefreshModels(false)
+                        },
                         onApplyProposal = onApplyProposal,
                         onDiscardProposal = onDiscardProposal,
                         onRevertProposal = onRevertProposal,
-                        onAnswerRequest = onAnswerCoordinatorRequest,
+                        onAnswerRequest = onAnswerAgentRequest,
                         modifier = Modifier.fillMaxWidth().height(540.dp),
                     )
                 }
@@ -782,10 +1072,17 @@ internal fun CalendarPageContent(
         settings = state.settings,
         accounts = state.accounts,
         use24Hour = state.use24Hour,
+        bots = state.bots,
+        botAvatars = state.botAvatars,
+        petSprite = petSprite,
+        petState = agentPetState,
+        resettingAgent = state.resettingAgent,
         mutating = state.mutating,
         onDismiss = onCloseSettings,
         onSave = onSaveSettings,
         onDisconnectAccount = onDisconnectAccount,
+        onOpenPetPicker = onOpenPetPicker,
+        onResetAgentSession = onResetAgentSession,
     )
 
     ScheduleProposalConflictDialog(
@@ -794,6 +1091,37 @@ internal fun CalendarPageContent(
         onDismiss = onDismissConflict,
         onForceApply = onForceApplyConflict,
     )
+
+    if (attachmentPicker != null) {
+        AttachSheet(
+            visible = attachOpen,
+            onDismiss = { attachOpen = false },
+            picker = attachmentPicker,
+            subtitle = null,
+        )
+    }
+
+    ModelSheet(
+        visible = modelsOpen,
+        onDismiss = { modelsOpen = false },
+        state = state.agentChatState,
+        picker = state.modelPicker,
+        onRefresh = { onRefreshModels(true) },
+        onSelectModel = { model ->
+            onSelectModel(model, false)
+            modelsOpen = false
+        },
+        onSelectEffort = onSelectEffort,
+        onFast = onSetFast,
+        onSettings = onUpdateSettings,
+        anchor = { modelPillBounds.value.takeIf { isDesktop } },
+    )
+    ModelConfirmDialog(
+        pending = state.modelPicker.confirm,
+        onConfirm = { model -> onSelectModel(model, true) },
+        onDismiss = onDismissModelConfirm,
+    )
+    }
 }
 
 @Composable
@@ -1196,8 +1524,14 @@ private fun StagedProposalBanner(count: Int, onClick: () -> Unit) {
 private fun CalendarRightPanel(
     state: CalendarUiState,
     effectiveProposals: List<ScheduleProposal>,
+    petSprite: PetSprite?,
+    petState: PetState,
+    attachmentPicker: AttachmentPicker?,
+    dictation: DictationState,
+    onToggleDictation: ((TextFieldState) -> Unit)?,
     selectedTab: CalendarRightTab,
     onSelectTab: (CalendarRightTab) -> Unit,
+    onClosePanel: () -> Unit,
     onToggleTaskDone: (String, Boolean) -> Unit,
     onSelectTask: (DispatchCalendarTask) -> Unit,
     onOpenTaskSession: (String) -> Unit,
@@ -1205,14 +1539,19 @@ private fun CalendarRightPanel(
     onDeleteBlock: (String) -> Unit,
     onQuickPlanDay: () -> Unit,
     onRefreshAgentChat: () -> Unit,
-    onAskCoordinator: (String) -> Unit,
+    onResetAgentSession: () -> Unit,
+    onOpenAgentFullscreen: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onAskAgent: (String) -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onAttach: () -> Unit,
+    onOpenModels: () -> Unit,
     onApplyProposal: (String, List<String>, Boolean) -> Unit,
     onDiscardProposal: (String) -> Unit,
     onRevertProposal: (String) -> Unit,
     onAnswerRequest: (InputRequest, JsonObject) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val botLabel = state.coordinatorProfile.ifBlank { "Hermes" }
     Column(modifier.background(Theme[colors][sidebar])) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1226,15 +1565,12 @@ private fun CalendarRightPanel(
                 count = state.dispatchOverview.tasks.count { it.status != "done" },
             )
             Chip(
-                text = botLabel,
+                text = stringResource(Res.string.cal_agent_title),
                 selected = selectedTab == CalendarRightTab.AGENT,
                 onClick = { onSelectTab(CalendarRightTab.AGENT) },
                 count = effectiveProposals.count { it.status == ScheduleProposal.STATUS_STAGED }.takeIf { it > 0 },
             )
             Spacer(Modifier.weight(1f))
-            if (selectedTab == CalendarRightTab.AGENT) {
-                IconButton(Lucide.RefreshCw, contentDescription = stringResource(Res.string.cal_sync_now), onClick = onRefreshAgentChat)
-            }
         }
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
@@ -1254,12 +1590,24 @@ private fun CalendarRightPanel(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
         } else {
-            AgentSchedulerTab(
+            CalendarAgentPanel(
                 state = state,
                 effectiveProposals = effectiveProposals,
-                botLabel = botLabel,
+                petSprite = petSprite,
+                petState = petState,
+                attachmentPicker = attachmentPicker,
+                dictation = dictation,
+                onToggleDictation = onToggleDictation,
+                onClose = onClosePanel,
                 onQuickPlanDay = onQuickPlanDay,
-                onAskCoordinator = onAskCoordinator,
+                onRefreshAgentChat = onRefreshAgentChat,
+                onResetAgentSession = onResetAgentSession,
+                onOpenAgentFullscreen = onOpenAgentFullscreen,
+                onOpenSettings = onOpenSettings,
+                onAskAgent = onAskAgent,
+                onRemoveAttachment = onRemoveAttachment,
+                onAttach = onAttach,
+                onOpenModels = onOpenModels,
                 onApplyProposal = onApplyProposal,
                 onDiscardProposal = onDiscardProposal,
                 onRevertProposal = onRevertProposal,
@@ -1297,7 +1645,7 @@ private fun DispatchTasksBacklogTab(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Button(
-                text = stringResource(Res.string.cal_ask_agent_plan, state.coordinatorProfile.ifBlank { "Hermes" }),
+                text = stringResource(Res.string.cal_ask_agent_plan, state.agentBot.label),
                 onClick = onPlanWithAgent,
                 variant = ButtonVariant.Primary,
                 size = ButtonSize.Small,
@@ -1464,12 +1812,24 @@ private fun DispatchBacklogTaskCard(
 }
 
 @Composable
-private fun AgentSchedulerTab(
+private fun CalendarAgentPanel(
     state: CalendarUiState,
     effectiveProposals: List<ScheduleProposal>,
-    botLabel: String,
+    petSprite: PetSprite?,
+    petState: PetState,
+    attachmentPicker: AttachmentPicker?,
+    dictation: DictationState,
+    onToggleDictation: ((TextFieldState) -> Unit)?,
+    onClose: () -> Unit,
     onQuickPlanDay: () -> Unit,
-    onAskCoordinator: (String) -> Unit,
+    onRefreshAgentChat: () -> Unit,
+    onResetAgentSession: () -> Unit,
+    onOpenAgentFullscreen: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onAskAgent: (String) -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onAttach: () -> Unit,
+    onOpenModels: () -> Unit,
     onApplyProposal: (String, List<String>, Boolean) -> Unit,
     onDiscardProposal: (String) -> Unit,
     onRevertProposal: (String) -> Unit,
@@ -1477,167 +1837,213 @@ private fun AgentSchedulerTab(
     modifier: Modifier = Modifier,
 ) {
     val promptState = rememberTextFieldState("")
-    val scroll = rememberScrollState()
+    val quickScroll = rememberScrollState()
+    val proposalsScroll = rememberScrollState()
+    val agentBot = state.agentBot
 
     Column(modifier) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scroll)
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Button(
-                    text = stringResource(Res.string.cal_plan_my_day),
-                    onClick = onQuickPlanDay,
-                    variant = ButtonVariant.Outline,
-                    size = ButtonSize.Small,
-                    leadingIcon = Lucide.Sparkles,
-                    enabled = state.gatewayConnected && !state.agentTurnRunning,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                val stagedOrApplied = effectiveProposals.take(4)
-                if (stagedOrApplied.isEmpty()) {
-                    Text(
-                        stringResource(Res.string.cal_agent_staged_empty),
-                        style = Theme[typography][caption],
-                        color = Theme[colors][textTertiary],
-                    )
-                } else {
-                    stagedOrApplied.forEach { prop ->
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .background(Theme[colors][surface], RoundedCornerShape(10.dp))
-                                .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(10.dp))
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            ScheduleProposalContent(
-                                cardKey = "cal-rail-${prop.id}",
-                                proposal = prop,
-                                overrideStatus = state.proposalStatuses[prop.id],
-                                enabled = prop.id !in state.busyProposalIds,
-                                onApply = { opIds, force -> onApplyProposal(prop.id, opIds, force) },
-                                onDiscard = { onDiscardProposal(prop.id) },
-                                onRevert = { onRevertProposal(prop.id) },
-                            )
-                        }
-                    }
-                }
-
-                if (state.agentMessages.isEmpty() && !state.agentTurnRunning) {
-                    Text(
-                        stringResource(Res.string.cal_agent_panel_empty),
-                        style = Theme[typography][caption],
-                        color = Theme[colors][textTertiary],
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                } else {
-                    state.agentMessages.forEach { line ->
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    if (line.fromUser) Theme[colors][accentSoft] else Theme[colors][surface],
-                                    RoundedCornerShape(10.dp),
-                                )
-                                .border(1.dp, Theme[colors][stroke], RoundedCornerShape(10.dp))
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            if (!line.fromUser) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    UnstyledIcon(Lucide.Bot, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(13.dp))
-                                    Text(line.speaker ?: botLabel, style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold), color = Theme[colors][accentText])
-                                }
-                            }
-                            if (line.text.isNotBlank()) {
-                                MarkdownText(
-                                    text = line.text,
-                                    streaming = line.streaming,
-                                    textStyle = Theme[typography][bodySmall].copy(color = Theme[colors][textColor]),
-                                )
-                            }
-                            line.interaction?.let { inter ->
-                                ReplyInteractionCard(
-                                    replyKey = line.key,
-                                    interaction = inter,
-                                    sendEnabled = !state.agentTurnRunning && state.gatewayConnected,
-                                    onSend = onAskCoordinator,
-                                    onFill = { txt -> promptState.setTextAndPlaceCursorAtEnd(txt) },
-                                    onApplyProposal = onApplyProposal,
-                                    onDiscardProposal = onDiscardProposal,
-                                    onRevertProposal = onRevertProposal,
-                                    appliedProposalStatuses = state.proposalStatuses,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (state.agentTurnRunning) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Spinner(Modifier.size(14.dp))
-                        Text(
-                            state.agentTurnStatus ?: "…",
-                            style = Theme[typography][caption],
-                            color = Theme[colors][accentText],
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-
-                state.agentError?.let { err ->
-                    Text(err, style = Theme[typography][caption], color = Theme[colors][danger])
-                }
-            }
-            VerticalScrollbar(scroll, Modifier.align(Alignment.TopEnd).fillMaxHeight().padding(vertical = 2.dp))
-        }
-
-        if (state.agentInputRequests.isNotEmpty()) {
-            InputRequestPanel(
-                requests = state.agentInputRequests,
-                connected = state.gatewayConnected,
-                onAnswer = onAnswerRequest,
-            )
-        }
-
-        val submitPrompt = {
-            val txt = promptState.text.toString().trim()
-            if (txt.isNotEmpty()) {
-                promptState.clearText()
-                onAskCoordinator(txt)
-            }
-        }
         Row(
             Modifier
                 .fillMaxWidth()
-                .border(1.dp, Theme[colors][stroke], RoundedCornerShape(0.dp))
-                .padding(10.dp),
+                .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.Bottom,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextField(
-                state = promptState,
-                placeholder = stringResource(Res.string.cal_ask_agent_hint, botLabel),
-                singleLine = false,
-                maxLines = 3,
-                enabled = state.gatewayConnected && !state.agentTurnRunning,
-                onKeyboardAction = KeyboardActionHandler { submitPrompt() },
-                modifier = Modifier.weight(1f),
+            Box(Modifier.semantics { contentDescription = "${agentBot.label} · @${agentBot.name}" }) {
+                if (petSprite != null) {
+                    PetAvatar(
+                        sprite = petSprite,
+                        state = petState,
+                        size = 28.dp,
+                    )
+                } else {
+                    BotAvatar(
+                        bot = agentBot,
+                        picture = state.botAvatars[agentBot.name],
+                        size = 28.dp,
+                    )
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    agentBot.label,
+                    style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold),
+                    color = Theme[colors][textColor],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "@${agentBot.name}",
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textTertiary],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (state.agentSessionId != null) {
+                IconButton(
+                    Lucide.RefreshCw,
+                    contentDescription = stringResource(Res.string.cal_sync_now),
+                    onClick = onRefreshAgentChat,
+                    modifier = Modifier.testTag("calendar_agent_refresh_button"),
+                )
+            }
+            if (state.resettingAgent) {
+                Spinner(Modifier.size(16.dp).padding(horizontal = 4.dp))
+            } else {
+                IconButton(
+                    Lucide.RotateCcw,
+                    contentDescription = stringResource(Res.string.cal_agent_reset_session),
+                    onClick = onResetAgentSession,
+                    modifier = Modifier.testTag("calendar_agent_reset_session_button"),
+                )
+            }
+            if (state.gatewayConnected || state.agentChannel != null) {
+                IconButton(
+                    Lucide.ExternalLink,
+                    contentDescription = stringResource(Res.string.cal_agent_open_fullscreen),
+                    onClick = onOpenAgentFullscreen,
+                    modifier = Modifier.testTag("calendar_agent_fullscreen_button"),
+                )
+            }
+            IconButton(
+                Lucide.Settings2,
+                contentDescription = stringResource(Res.string.cal_agent_settings),
+                onClick = onOpenSettings,
+                modifier = Modifier.testTag("calendar_agent_settings_button"),
             )
             IconButton(
-                icon = Lucide.Send,
-                contentDescription = stringResource(Res.string.cal_plan_my_day),
-                onClick = submitPrompt,
-                enabled = state.gatewayConnected && !state.agentTurnRunning && promptState.text.isNotBlank(),
-                containerColor = Theme[colors][accent],
-                tint = Theme[colors][onAccent],
+                Lucide.X,
+                contentDescription = stringResource(Res.string.tasks_close_inspector),
+                onClick = onClose,
+                modifier = Modifier.testTag("calendar_agent_close_button"),
             )
         }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
+
+        val stagedOrApplied = effectiveProposals.take(4)
+        if (stagedOrApplied.isNotEmpty()) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp)
+                    .verticalScroll(proposalsScroll)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                stagedOrApplied.forEach { prop ->
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(Theme[colors][surface], RoundedCornerShape(10.dp))
+                            .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(10.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ScheduleProposalContent(
+                            cardKey = "cal-rail-${prop.id}",
+                            proposal = prop,
+                            overrideStatus = state.proposalStatuses[prop.id],
+                            enabled = prop.id !in state.busyProposalIds,
+                            onApply = { opIds, force -> onApplyProposal(prop.id, opIds, force) },
+                            onDiscard = { onDiscardProposal(prop.id) },
+                            onRevert = { onRevertProposal(prop.id) },
+                        )
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
+        }
+
+        TaskChannelLog(
+            activeChannel = state.agentChannel,
+            loading = state.agentLoading,
+            messages = state.agentMessages,
+            bots = state.bots,
+            botAvatars = state.botAvatars,
+            coordinatorBotName = agentBot.name,
+            petSprite = petSprite,
+            petState = petState,
+            emptyText = stringResource(Res.string.cal_agent_panel_empty),
+            error = state.agentError,
+            turnRunning = state.agentTurnRunning,
+            turnStatus = state.agentTurnStatus,
+            showHeader = false,
+            onRefresh = onRefreshAgentChat,
+            onOpenFullscreen = if (state.agentChannel != null) onOpenAgentFullscreen else null,
+            onSelectInteraction = onAskAgent,
+            onFillInteraction = { text -> promptState.setTextAndPlaceCursorAtEnd(text) },
+            appliedProposalStatuses = state.proposalStatuses,
+            onApplyProposal = onApplyProposal,
+            onDiscardProposal = onDiscardProposal,
+            onRevertProposal = onRevertProposal,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        )
+
+        if (state.agentError != null && state.agentMessages.isNotEmpty() && !state.agentTurnRunning) {
+            Text(
+                state.agentError,
+                style = Theme[typography][caption],
+                color = Theme[colors][danger],
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+            )
+        }
+
+        if (state.agentInputRequests.isNotEmpty()) {
+            val requestScroll = rememberScrollState()
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+                    .scrollbar(requestScroll)
+                    .verticalScroll(requestScroll),
+            ) {
+                InputRequestPanel(
+                    requests = state.agentInputRequests,
+                    connected = state.gatewayConnected,
+                    onAnswer = onAnswerRequest,
+                )
+            }
+        }
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(quickScroll)
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Chip(
+                text = stringResource(Res.string.cal_plan_my_day),
+                selected = false,
+                onClick = { if (state.gatewayConnected && !state.agentTurnRunning) onQuickPlanDay() },
+            )
+        }
+
+        TaskChatComposer(
+            state = promptState,
+            connected = state.gatewayConnected,
+            attachments = state.agentAttachments,
+            channelChatState = state.agentChatState,
+            modelPicker = state.modelPicker,
+            showModelPicker = true,
+            attachmentPicker = attachmentPicker,
+            dictation = dictation,
+            onToggleDictation = onToggleDictation,
+            placeholderText = stringResource(Res.string.cal_agent_ask, agentBot.label),
+            inputTestTag = "calendar_chat_composer_input",
+            onRemoveAttachment = onRemoveAttachment,
+            onAttach = onAttach,
+            onOpenModels = onOpenModels,
+            onSend = {
+                val txt = promptState.text.toString().trim()
+                if (txt.isNotEmpty() || state.agentAttachments.isNotEmpty()) {
+                    onAskAgent(txt)
+                    promptState.clearText()
+                }
+            },
+        )
     }
 }

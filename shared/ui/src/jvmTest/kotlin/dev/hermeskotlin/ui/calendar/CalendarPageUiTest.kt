@@ -1,6 +1,10 @@
 package dev.hermeskotlin.ui.calendar
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
@@ -243,5 +247,54 @@ class CalendarPageUiTest {
         assertEquals("2026-11-28", savedDraft?.dateIso)
         assertEquals("14:30", savedDraft?.startTime)
         assertEquals("15:30", savedDraft?.endTime)
+    }
+
+    @Test
+    fun monthDayTapOpensSingleDayViewWhileTimeGridHeadersStayInCurrentMode() = runDesktopComposeUiTest(width = 800, height = 760) {
+        var selectOnlyCalled = 0
+        var openDayCalled = 0
+
+        setContent {
+            var uiState by remember { mutableStateOf(PageSamples.calendar(CalendarViewMode.MONTH)) }
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides false) {
+                    ProvideAppWords {
+                        CalendarPageContent(
+                            state = uiState,
+                            onSelectDate = { d ->
+                                selectOnlyCalled++
+                                uiState = uiState.copy(anchorDate = d)
+                            },
+                            onOpenDay = { d ->
+                                openDayCalled++
+                                uiState = uiState.copy(anchorDate = d, viewMode = CalendarViewMode.DAY)
+                            },
+                            onSetViewMode = { mode -> uiState = uiState.copy(viewMode = mode) },
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        // Month mode -> clicking day 27 jumps straight to 1-Day view for Nov 27
+        onNodeWithText("Month").assertIsDisplayed()
+        onNodeWithText("27").performClick()
+        waitForIdle()
+        assertEquals(1, openDayCalled)
+        assertEquals(0, selectOnlyCalled)
+        onNodeWithText("Day").assertIsDisplayed()
+        onNodeWithText("FRI").assertIsDisplayed()
+
+        // Switch to 4-Day mode -> clicking day header uses selectDate and preserves 4-Day mode
+        onNodeWithText("Day").performClick()
+        waitForIdle()
+        onNodeWithText("4 days").performClick()
+        waitForIdle()
+        onNodeWithText("28").performClick()
+        waitForIdle()
+        assertEquals(1, openDayCalled)
+        assertEquals(1, selectOnlyCalled)
+        onNodeWithText("4 days").assertIsDisplayed()
     }
 }

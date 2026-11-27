@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.bots.BotsApi
 import dev.hermeskotlin.core.calendar.CalendarAccount
+import dev.hermeskotlin.core.calendar.CalendarAgentConfig
+import dev.hermeskotlin.core.calendar.CalendarAgentStore
+import dev.hermeskotlin.core.calendar.CalendarAgentUpdate
 import dev.hermeskotlin.core.calendar.CalendarApi
 import dev.hermeskotlin.core.calendar.CalendarCacheStore
 import dev.hermeskotlin.core.calendar.CalendarDate
@@ -40,23 +43,35 @@ import dev.hermeskotlin.core.calendar.calendarToUtcIso
 import dev.hermeskotlin.core.calendar.calendarZonedFromIso
 import dev.hermeskotlin.core.calendar.formatClock24
 import dev.hermeskotlin.core.calendar.plusDays
+import dev.hermeskotlin.core.chat.AttachmentKind
+import dev.hermeskotlin.core.chat.ChatState
+import dev.hermeskotlin.core.chat.IMAGE_ONLY_FALLBACK_PROMPT
 import dev.hermeskotlin.core.chat.InputRequest
+import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
+import dev.hermeskotlin.core.chat.attachToSession
+import dev.hermeskotlin.core.chat.detachSessionImages
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.GatewayUrl
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.models.ModelOption
+import dev.hermeskotlin.core.models.ModelsApi
 import dev.hermeskotlin.core.network.ApiResult
 import dev.hermeskotlin.core.rooms.Room
 import dev.hermeskotlin.core.rooms.RoomsApi
 import dev.hermeskotlin.core.rpc.GatewayEvent
+import dev.hermeskotlin.core.rpc.JsonRpcClient
+import dev.hermeskotlin.core.rpc.RpcException
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
-import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.UpsertContextRequest
+import dev.hermeskotlin.ui.chat.ModelPickerState
+import dev.hermeskotlin.ui.chat.PendingSwitch
 import dev.hermeskotlin.ui.tasks.ChannelChatLine
 import dev.hermeskotlin.ui.tasks.parseSessionChatLines
+import dev.hermeskotlin.ui.tasks.withChannelInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -192,15 +207,44 @@ data class CalendarUiState(
     val oauthError: String? = null,
     val oauthBusy: Boolean = false,
     val bots: List<Bot> = emptyList(),
-    val coordinatorSessionId: String? = null,
-    val coordinatorProfile: String = Bot.DEFAULT,
+    val botAvatars: Map<String, ByteArray> = emptyMap(),
+    val agentConfig: CalendarAgentConfig = CalendarAgentConfig(),
     val agentMessages: List<ChannelChatLine> = emptyList(),
+    val agentAttachments: List<OutgoingAttachment> = emptyList(),
+    val agentChatState: ChatState = ChatState(),
+    val modelPicker: ModelPickerState = ModelPickerState(),
     val agentLoading: Boolean = false,
     val agentTurnRunning: Boolean = false,
     val agentTurnStatus: String? = null,
     val agentError: String? = null,
     val agentInputRequests: List<InputRequest> = emptyList(),
-)
+    val resettingAgent: Boolean = false,
+) {
+    val agentProfile: String
+        get() = agentConfig.profile.trim().removePrefix("@").ifEmpty { Bot.DEFAULT }
+
+    val agentSessionId: String?
+        get() = agentConfig.sessionId.trim().takeIf { it.isNotEmpty() }
+
+    val agentBot: Bot
+        get() {
+            val target = agentProfile
+            return bots.firstOrNull { it.name.equals(target, ignoreCase = true) }
+                ?: bots.firstOrNull { it.isDefault }
+                ?: Bot(name = target, isDefault = target.equals(Bot.DEFAULT, ignoreCase = true))
+        }
+
+    val agentChannel: TaskChannel?
+        get() = agentSessionId?.let { sid ->
+            TaskChannel(
+                type = TaskChannel.TYPE_SESSION,
+                id = sid,
+                label = CalendarAgentStore.AGENT_SESSION_TITLE,
+                profile = agentProfile,
+                managed = true,
+            )
+        }
+}
 
 sealed interface CalendarNavEvent {
     data class OpenSession(val sessionId: String, val title: String, val profile: String?) : CalendarNavEvent
@@ -216,6 +260,8 @@ class CalendarViewModel(
     private val sessionsApi: SessionsApi? = null,
     private val botsApi: BotsApi? = null,
     private val roomsApi: RoomsApi? = null,
+    private val modelsApi: ModelsApi? = null,
+    private val calendarAgentStore: CalendarAgentStore? = null,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) : ViewModel() {
 
@@ -228,7 +274,8 @@ class CalendarViewModel(
     private var boundGateway: SavedGateway? = null
     private var visible: Boolean = false
     private var refreshEventsJob: Job? = null
-    private var coordinatorRuntimeId: String? = null
+    private var modelsLoadJob: Job? = null
+    private var agentRuntimeId: String? = null
     private var fallbackPollJob: Job? = null
     private var lastStreamEventAtMs: Long = 0L
 
@@ -246,11 +293,18 @@ class CalendarViewModel(
         viewModelScope.launch {
             connection.state.collect { connState ->
                 val connected = connState is ConnectionState.Connected
-                if (!connected) coordinatorRuntimeId = null
+                if (!connected) agentRuntimeId = null
                 _state.update { it.copy(gatewayConnected = connected) }
                 val gw = boundGateway
                 if (connected && visible && gw != null && _state.value.health == null) {
                     refreshAll(gw, syncRemote = false)
+                } else if (connected && gw != null) {
+                    val sid = _state.value.agentSessionId
+                    if (sid != null && agentRuntimeId == null) {
+                        attachAgentSession(gw, sid, _state.value.agentProfile)
+                    } else if (_state.value.modelPicker.catalog == null) {
+                        loadModels(withPrices = false)
+                    }
                 }
             }
         }
@@ -274,7 +328,7 @@ class CalendarViewModel(
         }
         viewModelScope.launch {
             connection.serverRequests.collect { request ->
-                val runtimeId = coordinatorRuntimeId ?: return@collect
+                val runtimeId = agentRuntimeId ?: return@collect
                 if (request.sessionId != runtimeId) return@collect
                 val parsed = InputRequest.parse(request.id, request.method, request.params) ?: return@collect
                 _state.update { cur ->
@@ -289,11 +343,13 @@ class CalendarViewModel(
 
     override fun onCleared() {
         refreshEventsJob?.cancel()
+        modelsLoadJob?.cancel()
         fallbackPollJob?.cancel()
     }
 
     internal fun stopForTest() {
         refreshEventsJob?.cancel()
+        modelsLoadJob?.cancel()
         fallbackPollJob?.cancel()
     }
 
@@ -308,7 +364,8 @@ class CalendarViewModel(
             return
         }
         boundGateway = gateway
-        coordinatorRuntimeId = null
+        agentRuntimeId = null
+        modelsLoadJob?.cancel()
         fallbackPollJob?.cancel()
         proposalCoordinator.clear()
         val nowMoment = calendarNowZoned()
@@ -320,6 +377,7 @@ class CalendarViewModel(
             currentMinuteOfDay = nowMoment.minuteOfDay,
         )
         viewModelScope.launch {
+            calendarAgentStore?.warm(gateway.gatewayUrl)
             cacheStore?.load(gateway.gatewayUrl)?.let { snap ->
                 if (boundGateway == gateway) {
                     applySnapshot(snap)
@@ -344,6 +402,7 @@ class CalendarViewModel(
                 calendars = snap.calendars,
                 events = snap.events,
                 dispatchOverview = snap.dispatchOverview,
+                agentConfig = snap.settings.agent,
                 todayDate = nowMoment.date,
                 currentMinuteOfDay = nowMoment.minuteOfDay,
             )
@@ -394,6 +453,12 @@ class CalendarViewModel(
 
     fun selectDate(date: CalendarDate) {
         _state.update { it.copy(anchorDate = date) }
+        boundGateway?.let { ensureWindowLoaded(it) }
+    }
+
+    /** Jumps from Month grid directly into single-day view anchored on [date]. */
+    fun openDay(date: CalendarDate) {
+        _state.update { it.copy(anchorDate = date, viewMode = CalendarViewMode.DAY) }
         boundGateway?.let { ensureWindowLoaded(it) }
     }
 
@@ -518,14 +583,12 @@ class CalendarViewModel(
             }
             val proposalsDeferred = async { calendarApi.listProposals(gateway.gatewayUrl) }
             val botsDeferred = async { runCatching { botsApi?.roster()?.bots }.getOrNull() }
-            val cfgDeferred = async { directusApi?.getConfig(gateway.gatewayUrl) }
 
             val accountsRes = accountsDeferred.await()
             val eventsRes = eventsDeferred.await()
             val dispatchRes = dispatchDeferred.await()
             val proposalsRes = proposalsDeferred.await()
             val nextBots = botsDeferred.await() ?: _state.value.bots
-            val cfgRes = cfgDeferred.await()
 
             if (boundGateway != gateway) return@coroutineScope
 
@@ -533,8 +596,9 @@ class CalendarViewModel(
             val nextEvents = (eventsRes as? ApiResult.Success)?.value ?: _state.value.events
             val nextDispatch = (dispatchRes as? ApiResult.Success)?.value ?: _state.value.dispatchOverview
             val nextProposals = (proposalsRes as? ApiResult.Success)?.value ?: _state.value.proposals
-            val coordCfg = (cfgRes as? ApiResult.Success)?.value?.coordinator
+            val agentCfg = _state.value.settings.agent
             proposalCoordinator.seedFromProposals(nextProposals)
+            calendarAgentStore?.syncAgent(gateway.gatewayUrl, agentCfg)
 
             val firstErr = accountsRes.errorTextOrNull() ?: eventsRes.errorTextOrNull()
             _state.update { cur ->
@@ -549,8 +613,7 @@ class CalendarViewModel(
                     selectedTask = cur.selectedTask?.let { sel -> nextDispatch.tasks.firstOrNull { it.id == sel.id } ?: sel },
                     proposals = nextProposals,
                     bots = nextBots,
-                    coordinatorSessionId = coordCfg?.sessionId?.takeIf { it.isNotBlank() } ?: cur.coordinatorSessionId,
-                    coordinatorProfile = coordCfg?.profile?.takeIf { it.isNotBlank() } ?: cur.coordinatorProfile,
+                    agentConfig = agentCfg,
                 )
             }
 
@@ -566,7 +629,31 @@ class CalendarViewModel(
                 ),
             )
 
-            loadCoordinatorHistory(gateway, _state.value.coordinatorSessionId, _state.value.coordinatorProfile)
+            launch { loadBotAvatars(gateway, nextBots) }
+            val sid = agentCfg.sessionId.trim()
+            if (sid.isNotEmpty()) {
+                loadAgentHistory(gateway, sid, _state.value.agentProfile, attachSession = true)
+            } else if (connection.state.value is ConnectionState.Connected && _state.value.modelPicker.catalog == null) {
+                loadModels(withPrices = false)
+            }
+        }
+    }
+
+    private suspend fun loadBotAvatars(gateway: SavedGateway, bots: List<Bot>) {
+        val api = botsApi ?: return
+        val existing = _state.value.botAvatars
+        val toLoad = bots.filter { it.meta.avatar != null && it.name !in existing }
+        if (toLoad.isEmpty()) return
+        val fetched = LinkedHashMap<String, ByteArray>()
+        for (bot in toLoad) {
+            if (boundGateway != gateway) return
+            val bytes = runCatching { api.avatar(bot.name) }.getOrNull()
+            if (bytes != null && bytes.isNotEmpty()) {
+                fetched[bot.name] = bytes
+            }
+        }
+        if (fetched.isNotEmpty() && boundGateway == gateway) {
+            _state.update { it.copy(botAvatars = it.botAvatars + fetched) }
         }
     }
 
@@ -1400,6 +1487,7 @@ class CalendarViewModel(
         workStart: String,
         workEnd: String,
         subcalendarName: String,
+        agentProfile: String? = null,
     ) {
         val gw = boundGateway ?: return
         val cur = _state.value.settings
@@ -1411,18 +1499,53 @@ class CalendarViewModel(
         } else {
             cur.workingHours
         }
+        val curAgent = _state.value.agentConfig
+        val curProfile = _state.value.agentProfile
+        val requestedProfile = agentProfile?.trim()?.removePrefix("@")?.ifEmpty { Bot.DEFAULT }
+        val profileChanged = requestedProfile != null && !requestedProfile.equals(curProfile, ignoreCase = true)
+        val nextAgent = if (profileChanged) {
+            curAgent.copy(profile = requestedProfile!!, sessionId = "")
+        } else {
+            curAgent
+        }
         val next = cur.copy(
             timezone = timezone.trim().ifEmpty { cur.timezone },
             workingHours = hours,
             dispatchSyncTarget = cur.dispatchSyncTarget.copy(
                 subcalendarName = subcalendarName.trim().ifEmpty { cur.dispatchSyncTarget.subcalendarName },
             ),
+            agent = nextAgent,
         )
         viewModelScope.launch {
             _state.update { it.copy(mutating = true, error = null) }
+            if (profileChanged && curAgent.sessionId.isNotBlank()) {
+                val oldSid = curAgent.sessionId.trim()
+                runCatching { sessionsApi?.setArchived(gw.gatewayUrl, oldSid, archived = true, profile = curProfile) }
+                calendarAgentStore?.notifyLifecycleChange(gw.gatewayUrl, archivedIds = setOf(oldSid))
+                agentRuntimeId = null
+                fallbackPollJob?.cancel()
+            }
             when (val res = calendarApi.updateSettings(gw.gatewayUrl, next)) {
                 is ApiResult.Success -> {
-                    _state.update { it.copy(mutating = false, settings = res.value, settingsDialogOpen = false) }
+                    val savedAgent = res.value.agent
+                    calendarAgentStore?.syncAgent(gw.gatewayUrl, savedAgent)
+                    _state.update { curState ->
+                        curState.copy(
+                            mutating = false,
+                            settings = res.value,
+                            agentConfig = savedAgent,
+                            settingsDialogOpen = false,
+                            agentMessages = if (profileChanged) emptyList() else curState.agentMessages,
+                            agentAttachments = if (profileChanged) emptyList() else curState.agentAttachments,
+                            agentChatState = if (profileChanged) ChatState() else curState.agentChatState,
+                            modelPicker = if (profileChanged) ModelPickerState() else curState.modelPicker,
+                            agentError = if (profileChanged) null else curState.agentError,
+                            agentTurnRunning = if (profileChanged) false else curState.agentTurnRunning,
+                            agentTurnStatus = if (profileChanged) null else curState.agentTurnStatus,
+                            agentInputRequests = if (profileChanged) emptyList() else curState.agentInputRequests,
+                        )
+                    }
+                    if (profileChanged) loadModels(withPrices = false)
                     refreshWorkspaceSilently(gw)
                 }
                 is ApiResult.SessionExpired -> _state.update { it.copy(mutating = false, sessionExpired = true) }
@@ -1431,27 +1554,195 @@ class CalendarViewModel(
         }
     }
 
-    // ── Coordinator Scheduling Assistant ─────────────────────────────────────
+    // ── Dedicated Calendar Agent ─────────────────────────────────────────────
 
-    fun refreshCoordinatorChat() {
+    fun consumeSessionExpired() {
+        _state.update { it.copy(sessionExpired = false) }
+    }
+
+    fun onAgentPanelOpened() {
+        val gw = boundGateway ?: return
+        val cur = _state.value
+        val sid = cur.agentSessionId
+        if (sid != null) {
+            if (cur.agentMessages.isEmpty() && !cur.agentLoading) {
+                viewModelScope.launch { loadAgentHistory(gw, sid, cur.agentProfile, attachSession = true) }
+            } else if (agentRuntimeId == null && cur.gatewayConnected) {
+                viewModelScope.launch { attachAgentSession(gw, sid, cur.agentProfile) }
+            }
+        } else if (cur.modelPicker.catalog == null && cur.gatewayConnected) {
+            loadModels(withPrices = false)
+        }
+    }
+
+    fun refreshAgentChat() {
         val gw = boundGateway ?: return
         viewModelScope.launch {
-            loadCoordinatorHistory(gw, _state.value.coordinatorSessionId, _state.value.coordinatorProfile)
+            loadAgentHistory(gw, _state.value.agentSessionId, _state.value.agentProfile, attachSession = true)
         }
     }
 
     fun quickPlanDay() {
         val targetDate = _state.value.anchorDate.iso
         val tz = _state.value.settings.timezone
-        askCoordinator(
-            "Plan my schedule for $targetDate ($tz). Check existing calendar events and open Dispatch tasks, then stage a proposal with propose_schedule_plan for my confirmation.",
+        askAgent(
+            "Review my calendar events and open Dispatch tasks for $targetDate ($tz), find available free slots, and organize my schedule as needed.",
         )
     }
 
-    fun askCoordinator(rawPrompt: String) {
+    fun addAttachments(picked: List<OutgoingAttachment>) {
+        if (picked.isEmpty()) return
+        val maxBytes = OutgoingAttachment.MAX_BYTES.toLong()
+        val room = (OutgoingAttachment.MAX_COUNT - _state.value.agentAttachments.size).coerceAtLeast(0)
+        val fitting = picked.filter { it.size <= maxBytes }
+        val rejectedSize = picked.size - fitting.size
+        val accepted = fitting.take(room)
+        val rejectedCount = fitting.size - accepted.size
+        _state.update { cur ->
+            val notice = when {
+                rejectedSize > 0 -> "Skipped file larger than ${OutgoingAttachment.MAX_SIZE}."
+                rejectedCount > 0 -> "Up to ${OutgoingAttachment.MAX_COUNT} attachments per message."
+                else -> cur.agentError
+            }
+            cur.copy(
+                agentAttachments = cur.agentAttachments + accepted,
+                agentError = notice,
+            )
+        }
+    }
+
+    fun removeAttachment(id: String) {
+        _state.update { cur -> cur.copy(agentAttachments = cur.agentAttachments.filterNot { it.id == id }) }
+    }
+
+    fun reportAttachmentError(message: String) {
+        if (message.isNotBlank()) _state.update { it.copy(agentError = message) }
+    }
+
+    fun loadModels(withPrices: Boolean = false) {
+        val api = modelsApi ?: return
+        modelsLoadJob?.cancel()
+        _state.update { it.copy(modelPicker = it.modelPicker.copy(loading = true, error = null)) }
+        modelsLoadJob = viewModelScope.launch {
+            try {
+                val profile = _state.value.agentProfile
+                val runtimeId = agentRuntimeId
+                val catalog = api.options(runtimeId, profile)
+                _state.update { it.copy(modelPicker = it.modelPicker.copy(catalog = catalog, loading = false)) }
+                if (!withPrices) return@launch
+                val prices = try {
+                    api.missingPrices(catalog, runtimeId, profile)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+                prices?.let { found ->
+                    _state.update { cur ->
+                        cur.copy(modelPicker = cur.modelPicker.copy(catalog = cur.modelPicker.catalog?.withPrices(found)))
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(modelPicker = it.modelPicker.copy(loading = false, error = e.message.orEmpty())) }
+            }
+        }
+    }
+
+    fun selectModel(model: ModelOption, confirmed: Boolean = false) {
+        _state.update { it.copy(modelPicker = it.modelPicker.copy(confirm = null)) }
+        val previous = _state.value.agentChatState
+        _state.update { it.copy(agentChatState = previous.copy(model = model.id, provider = model.provider)) }
+        if (_state.value.agentSessionId == null) return
+        viewModelScope.launch {
+            try {
+                val result = setAgentSessionConfig(
+                    key = "model",
+                    value = JsonPrimitive("${model.id} --provider ${model.provider} --session"),
+                    confirmExpensive = confirmed,
+                )
+                if (result.bool("confirm_required") == true) {
+                    val message = result.str("confirm_message") ?: "This model costs more than usual. Switch anyway?"
+                    _state.update {
+                        it.copy(
+                            agentChatState = previous,
+                            modelPicker = it.modelPicker.copy(confirm = PendingSwitch(model, message)),
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        agentChatState = previous,
+                        agentError = e.message ?: "Couldn't switch the model.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissModelConfirm() {
+        _state.update { it.copy(modelPicker = it.modelPicker.copy(confirm = null)) }
+    }
+
+    fun setReasoningEffort(wire: String) {
+        val previous = _state.value.agentChatState
+        _state.update {
+            it.copy(
+                agentChatState = previous.copy(
+                    reasoningEffort = wire,
+                    reasoningRevision = previous.reasoningRevision + 1,
+                ),
+            )
+        }
+        if (_state.value.agentSessionId == null) return
+        viewModelScope.launch {
+            try {
+                setAgentSessionConfig("reasoning", JsonPrimitive(wire))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        agentChatState = previous,
+                        agentError = e.message ?: "Couldn't change reasoning level.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun setFast(on: Boolean) {
+        val previous = _state.value.agentChatState
+        _state.update { it.copy(agentChatState = previous.copy(fast = on)) }
+        if (_state.value.agentSessionId == null) return
+        viewModelScope.launch {
+            try {
+                setAgentSessionConfig("fast", JsonPrimitive(if (on) "fast" else "normal"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        agentChatState = previous,
+                        agentError = e.message ?: "Couldn't change fast mode.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun askAgent(rawPrompt: String) {
         val gw = boundGateway ?: return
-        val text = rawPrompt.trim()
-        if (text.isEmpty()) return
+        val clean = rawPrompt.trim()
+        val attachments = _state.value.agentAttachments
+        if (clean.isEmpty() && attachments.isEmpty()) return
+        val visibleText = clean.ifEmpty {
+            if (attachments.any { it.kind == AttachmentKind.Image }) IMAGE_ONLY_FALLBACK_PROMPT else ""
+        }
         val client = (connection.state.value as? ConnectionState.Connected)?.client ?: run {
             _state.update { it.copy(agentError = "Gateway not connected.") }
             return
@@ -1460,34 +1751,51 @@ class CalendarViewModel(
         val userLine = ChannelChatLine(
             key = optKey,
             speaker = null,
-            text = text,
+            text = visibleText,
             fromUser = true,
+            attachments = attachments.map { it.toShown() },
         )
         _state.update { cur ->
             cur.copy(
                 agentError = null,
+                agentAttachments = emptyList(),
                 agentMessages = cur.agentMessages + userLine,
                 agentTurnRunning = true,
                 agentTurnStatus = null,
             )
         }
         viewModelScope.launch {
+            val queuedImages = mutableListOf<String>()
+            var activeRt: String? = null
             try {
-                val (runtimeId, storedId, profile) = ensureCoordinatorRuntimeSession(gw, client)
+                val (runtimeId, storedId, profile) = ensureAgentRuntimeSession(gw, client)
+                activeRt = runtimeId
+                val refs = mutableListOf<String>()
+                if (attachments.isNotEmpty()) {
+                    val sApi = sessionsApi ?: error("Sessions API unavailable for attachments.")
+                    for (att in attachments) {
+                        val uploaded = sApi.attachToSession(gw.gatewayUrl, client, runtimeId, att, queuedImages)
+                        uploaded.refText?.let { refs += it }
+                    }
+                }
+                val payloadText = (refs + visibleText).filter { it.isNotEmpty() }.joinToString("\n\n")
                 lastStreamEventAtMs = nowMs()
                 client.request(
                     "prompt.submit",
                     buildJsonObject {
                         put("session_id", runtimeId)
-                        put("text", text)
+                        put("text", payloadText)
                     },
                 )
-                startCoordinatorFallbackPoll(gw, storedId, profile)
+                startAgentFallbackPoll(gw, storedId, profile)
             } catch (e: CancellationException) {
+                activeRt?.let { detachSessionImages(client, it, queuedImages) }
                 throw e
             } catch (e: Exception) {
+                activeRt?.let { detachSessionImages(client, it, queuedImages) }
                 _state.update { cur ->
                     cur.copy(
+                        agentAttachments = attachments + cur.agentAttachments,
                         agentMessages = cur.agentMessages.filterNot { it.key == optKey },
                         agentTurnRunning = false,
                         agentTurnStatus = null,
@@ -1498,7 +1806,88 @@ class CalendarViewModel(
         }
     }
 
-    fun answerCoordinatorRequest(request: InputRequest, result: JsonObject) {
+    fun resetAgentSession() {
+        val gw = boundGateway ?: return
+        if (_state.value.resettingAgent) return
+        fallbackPollJob?.cancel()
+        agentRuntimeId = null
+        _state.update {
+            it.copy(
+                resettingAgent = true,
+                agentMessages = emptyList(),
+                agentAttachments = emptyList(),
+                agentChatState = ChatState(),
+                agentError = null,
+                agentTurnRunning = false,
+                agentTurnStatus = null,
+                agentInputRequests = emptyList(),
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val curAgent = _state.value.agentConfig
+                val curProfile = _state.value.agentProfile
+                val oldSid = curAgent.sessionId.trim()
+                if (oldSid.isNotEmpty()) {
+                    runCatching { sessionsApi?.setArchived(gw.gatewayUrl, oldSid, archived = true, profile = curProfile) }
+                    calendarAgentStore?.notifyLifecycleChange(gw.gatewayUrl, archivedIds = setOf(oldSid))
+                }
+                val client = (connection.state.value as? ConnectionState.Connected)?.client
+                val created = if (client != null) runCatching { createAgentSession(gw, client) }.getOrNull() else null
+                if (created == null) {
+                    when (val res = calendarApi.saveAgentConfig(gw.gatewayUrl, CalendarAgentUpdate(sessionId = ""))) {
+                        is ApiResult.Success -> if (boundGateway == gw) {
+                            calendarAgentStore?.syncAgent(gw.gatewayUrl, res.value)
+                            _state.update { it.copy(agentConfig = res.value, settings = it.settings.copy(agent = res.value)) }
+                        }
+                        else -> Unit
+                    }
+                }
+                if (boundGateway == gw) {
+                    loadModels(withPrices = false)
+                }
+            } finally {
+                if (boundGateway == gw) {
+                    _state.update { it.copy(resettingAgent = false) }
+                }
+            }
+        }
+    }
+
+    fun openAgentFullscreen() {
+        val gw = boundGateway ?: return
+        viewModelScope.launch {
+            val profile = _state.value.agentProfile
+            val existingSid = _state.value.agentSessionId
+            if (existingSid != null) {
+                _events.send(
+                    CalendarNavEvent.OpenSession(
+                        sessionId = existingSid,
+                        title = CalendarAgentStore.AGENT_SESSION_TITLE,
+                        profile = profile,
+                    ),
+                )
+                return@launch
+            }
+            val client = (connection.state.value as? ConnectionState.Connected)?.client ?: run {
+                _state.update { it.copy(agentError = "Gateway not connected.") }
+                return@launch
+            }
+            val created = runCatching { createAgentSession(gw, client) }.getOrElse { exc ->
+                _state.update { it.copy(agentError = exc.message ?: "Could not create calendar session.") }
+                return@launch
+            }
+            _events.send(
+                CalendarNavEvent.OpenSession(
+                    sessionId = created.second,
+                    title = CalendarAgentStore.AGENT_SESSION_TITLE,
+                    profile = created.third,
+                ),
+            )
+        }
+    }
+
+    fun answerAgentRequest(request: InputRequest, result: JsonObject) {
         val client = (connection.state.value as? ConnectionState.Connected)?.client ?: return
         viewModelScope.launch {
             runCatching {
@@ -1510,14 +1899,35 @@ class CalendarViewModel(
         }
     }
 
-    private suspend fun ensureCoordinatorRuntimeSession(
+    private suspend fun setAgentSessionConfig(
+        key: String,
+        value: JsonElement,
+        confirmExpensive: Boolean = false,
+    ): JsonObject? {
+        val gw = boundGateway ?: throw RpcException(0, "No gateway bound.")
+        val client = (connection.state.value as? ConnectionState.Connected)?.client
+            ?: throw RpcException(0, "Not connected to gateway.")
+        val (runtimeId, _, _) = ensureAgentRuntimeSession(gw, client, applyInfo = false)
+        return client.request(
+            "config.set",
+            buildJsonObject {
+                put("session_id", runtimeId)
+                put("key", key)
+                put("value", value)
+                if (confirmExpensive) put("confirm_expensive_model", true)
+            },
+        ) as? JsonObject
+    }
+
+    private suspend fun ensureAgentRuntimeSession(
         gateway: SavedGateway,
-        client: dev.hermeskotlin.core.rpc.JsonRpcClient,
+        client: JsonRpcClient,
+        applyInfo: Boolean = true,
     ): Triple<String, String, String> {
         val cur = _state.value
-        val profile = cur.coordinatorProfile.ifBlank { Bot.DEFAULT }
-        val stored = cur.coordinatorSessionId
-        coordinatorRuntimeId?.takeIf { stored != null }?.let { return Triple(it, stored!!, profile) }
+        val profile = cur.agentProfile
+        val stored = cur.agentSessionId
+        agentRuntimeId?.takeIf { stored != null }?.let { return Triple(it, stored!!, profile) }
 
         if (stored != null) {
             val resumed = client.request(
@@ -1530,31 +1940,142 @@ class CalendarViewModel(
                     put("omit_messages", true)
                 },
             ) as? JsonObject
-            val runtimeId = resumed.str("session_id") ?: error("Could not resume coordinator session.")
-            coordinatorRuntimeId = runtimeId
+            val runtimeId = resumed.str("session_id") ?: error("Could not resume calendar agent session.")
+            agentRuntimeId = runtimeId
+            if (applyInfo) {
+                (resumed?.get("info") as? JsonObject)?.let { info ->
+                    _state.update { it.copy(agentChatState = it.agentChatState.withChannelInfo(info)) }
+                }
+            }
             return Triple(runtimeId, stored, profile)
         }
 
-        val started = client.request(
-            "session.start",
+        return createAgentSession(gateway, client)
+    }
+
+    private suspend fun createAgentSession(
+        gateway: SavedGateway,
+        client: JsonRpcClient,
+    ): Triple<String, String, String> {
+        val cur = _state.value
+        val profile = cur.agentProfile
+        val picks = cur.agentChatState
+        val created = client.request(
+            "session.create",
             buildJsonObject {
-                put("title", DispatchSessionsStore.COORDINATOR_SESSION_TITLE)
+                put("title", CalendarAgentStore.AGENT_SESSION_TITLE)
                 put("profile", profile)
                 put("source", "desktop")
                 put("cols", 80)
+                if (picks.model != null && picks.provider != null) {
+                    put("model", picks.model)
+                    put("provider", picks.provider)
+                }
+                picks.reasoningEffort?.let { put("reasoning_effort", it) }
+                picks.fast?.let { put("fast", it) }
             },
-        ) as? JsonObject ?: error("Could not start scheduler session.")
-        val runtimeId = started.str("session_id") ?: error("Missing session_id")
-        val storedId = started.str("stored_session_id") ?: runtimeId
-        coordinatorRuntimeId = runtimeId
-        _state.update { it.copy(coordinatorSessionId = storedId) }
+        ) as? JsonObject ?: error("Could not create calendar agent session.")
+        val runtimeId = created.str("session_id") ?: error("Missing session_id")
+        val storedId = created.str("stored_session_id") ?: runtimeId
+        val info = created["info"] as? JsonObject
+        agentRuntimeId = runtimeId
+
+        val nowSec = nowMs() / 1000.0
+        val optimisticCfg = cur.agentConfig.copy(
+            profile = profile,
+            sessionId = storedId,
+            lastInteractionAt = nowSec,
+        )
+        _state.update { state ->
+            state.copy(
+                agentConfig = optimisticCfg,
+                settings = state.settings.copy(agent = optimisticCfg),
+                agentChatState = if (info != null) state.agentChatState.withChannelInfo(info) else state.agentChatState,
+            )
+        }
+        calendarAgentStore?.syncAgent(gateway.gatewayUrl, optimisticCfg)
+        calendarAgentStore?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf(storedId))
+
+        val saveRes = calendarApi.saveAgentConfig(
+            gateway.gatewayUrl,
+            CalendarAgentUpdate(
+                profile = profile,
+                sessionId = storedId,
+                lastInteractionAt = nowSec,
+            ),
+        )
+        if (saveRes is ApiResult.Success && boundGateway == gateway) {
+            calendarAgentStore?.syncAgent(gateway.gatewayUrl, saveRes.value)
+            _state.update { state ->
+                state.copy(
+                    agentConfig = saveRes.value,
+                    settings = state.settings.copy(agent = saveRes.value),
+                )
+            }
+        }
         return Triple(runtimeId, storedId, profile)
     }
 
-    private suspend fun loadCoordinatorHistory(
+    private suspend fun attachAgentSession(
+        gateway: SavedGateway,
+        sessionId: String,
+        profile: String,
+    ) {
+        val client = (connection.state.value as? ConnectionState.Connected)?.client ?: return
+        val resumed = runCatching {
+            client.request(
+                "session.resume",
+                buildJsonObject {
+                    put("session_id", sessionId)
+                    put("profile", profile)
+                    put("source", "desktop")
+                    put("cols", 80)
+                    put("omit_messages", true)
+                },
+            ) as? JsonObject
+        }.getOrNull() ?: return
+        if (boundGateway != gateway || _state.value.agentSessionId != sessionId) return
+        val runtimeId = resumed.str("session_id") ?: return
+        agentRuntimeId = runtimeId
+        val info = resumed["info"] as? JsonObject
+        val running = resumed.bool("running") == true
+        val openRequests = resumed["open_requests"].asObjects().mapNotNull { snapshot ->
+            InputRequest.parse(
+                id = snapshot.str("id") ?: return@mapNotNull null,
+                method = snapshot.str("method") ?: return@mapNotNull null,
+                params = snapshot["params"] as? JsonObject ?: JsonObject(emptyMap()),
+            )
+        }
+        val inflightText = (resumed["inflight"] as? JsonObject).str("assistant").orEmpty()
+        _state.update { cur ->
+            if (cur.agentSessionId != sessionId) return@update cur
+            val nextMsgs = if (inflightText.isNotBlank() && cur.agentMessages.none { !it.fromUser && it.streaming }) {
+                cur.agentMessages + ChannelChatLine(
+                    key = "inflight-cal-$sessionId",
+                    speaker = profile,
+                    text = inflightText,
+                    fromUser = false,
+                    profile = profile,
+                    streaming = true,
+                )
+            } else {
+                cur.agentMessages
+            }
+            cur.copy(
+                agentChatState = cur.agentChatState.withChannelInfo(info),
+                agentTurnRunning = running || openRequests.isNotEmpty(),
+                agentInputRequests = openRequests,
+                agentMessages = nextMsgs,
+            )
+        }
+        loadModels(withPrices = false)
+    }
+
+    private suspend fun loadAgentHistory(
         gateway: SavedGateway,
         sessionId: String?,
         profile: String,
+        attachSession: Boolean = false,
     ) {
         val sApi = sessionsApi ?: return
         if (sessionId.isNullOrBlank()) return
@@ -1581,9 +2102,12 @@ class CalendarViewModel(
             }
             else -> if (boundGateway == gateway) _state.update { it.copy(agentLoading = false) }
         }
+        if (attachSession && boundGateway == gateway && _state.value.agentSessionId == sessionId) {
+            attachAgentSession(gateway, sessionId, profile)
+        }
     }
 
-    private fun startCoordinatorFallbackPoll(gateway: SavedGateway, storedId: String, profile: String) {
+    private fun startAgentFallbackPoll(gateway: SavedGateway, storedId: String, profile: String) {
         fallbackPollJob?.cancel()
         fallbackPollJob = viewModelScope.launch {
             repeat(60) {
@@ -1595,7 +2119,7 @@ class CalendarViewModel(
                     val lastRole = res.value.messages.lastOrNull { !it.isHidden && it.role != "tool" }?.role
                     if (lastRole == "assistant" && res.value.messages.lastOrNull()?.text?.isNotBlank() == true) {
                         _state.update { it.copy(agentTurnRunning = false, agentTurnStatus = null) }
-                        loadCoordinatorHistory(gateway, storedId, profile)
+                        loadAgentHistory(gateway, storedId, profile)
                         refreshWorkspaceSilently(gateway)
                         return@launch
                     }
@@ -1618,7 +2142,7 @@ class CalendarViewModel(
             return
         }
 
-        val runtimeId = coordinatorRuntimeId ?: return
+        val runtimeId = agentRuntimeId ?: return
         if (event.sessionId != runtimeId) return
         val payload = event.payload as? JsonObject
         when (event.type) {
@@ -1648,10 +2172,10 @@ class CalendarViewModel(
                         } else {
                             cur.agentMessages + ChannelChatLine(
                                 key = "cal-stream-${cur.agentMessages.size}",
-                                speaker = cur.coordinatorProfile,
+                                speaker = cur.agentProfile,
                                 text = "",
                                 fromUser = false,
-                                profile = cur.coordinatorProfile,
+                                profile = cur.agentProfile,
                                 streaming = true,
                                 interaction = interaction,
                             )
@@ -1664,6 +2188,9 @@ class CalendarViewModel(
                         agentTurnStatus = if (event.type == "tool.start") toolName else cur.agentTurnStatus,
                         agentMessages = nextMsgs,
                     )
+                }
+                if (event.type != "tool.start" && toolName.startsWith("calendar_") && gw != null) {
+                    viewModelScope.launch { refreshWorkspaceSilently(gw) }
                 }
             }
             "message.delta", "message.interim" -> {
@@ -1679,10 +2206,10 @@ class CalendarViewModel(
                     } else {
                         cur.agentMessages + ChannelChatLine(
                             key = "cal-stream-${cur.agentMessages.size}",
-                            speaker = cur.coordinatorProfile,
+                            speaker = cur.agentProfile,
                             text = added,
                             fromUser = false,
-                            profile = cur.coordinatorProfile,
+                            profile = cur.agentProfile,
                             streaming = true,
                         )
                     }
@@ -1701,7 +2228,7 @@ class CalendarViewModel(
                 }
                 if (gw != null) {
                     viewModelScope.launch {
-                        loadCoordinatorHistory(gw, _state.value.coordinatorSessionId, _state.value.coordinatorProfile)
+                        loadAgentHistory(gw, _state.value.agentSessionId, _state.value.agentProfile)
                         refreshWorkspaceSilently(gw)
                     }
                 }
@@ -1793,3 +2320,4 @@ internal fun computeFetchRange(mode: CalendarViewMode, anchor: CalendarDate): Pa
 
 private fun JsonObject?.str(key: String): String? = (this?.get(key) as? JsonPrimitive)?.contentOrNull
 private fun JsonObject?.bool(key: String): Boolean? = (this?.get(key) as? JsonPrimitive)?.booleanOrNull
+private fun JsonElement?.asObjects(): List<JsonObject> = (this as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()

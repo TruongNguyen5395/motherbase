@@ -476,4 +476,30 @@ class CalendarViewModelTest {
         assertEquals("15:30", shiftEndTimeIfNeeded("09:00", "14:30", "10:00"))
         assertEquals("11:00", shiftEndTimeIfNeeded("09:00", "09:30", "11:00"))
     }
+
+    @Test
+    fun openDaySwitchesToDayViewAnchoredOnDateWhileSelectDateKeepsCurrentView() = runTest(dispatcher) {
+        val h = buildHarness(::defaultRespond)
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading } }
+
+            h.vm.setViewMode(CalendarViewMode.MONTH)
+            assertEquals(CalendarViewMode.MONTH, h.vm.state.value.viewMode)
+
+            val target = calendarDateFromIso("2026-11-26")!!
+            h.vm.openDay(target)
+            assertEquals(CalendarViewMode.DAY, h.vm.state.value.viewMode)
+            assertEquals(target, h.vm.state.value.anchorDate)
+
+            h.vm.setViewMode(CalendarViewMode.FOUR_DAYS)
+            val next = calendarDateFromIso("2026-11-27")!!
+            h.vm.selectDate(next)
+            assertEquals(CalendarViewMode.FOUR_DAYS, h.vm.state.value.viewMode)
+            assertEquals(next, h.vm.state.value.anchorDate)
+        } finally {
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
+    }
 }
