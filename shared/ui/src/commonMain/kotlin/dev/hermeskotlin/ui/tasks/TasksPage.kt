@@ -112,6 +112,7 @@ import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.TriangleAlert
 import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
+import com.composeunstyled.DropdownMenuPanelScope
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
@@ -163,7 +164,6 @@ import dev.hermeskotlin.designsystem.components.ButtonVariant
 import dev.hermeskotlin.designsystem.components.Chip
 import dev.hermeskotlin.designsystem.components.Dialog
 import dev.hermeskotlin.designsystem.components.DropdownMenu
-import dev.hermeskotlin.designsystem.components.DropdownMenuPanelScope
 import dev.hermeskotlin.designsystem.components.IconButton
 import dev.hermeskotlin.designsystem.components.MarkdownText
 import dev.hermeskotlin.designsystem.components.MenuAction
