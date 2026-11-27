@@ -2876,12 +2876,6 @@ internal fun waitingWord(waiting: Waiting): StringResource = when (waiting) {
 private fun rowStatusLine(status: RowStatus?, draft: Boolean): String? =
     rowStatusWords(status, draft).map { stringResource(it) }.joinToString(" · ").ifEmpty { null }
 
-/**
- * A session row: a status disc, the title over what the chat is doing, and its age in mono. A pinned
- * chat with nothing going on shows a pin instead of the disc. Long-press for actions.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
 @Composable
 private fun SessionListSwipeRow(
     displaySession: SessionSummary,
@@ -2931,6 +2925,11 @@ private fun SessionListSwipeRow(
     }
 }
 
+/**
+ * A session row: a status disc, the title over what the chat is doing, and its age in mono. A pinned
+ * chat with nothing going on shows a pin instead of the disc. Long-press for actions.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SessionRow(
     session: SessionSummary,

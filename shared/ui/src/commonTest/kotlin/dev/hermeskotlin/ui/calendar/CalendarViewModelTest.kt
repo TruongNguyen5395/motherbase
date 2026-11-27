@@ -32,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -104,6 +105,7 @@ class CalendarViewModelTest {
         val requests: MutableList<RecordedHttp>,
         val socket: CalendarRpcTransport,
         val cacheStore: CalendarCacheStore,
+        val agentStore: CalendarAgentStore,
         val connection: GatewayConnection,
     )
 
@@ -113,7 +115,9 @@ class CalendarViewModelTest {
             when (method) {
                 "profiles.list" -> """{"profiles":[]}"""
                 "session.resume" -> """{"session_id":"rt-1"}"""
+                "session.create" -> """{"session_id":"rt-cal-new","stored_session_id":"sess-cal-new"}"""
                 "session.start" -> """{"session_id":"rt-new","stored_session_id":"sess-new"}"""
+                "config.set" -> """{"ok":true}"""
                 "prompt.submit" -> """{"ok":true}"""
                 else -> """{}"""
             }
@@ -142,6 +146,7 @@ class CalendarViewModelTest {
         connection.start(gateway.gatewayUrl)
         withTimeout(5_000) { connection.state.first { it is ConnectionState.Connected } }
         val cache = CalendarCacheStore(InMemoryKeyValueStore())
+        val agentStore = CalendarAgentStore(InMemoryKeyValueStore())
         val vm = CalendarViewModel(
             calendarApi = CalendarApi(client),
             connection = connection,
@@ -149,9 +154,11 @@ class CalendarViewModelTest {
             directusApi = DirectusTasksApi(client),
             sessionsApi = SessionsApi(client),
             botsApi = BotsApi(connection),
+            modelsApi = ModelsApi(connection),
+            calendarAgentStore = agentStore,
             nowMs = { 1_795_680_000_000L },
         )
-        return Harness(vm, requests, socket, cache, connection)
+        return Harness(vm, requests, socket, cache, agentStore, connection)
     }
 
     private fun defaultRespond(rec: RecordedHttp): Pair<HttpStatusCode, String> = when {
@@ -168,7 +175,7 @@ class CalendarViewModelTest {
                 "show_weekends": true,
                 "show_declined": false,
                 "show_completed_tasks": true,
-                "agent": {"profile": "default", "session_id": "cal-agent-1"}
+                "agent": {"profile": "calendar-bot", "session_id": "cal-agent-1"}
               }
             }
         """
@@ -211,7 +218,10 @@ class CalendarViewModelTest {
             }
         """
         rec.path.endsWith("/api/plugins/directus-tasks/config") -> HttpStatusCode.OK to """
-            {"configured":true,"coordinator":{"profile":"default","session_id":"coord-1"}}
+            {"configured":true,"coordinator":{"profile":"ops","session_id":"coord-1"}}
+        """
+        rec.path.endsWith("/api/plugins/motherbase-calendar/agent") -> HttpStatusCode.OK to """
+            {"agent":{"profile":"calendar-bot","session_id":"cal-agent-1"}}
         """
         rec.path.endsWith("/bots") -> HttpStatusCode.OK to """{"bots":[]}"""
         rec.path.contains("/sessions/") && rec.path.endsWith("/messages") -> HttpStatusCode.OK to """{"messages":[]}"""
@@ -323,17 +333,144 @@ class CalendarViewModelTest {
     }
 
     @Test
-    fun askCoordinatorResumesSessionAndSubmitsPrompt() = runTest(dispatcher) {
+    fun askAgentResumesDedicatedSessionSeparatelyFromDispatchAndSubmitsPrompt() = runTest(dispatcher) {
         val h = buildHarness(::defaultRespond)
         try {
             h.vm.bind(gateway, isVisible = true)
             withTimeout(5_000) { h.vm.state.first { !it.loading && it.agentSessionId != null } }
 
+            assertEquals("cal-agent-1", h.vm.state.value.agentSessionId)
+            assertEquals("calendar-bot", h.vm.state.value.agentProfile)
+            assertTrue(h.requests.none { it.path.endsWith("/api/plugins/directus-tasks/config") })
+
             h.vm.askAgent("Plan my afternoon tasks")
 
             withTimeout(5_000) { h.vm.state.first { it.agentTurnRunning } }
-            assertTrue(h.socket.calls.any { it.first == "session.resume" && it.second["session_id"]?.jsonPrimitive?.content == "cal-agent-1" })
+            val resume = h.socket.calls.firstOrNull { it.first == "session.resume" }
+            assertNotNull(resume)
+            assertEquals("cal-agent-1", resume.second["session_id"]?.jsonPrimitive?.content)
+            assertEquals("calendar-bot", resume.second["profile"]?.jsonPrimitive?.content)
+            assertTrue(h.socket.calls.none { it.second["session_id"]?.jsonPrimitive?.content == "coord-1" })
             assertTrue(h.socket.calls.any { it.first == "prompt.submit" && it.second["text"]?.jsonPrimitive?.content == "Plan my afternoon tasks" })
+        } finally {
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
+    }
+
+    @Test
+    fun askAgentCreatesAndPersistsDedicatedSessionWhenBlankAndOpensFullscreen() = runTest(dispatcher) {
+        var storedAgent = CalendarAgentConfig(profile = "default", sessionId = "")
+        val h = buildHarness({ rec ->
+            when {
+                rec.path.endsWith("/health") -> HttpStatusCode.OK to """
+                    {
+                      "ok": true,
+                      "accounts_count": 1,
+                      "calendars_count": 2,
+                      "settings": {
+                        "timezone": "Asia/Ho_Chi_Minh",
+                        "default_view": "four_days",
+                        "agent": {"profile": "default", "session_id": ""}
+                      }
+                    }
+                """
+                rec.path.endsWith("/api/plugins/motherbase-calendar/agent") && rec.method == HttpMethod.Put -> {
+                    val parsed = Json.parseToJsonElement(rec.body.orEmpty()).jsonObject
+                    storedAgent = storedAgent.copy(
+                        profile = parsed["profile"]?.jsonPrimitive?.content ?: storedAgent.profile,
+                        sessionId = parsed["session_id"]?.jsonPrimitive?.content ?: storedAgent.sessionId,
+                    )
+                    HttpStatusCode.OK to """{"agent":{"profile":"${storedAgent.profile}","session_id":"${storedAgent.sessionId}"}}"""
+                }
+                else -> defaultRespond(rec)
+            }
+        })
+        val emitted = mutableListOf<CalendarNavEvent>()
+        val collectJob = backgroundScope.launch {
+            h.vm.events.collect { emitted += it }
+        }
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.calendars.isNotEmpty() } }
+            assertNull(h.vm.state.value.agentSessionId)
+
+            h.vm.askAgent("Block 2 hours tomorrow morning")
+
+            withTimeout(5_000) { h.vm.state.first { it.agentTurnRunning && it.agentSessionId == "sess-cal-new" } }
+            val createCall = h.socket.calls.firstOrNull { it.first == "session.create" }
+            assertNotNull(createCall)
+            assertEquals(CalendarAgentStore.AGENT_SESSION_TITLE, createCall.second["title"]?.jsonPrimitive?.content)
+            assertEquals("default", createCall.second["profile"]?.jsonPrimitive?.content)
+            assertEquals("sess-cal-new", storedAgent.sessionId)
+            assertEquals("sess-cal-new", h.agentStore.agentByGateway.value[gateway.gatewayUrl]?.sessionId)
+
+            h.vm.openAgentFullscreen()
+            withTimeout(5_000) {
+                while (emitted.isEmpty()) delay(10)
+            }
+            assertEquals(1, emitted.size)
+            assertEquals(CalendarNavEvent.OpenSession("sess-cal-new", CalendarAgentStore.AGENT_SESSION_TITLE, "default"), emitted[0])
+        } finally {
+            collectJob.cancel()
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
+    }
+
+    @Test
+    fun resetAgentSessionAndProfileChangeArchiveOldAndSelectModelSetsSessionConfig() = runTest(dispatcher) {
+        var agentState = CalendarAgentConfig(profile = "calendar-bot", sessionId = "cal-agent-1")
+        val h = buildHarness({ rec ->
+            when {
+                rec.path.endsWith("/api/plugins/motherbase-calendar/agent") && rec.method == HttpMethod.Put -> {
+                    val body = Json.parseToJsonElement(rec.body.orEmpty()).jsonObject
+                    agentState = CalendarAgentConfig(
+                        profile = body["profile"]?.jsonPrimitive?.content ?: agentState.profile,
+                        sessionId = body["session_id"]?.jsonPrimitive?.content ?: agentState.sessionId,
+                    )
+                    HttpStatusCode.OK to """{"agent":{"profile":"${agentState.profile}","session_id":"${agentState.sessionId}"}}"""
+                }
+                rec.path.endsWith("/api/plugins/motherbase-calendar/settings") && rec.method == HttpMethod.Put -> {
+                    val body = Json.parseToJsonElement(rec.body.orEmpty()).jsonObject
+                    val agentObj = body["agent"]?.jsonObject
+                    agentState = CalendarAgentConfig(
+                        profile = agentObj?.get("profile")?.jsonPrimitive?.content ?: agentState.profile,
+                        sessionId = agentObj?.get("session_id")?.jsonPrimitive?.content ?: agentState.sessionId,
+                    )
+                    HttpStatusCode.OK to """
+                        {
+                          "settings": {
+                            "timezone": "Asia/Ho_Chi_Minh",
+                            "default_view": "four_days",
+                            "agent": {"profile": "${agentState.profile}", "session_id": "${agentState.sessionId}"}
+                          }
+                        }
+                    """
+                }
+                else -> defaultRespond(rec)
+            }
+        })
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.agentSessionId == "cal-agent-1" } }
+
+            h.vm.selectModel(ModelOption(id = "gemini-2.5-pro", provider = "google"))
+            withTimeout(5_000) {
+                while (h.socket.calls.none { it.first == "config.set" && it.second["key"]?.jsonPrimitive?.content == "model" }) {
+                    delay(10)
+                }
+            }
+            assertEquals("gemini-2.5-pro", h.vm.state.value.agentChatState.model)
+
+            h.vm.resetAgentSession()
+            withTimeout(5_000) { h.vm.state.first { !it.resettingAgent && it.agentSessionId == "sess-cal-new" } }
+            assertTrue(h.requests.any { it.path.contains("/sessions/cal-agent-1") && it.method == HttpMethod.Patch })
+
+            h.vm.saveSettings("Asia/Ho_Chi_Minh", "09:00", "18:00", "Tasks", agentProfile = "planner")
+            withTimeout(5_000) { h.vm.state.first { !it.mutating && it.agentProfile == "planner" } }
+            assertNull(h.vm.state.value.agentSessionId)
+            assertTrue(h.requests.any { it.path.contains("/sessions/sess-cal-new") && it.method == HttpMethod.Patch })
         } finally {
             h.connection.stop()
             h.vm.stopForTest()

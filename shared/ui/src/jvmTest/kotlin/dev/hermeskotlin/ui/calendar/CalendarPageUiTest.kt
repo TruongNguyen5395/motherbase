@@ -9,11 +9,14 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.composeunstyled.theme.ColorScheme
+import dev.hermeskotlin.core.bots.Bot
+import dev.hermeskotlin.core.calendar.CalendarAgentConfig
 import dev.hermeskotlin.core.calendar.ScheduleProposal
 import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
@@ -296,5 +299,91 @@ class CalendarPageUiTest {
         assertEquals(1, openDayCalled)
         assertEquals(1, selectOnlyCalled)
         onNodeWithText("4 days").assertIsDisplayed()
+    }
+
+    @Test
+    fun floatingTriggerOpensCalendarAgentAndSettingsSelectsAgentProfile() = runDesktopComposeUiTest(width = 1280, height = 800) {
+        val sample = PageSamples.calendar(CalendarViewMode.FOUR_DAYS).copy(
+            bots = listOf(
+                Bot(name = "default", isDefault = true),
+                Bot(name = "planner", displayName = "Planner"),
+            ),
+            agentConfig = CalendarAgentConfig(profile = "default", sessionId = "cal-sess-1"),
+        )
+        var resetCount = 0
+        var fullscreenCount = 0
+
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        CalendarPageContent(
+                            state = sample,
+                            onResetAgentSession = { resetCount++ },
+                            onOpenAgentFullscreen = { fullscreenCount++ },
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithTag("calendar_agent_button").assertIsDisplayed().performClick()
+        waitForIdle()
+
+        onNodeWithTag("calendar_chat_composer_input").assertIsDisplayed()
+        onNodeWithTag("calendar_agent_button").assertDoesNotExist()
+        onNodeWithTag("calendar_agent_fullscreen_button").performClick()
+        waitForIdle()
+        assertEquals(1, fullscreenCount)
+
+        onNodeWithTag("calendar_agent_reset_session_button").performClick()
+        waitForIdle()
+        assertEquals(1, resetCount)
+
+        onNodeWithTag("calendar_agent_close_button").performClick()
+        waitForIdle()
+        onNodeWithTag("calendar_agent_button").assertIsDisplayed()
+    }
+
+    @Test
+    fun calendarSettingsDialogRendersAgentSectionAndSavesSelectedProfile() = runDesktopComposeUiTest(width = 760, height = 820) {
+        val sample = PageSamples.calendar(CalendarViewMode.FOUR_DAYS)
+        val settingsWithAgent = sample.settings.copy(
+            agent = CalendarAgentConfig(profile = "default", sessionId = "cal-sess-1"),
+        )
+        var savedProfile: String? = null
+
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        CalendarSettingsDialog(
+                            visible = true,
+                            settings = settingsWithAgent,
+                            accounts = sample.accounts,
+                            bots = listOf(
+                                Bot(name = "default", isDefault = true),
+                                Bot(name = "planner", displayName = "Planner"),
+                            ),
+                            mutating = false,
+                            onDismiss = {},
+                            onSave = { _, _, _, _, profile -> savedProfile = profile },
+                            onDisconnectAccount = {},
+                            onOpenPetPicker = {},
+                            onResetAgentSession = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithText("Calendar Agent").assertExists()
+        onNodeWithText("Planner (@planner)").performScrollTo().performClick()
+        waitForIdle()
+        onNodeWithText("Save").performClick()
+        waitForIdle()
+        assertEquals("planner", savedProfile)
     }
 }

@@ -642,7 +642,7 @@ class CalendarViewModel(
     private suspend fun loadBotAvatars(gateway: SavedGateway, bots: List<Bot>) {
         val api = botsApi ?: return
         val existing = _state.value.botAvatars
-        val toLoad = bots.filter { it.meta.avatar != null && it.name !in existing }
+        val toLoad = bots.filter { it.hasAvatar && it.name !in existing }
         if (toLoad.isEmpty()) return
         val fetched = LinkedHashMap<String, ByteArray>()
         for (bot in toLoad) {
