@@ -100,7 +100,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
-import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -140,6 +139,7 @@ data class TasksUiState(
     val bots: List<Bot> = emptyList(),
     val botAvatars: Map<String, ByteArray> = emptyMap(),
     val includeDone: Boolean = false,
+    val unreadOnly: Boolean = false,
     val showPriorityStrip: Boolean = true,
     val boardViewMode: TasksBoardViewMode = TasksBoardViewMode.PROJECTS,
     val focusedProjectId: String? = null,
@@ -149,8 +149,7 @@ data class TasksUiState(
     val todayEpochDay: Long = currentLocalEpochDay(),
     val seenRoomSeqs: Map<String, Int> = emptyMap(),
     val waitingSessionIds: Set<String> = emptySet(),
-    val localReadTaskIds: Set<String> = emptySet(),
-    val localAckedTaskIds: Set<String> = emptySet(),
+    val localReadAtByTaskId: Map<String, Double> = emptyMap(),
     val localUnreadTaskIds: Set<String> = emptySet(),
     val selectedTaskId: String? = null,
     val coordinatorOpen: Boolean = false,
@@ -221,11 +220,13 @@ data class TasksUiState(
                 task = task,
                 seenRoomSeqs = seenRoomSeqs,
                 waitingSessionIds = waitingSessionIds,
-                localReadTaskIds = localReadTaskIds,
-                localAckedTaskIds = localAckedTaskIds,
+                localReadAtByTaskId = localReadAtByTaskId,
                 localUnreadTaskIds = localUnreadTaskIds,
             )
         }
+
+    val unreadCount: Int
+        get() = replyBadges.values.count { it != TaskReplyBadge.NONE }
 
     internal val attentionSplit: AttentionSplit
         get() = buildAttentionSplit(tasks, todayEpochDay, replyBadges)
@@ -257,6 +258,10 @@ class TasksViewModel(
     private var boundGateway: SavedGateway? = null
     private var activeRuntimeSessionId: String? = null
     private var activeRuntimeChannelId: String? = null
+    private val runningTaskSessions = LinkedHashMap<String, String>()
+    private var externalContextOnly: Boolean = false
+    private var externalViewingTaskId: String? = null
+    private var externalViewingChannelId: String? = null
     private var lastStreamEventAtMs: Long = 0L
     private var turnPollJob: Job? = null
     private var modelsLoadJob: Job? = null
@@ -264,6 +269,7 @@ class TasksViewModel(
     private var refreshJob: Job? = null
     private var fetchingBoard: Boolean = false
     private var pageVisible: Boolean = false
+    private var hasObservedVisibility: Boolean = false
     private var lastAutoTriggeredSlot: String? = null
     private var dismissedCheckinSlot: String? = null
     private var pendingExternalOpen: DispatchJumpTarget? = null
@@ -287,7 +293,7 @@ class TasksViewModel(
                     activeRuntimeChannelId = null
                 }
                 _state.update { it.copy(gatewayConnected = connected) }
-                if (connected && (_state.value.selectedTask != null || _state.value.coordinatorOpen) && _state.value.activeChannel?.isRoom != true && _state.value.modelPicker.catalog == null) {
+                if (connected && !externalContextOnly && (_state.value.selectedTask != null || _state.value.coordinatorOpen) && _state.value.activeChannel?.isRoom != true && _state.value.modelPicker.catalog == null) {
                     loadModels(withPrices = false)
                 }
                 if (connected) {
@@ -347,6 +353,10 @@ class TasksViewModel(
         roomSeenJob?.cancel()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
+        runningTaskSessions.clear()
+        externalContextOnly = false
+        externalViewingTaskId = null
+        externalViewingChannelId = null
         lastAutoTriggeredSlot = null
         dismissedCheckinSlot = null
         pendingExternalOpen = null
@@ -382,11 +392,27 @@ class TasksViewModel(
     }
 
     fun setVisible(visible: Boolean) {
+        hasObservedVisibility = true
         val becameVisible = visible && !pageVisible
         pageVisible = visible
         if (becameVisible) {
+            if (externalContextOnly) {
+                externalContextOnly = false
+                externalViewingTaskId = null
+                externalViewingChannelId = null
+            }
             refreshCheckinEligibility()
             maybeRunAutoCheckin()
+            val gw = boundGateway
+            if (gw != null && !_state.value.loading && !fetchingBoard && refreshJob?.isActive != true && _state.value.tasks.isNotEmpty()) {
+                viewModelScope.launch {
+                    refreshBoardSilently(gw)
+                    val sel = _state.value.selectedTask
+                    if (sel != null && _state.value.channelMessages.isEmpty() && !_state.value.coordinatorOpen) {
+                        loadChannelLog(gw, sel, _state.value.activeChannelIdx)
+                    }
+                }
+            }
         }
     }
 
@@ -486,9 +512,12 @@ class TasksViewModel(
                     val keptFocused = cur.focusedProjectId?.takeIf { fid ->
                         fid == UNASSIGNED_PROJECT_BUCKET_ID || board.projects.any { it.id == fid && !it.archived }
                     }
-                    val serverById = board.tasks.associateBy { it.id }
-                    val keptLocalRead = cur.localReadTaskIds.filterTo(HashSet()) { id ->
-                        serverById[id]?.replyStatus?.hasUnreadReply == true
+                    val keptLocalRead = keptLocalReadAt(cur.localReadAtByTaskId, board.tasks).let { base ->
+                        if (externalContextOnly && selectedObj != null) {
+                            base + (selectedObj.id to readWatermarkFor(selectedObj))
+                        } else {
+                            base
+                        }
                     }
                     cur.copy(
                         loading = false,
@@ -501,7 +530,7 @@ class TasksViewModel(
                         selectedTaskId = if (cur.coordinatorOpen && pendingTask == null) null else keptSelected,
                         coordinatorOpen = if (pendingTask != null) false else cur.coordinatorOpen,
                         activeChannelIdx = safeChannelIdx,
-                        localReadTaskIds = keptLocalRead,
+                        localReadAtByTaskId = keptLocalRead,
                         localUnreadTaskIds = emptySet(),
                     )
                 }
@@ -512,10 +541,16 @@ class TasksViewModel(
                 refreshCheckinEligibility()
                 maybeRunAutoCheckin()
                 if (_state.value.coordinatorOpen && !_state.value.channelTurnRunning) {
-                    loadCoordinatorLog(gateway)
+                    if (!externalContextOnly) loadCoordinatorLog(gateway)
                 } else {
                     _state.value.selectedTask?.let { task ->
-                        loadChannelLog(gateway, task, _state.value.activeChannelIdx)
+                        if (externalContextOnly) {
+                            task.channels.getOrNull(_state.value.activeChannelIdx)?.let { ch ->
+                                markChannelSeen(gateway, ch, task.replyStatus?.latestRoomSeq)
+                            }
+                        } else {
+                            loadChannelLog(gateway, task, _state.value.activeChannelIdx)
+                        }
                     }
                 }
             }
@@ -647,6 +682,10 @@ class TasksViewModel(
         refresh()
     }
 
+    fun toggleUnreadOnly() {
+        _state.update { it.copy(unreadOnly = !it.unreadOnly) }
+    }
+
     fun focusProject(projectId: String?) {
         _state.update { it.copy(focusedProjectId = projectId, collapsedWorkstreamKeys = emptySet()) }
     }
@@ -670,6 +709,9 @@ class TasksViewModel(
     }
 
     fun selectTask(taskId: String?, preferredChannelId: String? = null) {
+        externalContextOnly = false
+        externalViewingTaskId = null
+        externalViewingChannelId = null
         pendingExternalOpen = null
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
@@ -698,9 +740,81 @@ class TasksViewModel(
         if (task.channels.isEmpty()) loadModels(withPrices = false)
     }
 
+    /** Synchronizes task metadata and Action Proposal for an active fullscreen chat/room without streaming logs in [TasksViewModel]. */
+    fun syncTaskContextOnly(gateway: SavedGateway, taskId: String, channelId: String) {
+        if (taskId == DispatchSessionsStore.COORDINATOR_TASK_ID) return
+        if (boundGateway != gateway || _state.value.config == null) {
+            bind(gateway)
+        }
+        externalContextOnly = true
+        externalViewingTaskId = taskId
+        externalViewingChannelId = channelId
+        turnPollJob?.cancel()
+        modelsLoadJob?.cancel()
+        activeRuntimeSessionId = null
+        activeRuntimeChannelId = null
+        val loaded = _state.value.tasks.firstOrNull { it.id == taskId }
+        if (loaded != null) {
+            val idx = preferredChannelIndex(loaded, channelId)
+            val watermark = readWatermarkFor(loaded)
+            _state.update { cur ->
+                cur.copy(
+                    selectedTaskId = loaded.id,
+                    coordinatorOpen = false,
+                    activeChannelIdx = idx,
+                    channelMessages = emptyList(),
+                    channelAttachments = emptyList(),
+                    channelChatState = ChatState(),
+                    modelPicker = ModelPickerState(),
+                    channelError = null,
+                    channelTurnRunning = false,
+                    channelTurnStatus = null,
+                    channelInputRequests = emptyList(),
+                    localReadAtByTaskId = cur.localReadAtByTaskId + (loaded.id to watermark),
+                    localUnreadTaskIds = cur.localUnreadTaskIds - loaded.id,
+                )
+            }
+            loaded.channels.getOrNull(idx)?.let { ch ->
+                markChannelSeen(gateway, ch, loaded.replyStatus?.latestRoomSeq)
+            }
+            viewModelScope.launch { refreshTaskTimeBlocksSilently(gateway) }
+            return
+        }
+        val knownDone = dispatchStore?.let { store ->
+            store.byGateway.value[gateway.gatewayUrl]?.values?.any {
+                it.taskId == taskId && it.taskStatus == DirectusTask.STATUS_DONE
+            } == true || store.roomsByGateway.value[gateway.gatewayUrl]?.values?.any {
+                it.taskId == taskId && it.taskStatus == DirectusTask.STATUS_DONE
+            } == true
+        } == true
+        pendingExternalOpen = DispatchJumpTarget(gateway.gatewayUrl, taskId, channelId)
+        val turnedOnDone = knownDone && !_state.value.includeDone
+        _state.update { cur ->
+            cur.copy(
+                coordinatorOpen = false,
+                includeDone = cur.includeDone || knownDone,
+                localUnreadTaskIds = cur.localUnreadTaskIds - taskId,
+            )
+        }
+        if (turnedOnDone || (!fetchingBoard && refreshJob?.isActive != true)) {
+            refresh()
+        }
+    }
+
+    fun clearExternalTaskContext(taskId: String) {
+        if (externalViewingTaskId == taskId) {
+            externalContextOnly = false
+            externalViewingTaskId = null
+            externalViewingChannelId = null
+        }
+    }
+
     /** Opens Dispatch directly on [taskId] (or Coordinator), enabling `includeDone` automatically if needed. */
     fun openExternalTask(taskId: String, channelId: String? = null) {
         val gateway = boundGateway ?: return
+        externalContextOnly = false
+        externalViewingTaskId = null
+        externalViewingChannelId = null
         if (taskId == DispatchSessionsStore.COORDINATOR_TASK_ID) {
             pendingExternalOpen = null
             openCoordinator()
@@ -751,6 +865,9 @@ class TasksViewModel(
     }
 
     fun openCoordinator(autoCheckinPrompt: Boolean = false) {
+        externalContextOnly = false
+        externalViewingTaskId = null
+        externalViewingChannelId = null
         val alreadyOpen = _state.value.coordinatorOpen
         if (!alreadyOpen) {
             turnPollJob?.cancel()
@@ -1151,6 +1268,13 @@ class TasksViewModel(
             )
         }
         val gateway = boundGateway ?: return
+        val channel = task.channels[index]
+        if (externalContextOnly) {
+            if (channel.id != externalViewingChannelId) {
+                viewModelScope.launch { emitOpenChannelNav(task, channel) }
+            }
+            return
+        }
         viewModelScope.launch { loadChannelLog(gateway, task, index) }
     }
 
@@ -1437,11 +1561,12 @@ class TasksViewModel(
                 cur.channelTurnRunning && fetched.size < cur.channelMessages.size -> cur.channelMessages
                 else -> fetched
             }
+            val watermark = readWatermarkFor(task)
             cur.copy(
                 channelLoading = false,
                 channelMessages = merged,
                 channelError = if (merged.isEmpty()) linesResult.second else null,
-                localReadTaskIds = cur.localReadTaskIds + task.id,
+                localReadAtByTaskId = cur.localReadAtByTaskId + (task.id to watermark),
                 localUnreadTaskIds = cur.localUnreadTaskIds - task.id,
             )
         }
@@ -1609,64 +1734,6 @@ class TasksViewModel(
         }
     }
 
-    fun ackTaskReply(taskId: String) {
-        val gateway = boundGateway ?: return
-        val previous = _state.value.tasks.firstOrNull { it.id == taskId } ?: return
-        val ackedIso = Instant.fromEpochMilliseconds(nowMs()).toString()
-        _state.update { cur ->
-            cur.copy(
-                localAckedTaskIds = cur.localAckedTaskIds + taskId,
-                localReadTaskIds = cur.localReadTaskIds + taskId,
-                localUnreadTaskIds = cur.localUnreadTaskIds - taskId,
-            )
-        }
-        replaceTask(
-            previous.copy(
-                context = (previous.context ?: TaskContext(taskId = taskId)).copy(replyAckedAt = ackedIso),
-                replyStatus = previous.replyStatus?.copy(hasUnreadReply = false, awaitingReply = false)
-                    ?: TaskReplyStatus(hasUnreadReply = false, awaitingReply = false),
-            ),
-        )
-        viewModelScope.launch {
-            previous.channels.forEach { ch ->
-                markChannelSeen(gateway, ch, previous.replyStatus?.latestRoomSeq)
-            }
-            val res = directusApi.upsertContext(
-                gateway.gatewayUrl,
-                taskId,
-                UpsertContextRequest(replyAckedAt = ackedIso),
-            )
-            if (boundGateway != gateway) return@launch
-            when (res) {
-                is ApiResult.Success -> {
-                    _state.update { cur -> cur.copy(localAckedTaskIds = cur.localAckedTaskIds - taskId) }
-                    replaceTask(res.value)
-                }
-                is ApiResult.Failed -> {
-                    _state.update { cur ->
-                        cur.copy(
-                            localAckedTaskIds = cur.localAckedTaskIds - taskId,
-                            actionFeedback = res.message,
-                        )
-                    }
-                    replaceTask(previous)
-                }
-                is ApiResult.Unavailable -> {
-                    _state.update { cur ->
-                        cur.copy(
-                            localAckedTaskIds = cur.localAckedTaskIds - taskId,
-                            actionFeedback = res.message,
-                        )
-                    }
-                    replaceTask(previous)
-                }
-                is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited -> {
-                    _state.update { it.copy(sessionExpired = true) }
-                }
-            }
-        }
-    }
-
     private fun markChannelSeen(gateway: SavedGateway, channel: TaskChannel, latestRoomSeq: Int?) {
         val nowSec = nowMs() / 1000.0
         viewModelScope.launch {
@@ -1690,7 +1757,13 @@ class TasksViewModel(
                 replaceTask(created.first)
                 val newIdx = (created.first.channels.indexOfFirst { it.id == created.second.id }).coerceAtLeast(0)
                 _state.update { it.copy(activeChannelIdx = newIdx) }
-                loadChannelLog(gateway, created.first, newIdx)
+                if (externalContextOnly) {
+                    if (created.second.id != externalViewingChannelId) {
+                        emitOpenChannelNav(created.first, created.second)
+                    }
+                } else {
+                    loadChannelLog(gateway, created.first, newIdx)
+                }
             } finally {
                 markBusy(task.id, false)
             }
@@ -1753,10 +1826,12 @@ class TasksViewModel(
                     UpsertContextRequest(channels = nextChannels, assignedBots = nextBots),
                 )
                 if (res is ApiResult.Success && boundGateway == gateway) {
-                    activeRuntimeSessionId = created.runtimeId ?: created.channel.id
-                    activeRuntimeChannelId = created.channel.id
-                    created.info?.let { info ->
-                        _state.update { it.copy(channelChatState = it.channelChatState.withChannelInfo(info)) }
+                    if (!externalContextOnly) {
+                        activeRuntimeSessionId = created.runtimeId ?: created.channel.id
+                        activeRuntimeChannelId = created.channel.id
+                        created.info?.let { info ->
+                            _state.update { it.copy(channelChatState = it.channelChatState.withChannelInfo(info)) }
+                        }
                     }
                     dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf(created.channel.id))
                     finalizeChannelMutation(
@@ -1879,7 +1954,13 @@ class TasksViewModel(
                 if (boundGateway != gateway) return@launch
                 val idx = resolved.first.channels.indexOfFirst { it.id == resolved.second.id }.coerceAtLeast(0)
                 _state.update { it.copy(activeChannelIdx = idx) }
-                loadChannelLog(gateway, resolved.first, idx)
+                if (externalContextOnly) {
+                    if (resolved.second.id != externalViewingChannelId) {
+                        emitOpenChannelNav(resolved.first, resolved.second)
+                    }
+                } else {
+                    loadChannelLog(gateway, resolved.first, idx)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1908,6 +1989,7 @@ class TasksViewModel(
         )
         _state.update { cur ->
             val sameChat = cur.selectedTaskId == task.id
+            val watermark = readWatermarkFor(task)
             cur.copy(
                 tasks = cur.tasks.map { t ->
                     if (t.id == task.id) t.copy(replyStatus = TaskReplyStatus(hasUnreadReply = false, awaitingReply = false)) else t
@@ -1918,7 +2000,7 @@ class TasksViewModel(
                 channelMessages = if (sameChat) cur.channelMessages + optimisticLine else cur.channelMessages,
                 channelTurnRunning = if (sameChat) true else cur.channelTurnRunning,
                 channelTurnStatus = if (sameChat) null else cur.channelTurnStatus,
-                localReadTaskIds = cur.localReadTaskIds + task.id,
+                localReadAtByTaskId = cur.localReadAtByTaskId + (task.id to watermark),
                 localUnreadTaskIds = cur.localUnreadTaskIds - task.id,
             )
         }
@@ -1952,8 +2034,10 @@ class TasksViewModel(
                 }
                 lastStreamEventAtMs = nowMs()
                 markChannelSeen(gateway, channel, latestTask.replyStatus?.latestRoomSeq)
-                dispatchMessage(channel, visibleText, attachments)
-                startTurnFallbackPoll(gateway, channel = channel, task = latestTask, channelIdx = idx)
+                dispatchMessage(channel, visibleText, attachments, taskId = latestTask.id)
+                if (!externalContextOnly) {
+                    startTurnFallbackPoll(gateway, channel = channel, task = latestTask, channelIdx = idx)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2006,13 +2090,27 @@ class TasksViewModel(
                     append("Read recent tweak_deltas via `directus_task_board`, then save 2-3 inline parameter chips and action options once using `directus_stage_plan` (force=true).")
                 }
                 val idx = latestTask.channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0)
-                if (_state.value.selectedTaskId == latestTask.id) {
-                    _state.update { it.copy(activeChannelIdx = idx, channelTurnRunning = true, channelTurnStatus = null) }
+                val watermark = readWatermarkFor(latestTask)
+                _state.update { cur ->
+                    cur.copy(
+                        activeChannelIdx = if (!externalContextOnly && cur.selectedTaskId == latestTask.id) idx else cur.activeChannelIdx,
+                        channelTurnRunning = if (!externalContextOnly && cur.selectedTaskId == latestTask.id) true else cur.channelTurnRunning,
+                        channelTurnStatus = if (!externalContextOnly && cur.selectedTaskId == latestTask.id) null else cur.channelTurnStatus,
+                        localReadAtByTaskId = cur.localReadAtByTaskId + (latestTask.id to watermark),
+                        localUnreadTaskIds = cur.localUnreadTaskIds - latestTask.id,
+                    )
                 }
                 lastStreamEventAtMs = nowMs()
-                dispatchMessage(channel, prompt, displayKind = "hidden")
-                loadChannelLog(gateway, latestTask, idx, attachSession = false)
-                startTurnFallbackPoll(gateway, channel = channel, task = latestTask, channelIdx = idx)
+                markChannelSeen(gateway, channel, latestTask.replyStatus?.latestRoomSeq)
+                dispatchMessage(channel, prompt, displayKind = "hidden", taskId = latestTask.id)
+                if (externalContextOnly) {
+                    if (channel.id != externalViewingChannelId) {
+                        emitOpenChannelNav(latestTask, channel)
+                    }
+                } else {
+                    loadChannelLog(gateway, latestTask, idx, attachSession = false)
+                    startTurnFallbackPoll(gateway, channel = channel, task = latestTask, channelIdx = idx)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2128,7 +2226,15 @@ class TasksViewModel(
                     } else {
                         "[Task: ${task.title}] $directive"
                     }
-                    if (keptOnBoard && _state.value.selectedTaskId == latest.id) {
+                    val watermark = readWatermarkFor(latest)
+                    _state.update { cur ->
+                        cur.copy(
+                            localReadAtByTaskId = cur.localReadAtByTaskId + (latest.id to watermark),
+                            localUnreadTaskIds = cur.localUnreadTaskIds - latest.id,
+                        )
+                    }
+                    markChannelSeen(gateway, active, latest.replyStatus?.latestRoomSeq)
+                    if (!externalContextOnly && keptOnBoard && _state.value.selectedTaskId == latest.id) {
                         val key = "user-${Uuid.random()}"
                         optimisticKey = key
                         _state.update { cur ->
@@ -2146,10 +2252,16 @@ class TasksViewModel(
                         }
                     }
                     lastStreamEventAtMs = nowMs()
-                    dispatchMessage(active, outboundText)
+                    dispatchMessage(active, outboundText, taskId = latest.id)
                     if (keptOnBoard) {
-                        loadChannelLog(gateway, latest, idx, attachSession = false)
-                        startTurnFallbackPoll(gateway, channel = active, task = latest, channelIdx = idx)
+                        if (externalContextOnly) {
+                            if (active.id != externalViewingChannelId) {
+                                emitOpenChannelNav(latest, active)
+                            }
+                        } else {
+                            loadChannelLog(gateway, latest, idx, attachSession = false)
+                            startTurnFallbackPoll(gateway, channel = active, task = latest, channelIdx = idx)
+                        }
                     }
                 }
                 if (approveRes is ApiResult.Success && boundGateway == gateway) {
@@ -2174,14 +2286,16 @@ class TasksViewModel(
     }
 
     fun openChannelFullscreen(task: DirectusTask, channel: TaskChannel) {
-        viewModelScope.launch {
-            if (channel.isRoom) {
-                val room = runCatching { roomsApi.state(channel.id).room }.getOrNull()
-                    ?: Room(roomId = channel.id, name = task.title)
-                _events.send(TasksNavEvent.OpenRoom(room))
-            } else {
-                _events.send(TasksNavEvent.OpenSession(channel.id, task.title, channel.profile))
-            }
+        viewModelScope.launch { emitOpenChannelNav(task, channel) }
+    }
+
+    private suspend fun emitOpenChannelNav(task: DirectusTask, channel: TaskChannel) {
+        if (channel.isRoom) {
+            val room = runCatching { roomsApi.state(channel.id).room }.getOrNull()
+                ?: Room(roomId = channel.id, name = task.title)
+            _events.send(TasksNavEvent.OpenRoom(room))
+        } else {
+            _events.send(TasksNavEvent.OpenSession(channel.id, task.title, channel.profile))
         }
     }
 
@@ -2351,8 +2465,15 @@ class TasksViewModel(
                 )
             }
             if (updatedTask.channels.isNotEmpty()) {
-                loadChannelLog(gateway, updatedTask, nextIdx)
-            } else {
+                if (externalContextOnly) {
+                    val selectedChannel = updatedTask.channels.getOrNull(nextIdx)
+                    if (selectedChannel != null && selectedChannel.id != externalViewingChannelId) {
+                        emitOpenChannelNav(updatedTask, selectedChannel)
+                    }
+                } else {
+                    loadChannelLog(gateway, updatedTask, nextIdx)
+                }
+            } else if (!externalContextOnly) {
                 loadModels(withPrices = false)
             }
         }
@@ -2380,9 +2501,12 @@ class TasksViewModel(
                 context = (task.context ?: TaskContext(taskId = task.id)).copy(channels = mergedChannels, assignedBots = nextBots),
             )
         }
-        activeRuntimeSessionId = created.runtimeId ?: channel.id
-        activeRuntimeChannelId = channel.id
-        if (created.info != null) {
+        if (!externalContextOnly) {
+            activeRuntimeSessionId = created.runtimeId ?: channel.id
+            activeRuntimeChannelId = channel.id
+        }
+        (created.runtimeId ?: channel.id).let { rtId -> runningTaskSessions[rtId] = task.id }
+        if (!externalContextOnly && created.info != null) {
             _state.update { it.copy(channelChatState = it.channelChatState.withChannelInfo(created.info)) }
         }
         replaceTask(updated)
@@ -2406,8 +2530,6 @@ class TasksViewModel(
             ) as? JsonObject
         }.getOrNull() ?: return
         val runtimeId = resumed.str("session_id") ?: return
-        activeRuntimeSessionId = runtimeId
-        activeRuntimeChannelId = channel.id
         val info = resumed["info"] as? JsonObject
         val running = resumed.bool("running") == true
         val openRequests = resumed["open_requests"].asObjects().mapNotNull { snapshot ->
@@ -2417,6 +2539,13 @@ class TasksViewModel(
                 params = snapshot["params"] as? JsonObject ?: JsonObject(emptyMap()),
             )
         }
+        val owningTaskId = resolveOwningTaskId(runtimeId) ?: resolveOwningTaskId(channel.id)
+        if (owningTaskId != null && (running || openRequests.isNotEmpty())) {
+            runningTaskSessions[runtimeId] = owningTaskId
+        }
+        if (externalContextOnly) return
+        activeRuntimeSessionId = runtimeId
+        activeRuntimeChannelId = channel.id
         val inflightText = (resumed["inflight"] as? JsonObject).str("assistant").orEmpty()
         val botLabel = channel.profile ?: "Hermes"
         _state.update { cur ->
@@ -2454,9 +2583,55 @@ class TasksViewModel(
             boundGateway?.let { gw -> viewModelScope.launch { refreshTaskTimeBlocksSilently(gw) } }
             return
         }
-        val runtimeId = activeRuntimeSessionId ?: return
-        if (event.sessionId != runtimeId) return
         val payload = event.payload as? JsonObject
+        if (event.type == "message.complete" || event.type == "turn.error" || event.type == "session.error") {
+            val isActiveForeground = !externalContextOnly &&
+                event.sessionId == activeRuntimeSessionId &&
+                (!hasObservedVisibility || pageVisible)
+            if (isActiveForeground) {
+                runningTaskSessions.remove(event.sessionId)
+                turnPollJob?.cancel()
+                _state.update { cur ->
+                    cur.copy(
+                        channelTurnRunning = false,
+                        channelTurnStatus = null,
+                        channelInputRequests = emptyList(),
+                        channelMessages = cur.channelMessages.map { if (it.streaming) it.copy(streaming = false) else it },
+                    )
+                }
+                val gw = boundGateway ?: return
+                if (_state.value.coordinatorOpen) {
+                    viewModelScope.launch {
+                        loadCoordinatorLog(gw, attachSession = false)
+                        refreshBoardSilently(gw)
+                    }
+                    return
+                }
+                val task = _state.value.selectedTask ?: return
+                val idx = _state.value.activeChannelIdx
+                viewModelScope.launch {
+                    loadChannelLog(gw, task, idx, attachSession = false)
+                    refreshBoardSilently(gw)
+                }
+                return
+            }
+            val backgroundTaskId = runningTaskSessions.remove(event.sessionId) ?: resolveOwningTaskId(event.sessionId)
+            if (backgroundTaskId != null) {
+                val viewingExternally = externalContextOnly && externalViewingTaskId == backgroundTaskId
+                if (!viewingExternally) {
+                    _state.update { cur ->
+                        cur.copy(
+                            localUnreadTaskIds = cur.localUnreadTaskIds + backgroundTaskId,
+                            localReadAtByTaskId = cur.localReadAtByTaskId - backgroundTaskId,
+                        )
+                    }
+                }
+                boundGateway?.let { gw -> viewModelScope.launch { refreshBoardSilently(gw) } }
+            }
+            return
+        }
+        val runtimeId = activeRuntimeSessionId ?: return
+        if (externalContextOnly || event.sessionId != runtimeId) return
         when (event.type) {
             "message.start" -> {
                 lastStreamEventAtMs = nowMs()
@@ -2532,31 +2707,6 @@ class TasksViewModel(
                     cur.copy(channelMessages = next, channelTurnRunning = true, channelTurnStatus = null)
                 }
             }
-            "message.complete", "turn.error", "session.error" -> {
-                turnPollJob?.cancel()
-                _state.update { cur ->
-                    cur.copy(
-                        channelTurnRunning = false,
-                        channelTurnStatus = null,
-                        channelInputRequests = emptyList(),
-                        channelMessages = cur.channelMessages.map { if (it.streaming) it.copy(streaming = false) else it },
-                    )
-                }
-                val gw = boundGateway ?: return
-                if (_state.value.coordinatorOpen) {
-                    viewModelScope.launch {
-                        loadCoordinatorLog(gw, attachSession = false)
-                        refreshBoardSilently(gw)
-                    }
-                    return
-                }
-                val task = _state.value.selectedTask ?: return
-                val idx = _state.value.activeChannelIdx
-                viewModelScope.launch {
-                    loadChannelLog(gw, task, idx, attachSession = false)
-                    refreshBoardSilently(gw)
-                }
-            }
             "request.cancel" -> {
                 val reqId = payload.str("id") ?: return
                 _state.update { cur -> cur.copy(channelInputRequests = cur.channelInputRequests.filterNot { it.id == reqId }) }
@@ -2623,15 +2773,18 @@ class TasksViewModel(
         val board = res.value
         _state.update { cur ->
             val serverById = board.tasks.associateBy { it.id }
-            val keptLocalRead = cur.localReadTaskIds.filterTo(HashSet()) { id ->
-                serverById[id]?.replyStatus?.hasUnreadReply == true
+            val keptLocalRead = keptLocalReadAt(cur.localReadAtByTaskId, board.tasks)
+            val keptLocalUnread = cur.localUnreadTaskIds.filterTo(HashSet()) { id ->
+                val task = serverById[id]
+                task != null && task.status != DirectusTask.STATUS_DONE &&
+                    !(externalContextOnly && externalViewingTaskId == id)
             }
             cur.copy(
                 projects = board.projects,
                 tasks = board.tasks,
                 todayEpochDay = currentLocalEpochDay(),
-                localReadTaskIds = keptLocalRead,
-                localUnreadTaskIds = emptySet(),
+                localReadAtByTaskId = keptLocalRead,
+                localUnreadTaskIds = keptLocalUnread,
             )
         }
         dispatchStore?.syncBoard(gateway.gatewayUrl, board.tasks, includeDone = includeDone)
@@ -2760,13 +2913,15 @@ class TasksViewModel(
             },
         ) as? JsonObject
         val runtimeId = resumed.str("session_id") ?: error("Could not resume session.")
-        activeRuntimeSessionId = runtimeId
-        activeRuntimeChannelId = channel.id
-        if (applyInfo) {
-            (resumed?.get("info") as? JsonObject)?.let { info ->
-                _state.update { cur ->
-                    if (cur.activeChannel?.id == channel.id) cur.copy(channelChatState = cur.channelChatState.withChannelInfo(info))
-                    else cur
+        if (!externalContextOnly) {
+            activeRuntimeSessionId = runtimeId
+            activeRuntimeChannelId = channel.id
+            if (applyInfo) {
+                (resumed?.get("info") as? JsonObject)?.let { info ->
+                    _state.update { cur ->
+                        if (cur.activeChannel?.id == channel.id) cur.copy(channelChatState = cur.channelChatState.withChannelInfo(info))
+                        else cur
+                    }
                 }
             }
         }
@@ -2778,6 +2933,7 @@ class TasksViewModel(
         text: String,
         attachments: List<OutgoingAttachment> = emptyList(),
         displayKind: String? = null,
+        taskId: String? = null,
     ) {
         if (channel.isRoom) {
             val uploaded = attachments.map { file ->
@@ -2801,6 +2957,9 @@ class TasksViewModel(
         val client = (connection.state.value as? ConnectionState.Connected)?.client
             ?: error("Not connected to gateway.")
         val runtimeId = ensureRuntimeSession(client, channel)
+        if (taskId != null) {
+            runningTaskSessions[runtimeId] = taskId
+        }
         val gatewayUrl = boundGateway?.gatewayUrl
         val queuedImages = mutableListOf<String>()
         val refs = mutableListOf<String>()
@@ -2828,6 +2987,34 @@ class TasksViewModel(
             detachSessionImages(client, runtimeId, queuedImages)
             throw e
         }
+    }
+
+    private fun readWatermarkFor(task: DirectusTask): Double =
+        task.replyStatus?.lastReplyAt ?: 0.0
+
+    private fun keptLocalReadAt(
+        curMap: Map<String, Double>,
+        serverTasks: List<DirectusTask>,
+    ): Map<String, Double> {
+        if (curMap.isEmpty()) return emptyMap()
+        val serverById = serverTasks.associateBy { it.id }
+        return buildMap {
+            curMap.forEach { (id, readAt) ->
+                val rs = serverById[id]?.replyStatus ?: return@forEach
+                val roomUnreadCandidate = rs.lastReplyChannelType == TaskChannel.TYPE_ROOM && (rs.latestRoomSeq ?: 0) > 0
+                if (!rs.hasUnreadReply && !roomUnreadCandidate) return@forEach
+                val replyAt = rs.lastReplyAt
+                if (replyAt == null || replyAt <= readAt + 1.0) {
+                    put(id, readAt)
+                }
+            }
+        }
+    }
+
+    private fun resolveOwningTaskId(sessionId: String): String? {
+        _state.value.tasks.firstOrNull { t -> t.channels.any { !it.isRoom && it.id == sessionId } }?.id?.let { return it }
+        val gwUrl = boundGateway?.gatewayUrl ?: return null
+        return dispatchStore?.byGateway?.value?.get(gwUrl)?.get(sessionId)?.taskId
     }
 
     private fun replaceTask(updated: DirectusTask) {

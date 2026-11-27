@@ -28,7 +28,6 @@
     <string name="tasks_task_description">Részletek (opcionális)</string>
     <string name="tasks_task_project">Projekt</string>
     <string name="tasks_task_priority">Prioritás</string>
-    <string name="tasks_state_needs_you">Terv kész</string>
     <string name="tasks_state_running">Fut</string>
     <string name="tasks_state_queued">Sorban áll</string>
     <string name="tasks_state_idle">Tétlen</string>
@@ -122,16 +121,9 @@
     <string name="tasks_view_projects">Projektek</string>
     <string name="tasks_view_matrix">Mátrix</string>
     <string name="tasks_focus_group_matrix">Mátrix szerint</string>
-    <string name="tasks_attention_replies">Ügynök válaszok (%1$d)</string>
     <string name="tasks_attention_high_priority">Nagy hatású és sürgős (%1$d)</string>
-    <string name="tasks_attention_empty_v2">Figyelmet igényel (0) · Nincs olvasatlan válasz vagy kritikus feladat</string>
+    <string name="tasks_attention_empty_v2">Figyelmet igényel (0) · Nincs kritikus vagy sürgős feladat</string>
     <string name="tasks_attention_more_priority">+%1$d további kiemelt feladat</string>
-    <string name="tasks_reply_unread">Olvasatlan</string>
-    <string name="tasks_reply_awaiting">Válaszra vár</string>
-    <string name="tasks_reply_waiting_input">Beavatkozás szükséges</string>
-    <string name="tasks_reply_ack">Kezelve</string>
-    <string name="tasks_reply_banner_unread">Az ügynök válaszolt — nem látott</string>
-    <string name="tasks_reply_banner_awaiting">A válaszodra vár</string>
     <string name="tasks_matrix_title">Hatás × Sürgősség</string>
     <string name="tasks_matrix_impact">Hatás</string>
     <string name="tasks_matrix_urgency">Sürgősség</string>
@@ -161,4 +153,7 @@
     <string name="tasks_replace_room_confirm">Szoba váltása</string>
     <string name="tasks_agent_mismatch_notice">Kijelölt: %1$s · aktív munkamenet: %2$s</string>
     <string name="tasks_switch_to_agent">Váltás erre: %1$s</string>
+    <string name="tasks_filter_unread">Olvasatlan</string>
+    <string name="tasks_unread_empty">Nincs olvasatlan válaszú feladat</string>
+    <string name="tasks_panel_title">Feladat</string>
 </resources>

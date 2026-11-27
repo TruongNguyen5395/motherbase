@@ -69,9 +69,15 @@ import dev.hermeskotlin.ui.chat.MentionSuggestions
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.Dp
+import dev.hermeskotlin.ui.LocalAppSettings
+import dev.hermeskotlin.ui.chat.RightRailLayout
+import dev.hermeskotlin.ui.chat.rememberRightRailState
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -179,6 +185,9 @@ fun RoomScreen(
     onOpenSidebar: () -> Unit,
     onBack: () -> Unit,
     onBackToDispatch: (() -> Unit)? = null,
+    taskHasPendingPlan: Boolean = false,
+    taskPanel: (@Composable (onClose: () -> Unit) -> Unit)? = null,
+    onRailWidthChange: ((Dp) -> Unit)? = null,
     onOpenFile: (String?, GatewayFile) -> Unit = { _, _ -> },
     /** Off while a page covers the room (Settings, the bot editor, a plugin), so its keys don't type in it unseen. */
     keysEnabled: Boolean = true,
@@ -192,6 +201,9 @@ fun RoomScreen(
         onOpenSidebar = onOpenSidebar,
         onBack = onBack,
         onBackToDispatch = onBackToDispatch,
+        taskHasPendingPlan = taskHasPendingPlan,
+        taskPanel = taskPanel,
+        onRailWidthChange = onRailWidthChange,
         onOpenFile = onOpenFile,
         keysEnabled = keysEnabled,
     )
@@ -223,78 +235,131 @@ internal fun RoomView(
     onOpenSidebar: () -> Unit,
     onBack: () -> Unit,
     onBackToDispatch: (() -> Unit)? = null,
+    taskHasPendingPlan: Boolean = false,
+    taskPanel: (@Composable (onClose: () -> Unit) -> Unit)? = null,
+    onRailWidthChange: ((Dp) -> Unit)? = null,
     onOpenFile: (String?, GatewayFile) -> Unit = { _, _ -> },
     keysEnabled: Boolean = true,
 ) {
     var ask by remember { mutableStateOf<RoomAsk?>(null) }
     RoomAskDialogs(ask, onDismiss = { ask = null }, onRename = viewModel::renameRoom, onDelete = viewModel::deleteRoom)
+    val railState = rememberRightRailState()
+    val railScope = rememberCoroutineScope()
+    val railWidth = LocalAppSettings.current.railWidth.dp
+    var taskRailOpen by remember(room.room.roomId) { mutableStateOf(false) }
+    LaunchedEffect(railState.isOpen) { if (!railState.isOpen) taskRailOpen = false }
+    LaunchedEffect(taskPanel == null) {
+        if (taskPanel == null && taskRailOpen) {
+            taskRailOpen = false
+            if (railState.isOpen) railState.close()
+        }
+    }
     Box(
         Modifier
             .fillMaxSize()
-            .background(Theme[colors][background])
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+            .background(Theme[colors][background]),
         contentAlignment = Alignment.TopCenter,
     ) {
-        Column(Modifier.widthIn(max = 760.dp).fillMaxSize().imePadding()) {
-            val members = room.room.members
-            TopBar(
-                // A room opened from a notification without its name has none until the first read.
-                title = room.room.name.ifBlank { stringResource(Res.string.rooms_room) },
-                titleFace = members.takeIf { it.isNotEmpty() }?.let { { RoomFaces(it, faces, size = 20.dp, max = 3) } },
-                // Who's in it, unless the room waits on the user.
-                status = when {
-                    room.pendingActions.isNotEmpty() -> BarStatus(stringResource(Res.string.rooms_waiting_on_you), StatusTone.Waiting)
-                    members.isNotEmpty() -> BarStatus(members.joinToString(", ") { it.label }, StatusTone.Neutral)
-                    else -> null
-                },
-                onOpenSidebar = onOpenSidebar,
-                onNewChat = null,
-                onOpenMenu = null,
-                onBackToDispatch = onBackToDispatch,
-                trailing = {
-                    var menuOpen by remember { mutableStateOf(false) }
-                    val options = stringResource(Res.string.rooms_options)
-                    DropdownMenu(
-                        expanded = menuOpen,
-                        onExpandedChange = { menuOpen = it },
-                        items = {
-                            RoomMenuActions(
-                                onRename = { menuOpen = false; ask = RoomAsk.Rename(room.room) },
-                                onDelete = { menuOpen = false; ask = RoomAsk.Delete(room.room) },
-                            )
-                        },
-                    ) {
-                        BarButton(Lucide.Ellipsis, options, onClick = { menuOpen = true })
-                    }
-                    BarButton(Lucide.X, stringResource(Res.string.rooms_close), onClick = onBack)
-                },
-            )
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                Transcript(room, faces, onLoadEarlier = viewModel::loadEarlier, onOpenFile = onOpenFile)
-            }
-            // A failed read in full, above whatever waits on the user; the loop keeps trying.
-            room.error?.let { ListNotice(it.text()) }
-            PendingActions(room, onApprove = viewModel::approve, onRetry = viewModel::retry)
-            if (room.working && room.pendingActions.isEmpty()) {
-                Row(
-                    Modifier.padding(start = 24.dp, end = 24.dp, top = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Spinner(Modifier.size(14.dp))
-                    // Who's replying to the user's message; past its first round, bots answering each other.
-                    Text(
-                        waitingLine(room.waiting) ?: stringResource(Res.string.rooms_talking_it_over),
-                        style = Theme[typography][caption],
-                        color = Theme[colors][textTertiary],
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+        val roomContent: @Composable (Modifier) -> Unit = { railModifier ->
+            Column(
+                railModifier
+                    .widthIn(max = 760.dp)
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                    .imePadding(),
+            ) {
+                val members = room.room.members
+                TopBar(
+                    // A room opened from a notification without its name has none until the first read.
+                    title = room.room.name.ifBlank { stringResource(Res.string.rooms_room) },
+                    titleFace = members.takeIf { it.isNotEmpty() }?.let { { RoomFaces(it, faces, size = 20.dp, max = 3) } },
+                    // Who's in it, unless the room waits on the user.
+                    status = when {
+                        room.pendingActions.isNotEmpty() -> BarStatus(stringResource(Res.string.rooms_waiting_on_you), StatusTone.Waiting)
+                        members.isNotEmpty() -> BarStatus(members.joinToString(", ") { it.label }, StatusTone.Neutral)
+                        else -> null
+                    },
+                    onOpenSidebar = onOpenSidebar,
+                    onNewChat = null,
+                    onOpenMenu = null,
+                    onBackToDispatch = onBackToDispatch,
+                    taskPanelOpen = taskRailOpen && railState.isOpen,
+                    taskHasPendingPlan = taskHasPendingPlan,
+                    onToggleTaskPanel = taskPanel?.let {
+                        {
+                            if (taskRailOpen && railState.isOpen) {
+                                taskRailOpen = false
+                                railScope.launch { railState.close() }
+                            } else {
+                                taskRailOpen = true
+                                railScope.launch { railState.open() }
+                            }
+                        }
+                    },
+                    trailing = {
+                        var menuOpen by remember { mutableStateOf(false) }
+                        val options = stringResource(Res.string.rooms_options)
+                        DropdownMenu(
+                            expanded = menuOpen,
+                            onExpandedChange = { menuOpen = it },
+                            items = {
+                                RoomMenuActions(
+                                    onRename = { menuOpen = false; ask = RoomAsk.Rename(room.room) },
+                                    onDelete = { menuOpen = false; ask = RoomAsk.Delete(room.room) },
+                                )
+                            },
+                        ) {
+                            BarButton(Lucide.Ellipsis, options, onClick = { menuOpen = true })
+                        }
+                        BarButton(Lucide.X, stringResource(Res.string.rooms_close), onClick = onBack)
+                    },
+                )
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    Transcript(room, faces, onLoadEarlier = viewModel::loadEarlier, onOpenFile = onOpenFile)
                 }
+                // A failed read in full, above whatever waits on the user; the loop keeps trying.
+                room.error?.let { ListNotice(it.text()) }
+                PendingActions(room, onApprove = viewModel::approve, onRetry = viewModel::retry)
+                if (room.working && room.pendingActions.isEmpty()) {
+                    Row(
+                        Modifier.padding(start = 24.dp, end = 24.dp, top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spinner(Modifier.size(14.dp))
+                        // Who's replying to the user's message; past its first round, bots answering each other.
+                        Text(
+                            waitingLine(room.waiting) ?: stringResource(Res.string.rooms_talking_it_over),
+                            style = Theme[typography][caption],
+                            color = Theme[colors][textTertiary],
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                val mentions = rememberRoomMentions(room, viewModel, faces)
+                RoomMentions(room, mentions)
+                RoomComposer(room, viewModel, mentions, keysEnabled && !(taskRailOpen && !railState.docked && railState.isOpen))
             }
-            val mentions = rememberRoomMentions(room, viewModel, faces)
-            RoomMentions(room, mentions)
-            RoomComposer(room, viewModel, mentions, keysEnabled)
+        }
+        if (taskPanel != null) {
+            RightRailLayout(
+                state = railState,
+                railWidth = railWidth,
+                onRailWidthChange = onRailWidthChange,
+                swipeEnabled = !isDesktop,
+                rail = {
+                    if (taskRailOpen) {
+                        taskPanel {
+                            taskRailOpen = false
+                            railScope.launch { railState.close() }
+                        }
+                    }
+                },
+                content = roomContent,
+            )
+        } else {
+            roomContent(Modifier)
         }
         room.notice?.let { message ->
             MessageBanner(message.text(), onDismiss = viewModel::dismissRoomNotice, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp))

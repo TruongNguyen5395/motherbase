@@ -28,7 +28,6 @@
     <string name="tasks_task_description">Details (optional)</string>
     <string name="tasks_task_project">Projekt</string>
     <string name="tasks_task_priority">Priorität</string>
-    <string name="tasks_state_needs_you">Plan bereit</string>
     <string name="tasks_state_running">Läuft</string>
     <string name="tasks_state_queued">Warteschlange</string>
     <string name="tasks_state_idle">Leerlauf</string>
@@ -122,16 +121,9 @@
     <string name="tasks_view_projects">Projekte</string>
     <string name="tasks_view_matrix">Matrix</string>
     <string name="tasks_focus_group_matrix">Nach Matrix</string>
-    <string name="tasks_attention_replies">Agent-Antworten (%1$d)</string>
     <string name="tasks_attention_high_priority">Hohe Wirkung &amp; dringend (%1$d)</string>
-    <string name="tasks_attention_empty_v2">Aufmerksamkeit (0) · Keine ungelesenen Antworten oder kritischen Aufgaben</string>
+    <string name="tasks_attention_empty_v2">Aufmerksamkeit (0) · Keine kritischen oder dringenden Aufgaben</string>
     <string name="tasks_attention_more_priority">+%1$d weitere hochpriorisierte Aufgaben</string>
-    <string name="tasks_reply_unread">Ungelesen</string>
-    <string name="tasks_reply_awaiting">Antwort ausstehend</string>
-    <string name="tasks_reply_waiting_input">Eingabe nötig</string>
-    <string name="tasks_reply_ack">Als erledigt markieren</string>
-    <string name="tasks_reply_banner_unread">Agent hat geantwortet — ungelesen</string>
-    <string name="tasks_reply_banner_awaiting">Wartet auf deine Antwort</string>
     <string name="tasks_matrix_title">Wirkung × Dringlichkeit</string>
     <string name="tasks_matrix_impact">Wirkung</string>
     <string name="tasks_matrix_urgency">Dringlichkeit</string>
@@ -161,4 +153,7 @@
     <string name="tasks_replace_room_confirm">Raum wechseln</string>
     <string name="tasks_agent_mismatch_notice">Zugewiesen an %1$s · aktive Sitzung ist %2$s</string>
     <string name="tasks_switch_to_agent">Zu %1$s wechseln</string>
+    <string name="tasks_filter_unread">Ungelesen</string>
+    <string name="tasks_unread_empty">Keine Aufgaben mit ungelesenen Antworten</string>
+    <string name="tasks_panel_title">Aufgabe</string>
 </resources>

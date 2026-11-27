@@ -28,7 +28,6 @@
     <string name="tasks_task_description">详情（可选）</string>
     <string name="tasks_task_project">所属项目</string>
     <string name="tasks_task_priority">优先级</string>
-    <string name="tasks_state_needs_you">方案就绪</string>
     <string name="tasks_state_running">运行中</string>
     <string name="tasks_state_queued">排队中</string>
     <string name="tasks_state_idle">空闲</string>
@@ -122,16 +121,9 @@
     <string name="tasks_view_projects">项目</string>
     <string name="tasks_view_matrix">矩阵</string>
     <string name="tasks_focus_group_matrix">按矩阵</string>
-    <string name="tasks_attention_replies">智能体回复 (%1$d)</string>
     <string name="tasks_attention_high_priority">高影响且紧急 (%1$d)</string>
-    <string name="tasks_attention_empty_v2">需要关注 (0) · 暂无未读回复或高影响紧急任务</string>
+    <string name="tasks_attention_empty_v2">需要关注 (0) · 暂无高影响或紧急任务</string>
     <string name="tasks_attention_more_priority">另有 %1$d 项高优先级任务</string>
-    <string name="tasks_reply_unread">未读</string>
-    <string name="tasks_reply_awaiting">待回复</string>
-    <string name="tasks_reply_waiting_input">需要输入</string>
-    <string name="tasks_reply_ack">标记已处理</string>
-    <string name="tasks_reply_banner_unread">智能体已回复 — 未查看</string>
-    <string name="tasks_reply_banner_awaiting">等待你的回复</string>
     <string name="tasks_matrix_title">影响力 × 紧急度</string>
     <string name="tasks_matrix_impact">影响力</string>
     <string name="tasks_matrix_urgency">紧急度</string>
@@ -161,4 +153,7 @@
     <string name="tasks_replace_room_confirm">切换群聊</string>
     <string name="tasks_agent_mismatch_notice">已指派 %1$s · 当前会话为 %2$s</string>
     <string name="tasks_switch_to_agent">切换至 %1$s</string>
+    <string name="tasks_filter_unread">未读</string>
+    <string name="tasks_unread_empty">暂无未读回复的任务</string>
+    <string name="tasks_panel_title">任务</string>
 </resources>

@@ -117,6 +117,9 @@ import dev.hermeskotlin.core.inbox.InboxLinks
 import dev.hermeskotlin.core.inbox.InboxStore
 import dev.hermeskotlin.core.rooms.RoomLinks
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
+import dev.hermeskotlin.ui.tasks.DispatchTaskPanelHost
+import dev.hermeskotlin.ui.tasks.TasksNavEvent
+import dev.hermeskotlin.ui.tasks.TasksViewModel
 import org.koin.compose.koinInject
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -844,6 +847,53 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                 sessions.dispatchEntryFlow(activeSessionKey)
             }.collectAsStateWithLifecycle(null)
             val page = mainPage.content
+            val activeTaskBinding = when {
+                openRoom != null -> activeRoomEntry?.let { it.taskId to it.roomId }
+                else -> activeDispatchSession?.let { it.taskId to it.sessionId }
+            }?.takeIf { it.first != DispatchSessionsStore.COORDINATOR_TASK_ID }
+            val tasksVm: TasksViewModel = koinViewModel()
+            val tasksState by tasksVm.state.collectAsStateWithLifecycle()
+            if (page == null && activeTaskBinding != null) {
+                LaunchedEffect(route.gateway.gatewayUrl, activeTaskBinding.first, activeTaskBinding.second) {
+                    tasksVm.syncTaskContextOnly(route.gateway, activeTaskBinding.first, activeTaskBinding.second)
+                }
+                DisposableEffect(activeTaskBinding.first) {
+                    onDispose { tasksVm.clearExternalTaskContext(activeTaskBinding.first) }
+                }
+                LaunchedEffect(tasksVm) {
+                    tasksVm.events.collect { ev ->
+                        when (ev) {
+                            is TasksNavEvent.OpenSession -> {
+                                rooms.close()
+                                val launch = profileRoster?.takeIf { it.launchKnown }?.launch
+                                val resolvedProfile = reportChatProfile(ev.profile ?: launch ?: Bot.DEFAULT, chatsProfile, launch)
+                                app.openSession(ev.sessionId, ev.title, profile = resolvedProfile, fallbackToCurrentProfile = false)
+                            }
+                            is TasksNavEvent.OpenRoom -> rooms.open(ev.room)
+                        }
+                    }
+                }
+                LaunchedEffect(tasksState.sessionExpired) {
+                    if (tasksState.sessionExpired) {
+                        tasksVm.consumeSessionExpired()
+                        app.onSessionExpired()
+                    }
+                }
+            }
+            val currentTaskHasPendingPlan = activeTaskBinding != null &&
+                tasksState.selectedTask?.id == activeTaskBinding.first &&
+                tasksState.selectedTask?.stagedPlan?.approvedAt == null
+            val currentTaskPanel: (@Composable (onClose: () -> Unit) -> Unit)? = activeTaskBinding?.let { binding ->
+                { onClose ->
+                    DispatchTaskPanelHost(
+                        viewModel = tasksVm,
+                        state = tasksState,
+                        activeChannelId = binding.second,
+                        clearWindowControls = isDesktop,
+                        onClose = onClose,
+                    )
+                }
+            }
             when {
                 // A list a desktop window would stretch past reading stays a page's width, in the middle.
                 page != null -> Box(
@@ -872,6 +922,9 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                             dispatchStore.requestOpenTask(route.gateway.gatewayUrl, entry.taskId, entry.roomId)
                         }
                     },
+                    taskHasPendingPlan = currentTaskHasPendingPlan,
+                    taskPanel = currentTaskPanel,
+                    onRailWidthChange = if (isDesktop) { width -> sidebarWidthStore.update { it.copy(railWidth = width.value.roundToInt()) } } else null,
                     onOpenFile = openRoomFile,
                     keysEnabled = !settingsOpen && pluginUrl == null && editing == null,
                 )
@@ -928,6 +981,8 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                                 dispatchStore.requestOpenTask(route.gateway.gatewayUrl, entry.taskId, entry.sessionId)
                             }
                         },
+                        taskHasPendingPlan = currentTaskHasPendingPlan,
+                        taskPanel = currentTaskPanel,
                         onRailWidthChange = if (isDesktop) { width -> sidebarWidthStore.update { it.copy(railWidth = width.value.roundToInt()) } } else null,
                     )
                 }

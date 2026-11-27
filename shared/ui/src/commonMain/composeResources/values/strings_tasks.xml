@@ -28,7 +28,6 @@
     <string name="tasks_task_description">Details (optional)</string>
     <string name="tasks_task_project">Project</string>
     <string name="tasks_task_priority">Priority</string>
-    <string name="tasks_state_needs_you">Plan ready</string>
     <string name="tasks_state_running">Running</string>
     <string name="tasks_state_queued">Queued</string>
     <string name="tasks_state_idle">Idle</string>
@@ -122,16 +121,9 @@
     <string name="tasks_view_projects">Projects</string>
     <string name="tasks_view_matrix">Matrix</string>
     <string name="tasks_focus_group_matrix">By matrix</string>
-    <string name="tasks_attention_replies">Agent replies (%1$d)</string>
     <string name="tasks_attention_high_priority">High impact &amp; urgent (%1$d)</string>
-    <string name="tasks_attention_empty_v2">Needs attention (0) · No unread replies or high-impact urgent tasks</string>
+    <string name="tasks_attention_empty_v2">Needs attention (0) · No high-impact or urgent tasks</string>
     <string name="tasks_attention_more_priority">+%1$d more high-priority tasks</string>
-    <string name="tasks_reply_unread">Unread</string>
-    <string name="tasks_reply_awaiting">Awaiting reply</string>
-    <string name="tasks_reply_waiting_input">Needs input</string>
-    <string name="tasks_reply_ack">Mark handled</string>
-    <string name="tasks_reply_banner_unread">Agent replied — unseen</string>
-    <string name="tasks_reply_banner_awaiting">Waiting on your reply</string>
     <string name="tasks_matrix_title">Impact × Urgency</string>
     <string name="tasks_matrix_impact">Impact</string>
     <string name="tasks_matrix_urgency">Urgency</string>
@@ -161,4 +153,7 @@
     <string name="tasks_replace_room_confirm">Switch room</string>
     <string name="tasks_agent_mismatch_notice">Assigned to %1$s · live session is %2$s</string>
     <string name="tasks_switch_to_agent">Switch to %1$s</string>
+    <string name="tasks_filter_unread">Unread</string>
+    <string name="tasks_unread_empty">No tasks with unread replies</string>
+    <string name="tasks_panel_title">Task</string>
 </resources>

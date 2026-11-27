@@ -52,7 +52,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.ArrowRight
 import com.composables.icons.lucide.ArrowUp
-import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.GripVertical
 import com.composables.icons.lucide.LayoutGrid
@@ -118,10 +117,6 @@ import dev.hermeskotlin.ui.resources.tasks_matrix_q4
 import dev.hermeskotlin.ui.resources.tasks_matrix_q4_hint
 import dev.hermeskotlin.ui.resources.tasks_matrix_title
 import dev.hermeskotlin.ui.resources.tasks_matrix_urgency
-import dev.hermeskotlin.ui.resources.tasks_reply_ack
-import dev.hermeskotlin.ui.resources.tasks_reply_awaiting
-import dev.hermeskotlin.ui.resources.tasks_reply_unread
-import dev.hermeskotlin.ui.resources.tasks_reply_waiting_input
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
@@ -168,14 +163,6 @@ internal fun quadrantSoftColor(quadrant: EisenhowerQuadrant): Color = when (quad
     EisenhowerQuadrant.SCHEDULE -> Theme[colors][accentSoft]
     EisenhowerQuadrant.DELEGATE -> Theme[colors][warningSoft]
     EisenhowerQuadrant.LATER -> Theme[colors][surface2]
-}
-
-@Composable
-internal fun replyBadgeLabel(badge: TaskReplyBadge): String = when (badge) {
-    TaskReplyBadge.WAITING_INPUT -> stringResource(Res.string.tasks_reply_waiting_input)
-    TaskReplyBadge.UNREAD -> stringResource(Res.string.tasks_reply_unread)
-    TaskReplyBadge.AWAITING_REPLY -> stringResource(Res.string.tasks_reply_awaiting)
-    TaskReplyBadge.NONE -> ""
 }
 
 /** Compact pill placed inside TaskDetailInspector metadata pickers; opens the 3×3 2D matrix pad. */
@@ -583,7 +570,6 @@ internal fun TasksEisenhowerMatrixBoard(
     busyTaskIds: Set<String>,
     onSelectTask: (String?) -> Unit,
     onUpdateTaskMatrix: (taskId: String, impact: MatrixLevel, urgency: MatrixLevel) -> Unit,
-    onAckReply: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val quadrants = remember(tasks, todayEpochDay, replyBadges) {
@@ -700,7 +686,6 @@ internal fun TasksEisenhowerMatrixBoard(
                         onBoundsChanged = { dropBounds[EisenhowerQuadrant.SCHEDULE] = it },
                         onSelectTask = onSelectTask,
                         onOpenPad = { padTargetTask = it },
-                        onAckReply = onAckReply,
                         onStartDrag = ::startDrag,
                         onUpdateDrag = ::updateDrag,
                         onFinishDrag = ::finishDrag,
@@ -722,7 +707,6 @@ internal fun TasksEisenhowerMatrixBoard(
                         onBoundsChanged = { dropBounds[EisenhowerQuadrant.DO_NOW] = it },
                         onSelectTask = onSelectTask,
                         onOpenPad = { padTargetTask = it },
-                        onAckReply = onAckReply,
                         onStartDrag = ::startDrag,
                         onUpdateDrag = ::updateDrag,
                         onFinishDrag = ::finishDrag,
@@ -749,7 +733,6 @@ internal fun TasksEisenhowerMatrixBoard(
                         onBoundsChanged = { dropBounds[EisenhowerQuadrant.LATER] = it },
                         onSelectTask = onSelectTask,
                         onOpenPad = { padTargetTask = it },
-                        onAckReply = onAckReply,
                         onStartDrag = ::startDrag,
                         onUpdateDrag = ::updateDrag,
                         onFinishDrag = ::finishDrag,
@@ -771,7 +754,6 @@ internal fun TasksEisenhowerMatrixBoard(
                         onBoundsChanged = { dropBounds[EisenhowerQuadrant.DELEGATE] = it },
                         onSelectTask = onSelectTask,
                         onOpenPad = { padTargetTask = it },
-                        onAckReply = onAckReply,
                         onStartDrag = ::startDrag,
                         onUpdateDrag = ::updateDrag,
                         onFinishDrag = ::finishDrag,
@@ -887,7 +869,6 @@ internal fun TasksEisenhowerMatrixBoard(
                                 beingDragged = task.id == draggingTask?.id,
                                 onSelect = { onSelectTask(task.id) },
                                 onOpenPad = { padTargetTask = task },
-                                onAckReply = { onAckReply(task.id) },
                                 onStartDrag = { rootPos -> startDrag(task, rootPos) },
                                 onUpdateDrag = ::updateDrag,
                                 onFinishDrag = ::finishDrag,
@@ -1037,7 +1018,6 @@ private fun MatrixQuadrantCard(
     onBoundsChanged: (Rect) -> Unit,
     onSelectTask: (String?) -> Unit,
     onOpenPad: (DirectusTask) -> Unit,
-    onAckReply: (String) -> Unit,
     onStartDrag: (DirectusTask, Offset) -> Unit,
     onUpdateDrag: (Offset) -> Unit,
     onFinishDrag: () -> Unit,
@@ -1119,7 +1099,6 @@ private fun MatrixQuadrantCard(
                         beingDragged = task.id == draggingTaskId,
                         onSelect = { onSelectTask(task.id) },
                         onOpenPad = { onOpenPad(task) },
-                        onAckReply = { onAckReply(task.id) },
                         onStartDrag = { rootPos -> onStartDrag(task, rootPos) },
                         onUpdateDrag = onUpdateDrag,
                         onFinishDrag = onFinishDrag,
@@ -1143,7 +1122,6 @@ private fun MatrixTaskRow(
     beingDragged: Boolean,
     onSelect: () -> Unit,
     onOpenPad: () -> Unit,
-    onAckReply: () -> Unit,
     onStartDrag: (Offset) -> Unit,
     onUpdateDrag: (Offset) -> Unit,
     onFinishDrag: () -> Unit,
@@ -1156,15 +1134,18 @@ private fun MatrixTaskRow(
 
     val pos = remember(task, todayEpochDay) { resolveTaskMatrix(task, todayEpochDay) }
     val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    val isWaitingInput = replyBadge == TaskReplyBadge.WAITING_INPUT
+    val isUnread = replyBadge == TaskReplyBadge.UNREAD || isWaitingInput
     val bg = when {
         beingDragged -> Theme[colors][surface2].copy(alpha = 0.5f)
         selected -> Theme[colors][accentSoft].compositeOver(Theme[colors][surface])
+        isUnread -> Theme[colors][accentSoft].compositeOver(Theme[colors][surface])
         else -> Theme[colors][surface2].copy(alpha = 0.55f)
     }
     val borderColor = when {
         selected -> Theme[colors][accent]
-        replyBadge == TaskReplyBadge.UNREAD || replyBadge == TaskReplyBadge.WAITING_INPUT -> Theme[colors][danger].copy(alpha = 0.6f)
-        replyBadge == TaskReplyBadge.AWAITING_REPLY -> Theme[colors][warning].copy(alpha = 0.6f)
+        isWaitingInput -> Theme[colors][danger].copy(alpha = 0.7f)
+        isUnread -> Theme[colors][accent].copy(alpha = 0.7f)
         else -> Theme[colors][stroke]
     }
     var gripCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -1215,73 +1196,45 @@ private fun MatrixTaskRow(
         }
 
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                task.title,
-                style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
-                color = if (beingDragged) Theme[colors][textMuted] else Theme[colors][textColor],
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
             Row(
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (showProjectBadge) {
-                    Text(
-                        projectName,
-                        style = Theme[typography][caption].copy(fontSize = 10.sp),
-                        color = Theme[colors][textTertiary],
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 120.dp),
-                    )
+                if (isWaitingInput) {
+                    UnreadIndicatorDot(Theme[colors][danger], Theme[colors][dangerSoft], Modifier.testTag("matrix_indicator_${task.id}"))
+                } else if (isUnread) {
+                    UnreadIndicatorDot(Theme[colors][accent], Theme[colors][accentSoft], Modifier.testTag("matrix_indicator_${task.id}"))
                 }
-                if (replyBadge != TaskReplyBadge.NONE) {
-                    val badgeBg = when (replyBadge) {
-                        TaskReplyBadge.WAITING_INPUT, TaskReplyBadge.UNREAD -> Theme[colors][dangerSoft]
-                        TaskReplyBadge.AWAITING_REPLY -> Theme[colors][warningSoft]
-                        TaskReplyBadge.NONE -> Color.Transparent
-                    }
-                    val badgeFg = when (replyBadge) {
-                        TaskReplyBadge.WAITING_INPUT, TaskReplyBadge.UNREAD -> Theme[colors][danger]
-                        TaskReplyBadge.AWAITING_REPLY -> Theme[colors][warning]
-                        TaskReplyBadge.NONE -> Theme[colors][textTertiary]
-                    }
-                    Text(
-                        replyBadgeLabel(replyBadge),
-                        style = Theme[typography][caption].copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                        color = badgeFg,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
-                            .background(badgeBg)
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                    )
-                }
-                if (pos.boostedByDue) {
-                    UnstyledIcon(Lucide.Clock, contentDescription = null, tint = Theme[colors][warning], modifier = Modifier.size(11.dp))
-                }
-            }
-        }
-
-        if (replyBadge == TaskReplyBadge.UNREAD || replyBadge == TaskReplyBadge.AWAITING_REPLY) {
-            val ackShape = RoundedCornerShape(Theme[radii][radiusSmall])
-            Box(
-                Modifier
-                    .testTag("matrix_ack_${task.id}")
-                    .clip(ackShape)
-                    .background(Theme[colors][surface])
-                    .border(1.dp, Theme[colors][strokeStrong], ackShape)
-                    .clickable(role = Role.Button, onClick = onAckReply)
-                    .handCursor()
-                    .padding(4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                UnstyledIcon(
-                    Lucide.Check,
-                    contentDescription = stringResource(Res.string.tasks_reply_ack),
-                    tint = Theme[colors][textSecondary],
-                    modifier = Modifier.size(12.dp),
+                Text(
+                    task.title,
+                    style = Theme[typography][bodySmall].copy(
+                        fontWeight = if (isUnread) FontWeight.SemiBold else FontWeight.Medium,
+                    ),
+                    color = if (beingDragged) Theme[colors][textMuted] else Theme[colors][textColor],
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+            }
+            if (showProjectBadge || pos.boostedByDue) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (showProjectBadge) {
+                        Text(
+                            projectName,
+                            style = Theme[typography][caption].copy(fontSize = 10.sp),
+                            color = Theme[colors][textTertiary],
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 120.dp),
+                        )
+                    }
+                    if (pos.boostedByDue) {
+                        UnstyledIcon(Lucide.Clock, contentDescription = null, tint = Theme[colors][warning], modifier = Modifier.size(11.dp))
+                    }
+                }
             }
         }
 

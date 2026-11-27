@@ -9,7 +9,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -632,9 +631,10 @@ class TasksPageUiTest {
         }
         waitForIdle()
 
-        // 1. Opening a task with an unapproved plan keeps the sheet collapsed until tapped.
+        // 1. Opening a task with an unapproved plan keeps the sheet collapsed until tapped, and never shows a "Plan ready" chip.
         onAllNodesWithText("Pending proposal task")[0].performClick()
         waitForIdle()
+        kotlin.test.assertEquals(0, onAllNodesWithText("Plan ready").fetchSemanticsNodes().size)
         onNodeWithTag("task_plan_sheet").assertDoesNotExist()
         onNodeWithTag("task_plan_dock_button").performClick()
         waitForIdle()
@@ -787,7 +787,7 @@ class TasksPageUiTest {
     }
 
     @Test
-    fun attentionSurfacesAgentRepliesWithAckAndMatrixViewsRenderOnDesktopAndPhone() = runDesktopComposeUiTest(width = 1120, height = 760) {
+    fun attentionIndicatorsFilterUnreadAndMatrixViewsRenderOnDesktopAndPhone() = runDesktopComposeUiTest(width = 1120, height = 760) {
         val today = epochDayFromCivilIso("2026-11-18")!!
         val proj = DirectusProject(id = "p1", name = "Core", sort = 1)
         val unreadTask = DirectusTask(
@@ -804,7 +804,6 @@ class TasksPageUiTest {
             context = TaskContext(taskId = "t-crit", projectId = "p1", impact = "high", urgency = "high"),
         )
 
-        var ackedIds by mutableStateOf(emptySet<String>())
         var updatedMatrix by mutableStateOf<Triple<String, MatrixLevel, MatrixLevel>?>(null)
         var state by mutableStateOf(
             TasksUiState(
@@ -823,11 +822,8 @@ class TasksPageUiTest {
                             state = state,
                             actions = TasksBoardActions(
                                 onSetBoardViewMode = { mode -> state = state.copy(boardViewMode = mode) },
+                                onToggleUnreadOnly = { state = state.copy(unreadOnly = !state.unreadOnly) },
                                 onSelectTask = { id -> state = state.copy(selectedTaskId = id) },
-                                onAckTaskReply = { id ->
-                                    ackedIds = ackedIds + id
-                                    state = state.copy(localAckedTaskIds = state.localAckedTaskIds + id)
-                                },
                                 onUpdateTaskMatrix = { id, imp, urg ->
                                     updatedMatrix = Triple(id, imp, urg)
                                     state = state.copy(
@@ -849,15 +845,24 @@ class TasksPageUiTest {
         }
         waitForIdle()
 
-        onNodeWithText("NEEDS ATTENTION (2)").assertIsDisplayed()
-        onNodeWithText("Agent replies (1)").assertIsDisplayed()
-        onNodeWithText("High impact & urgent (1)").assertIsDisplayed()
-
-        // One-tap Ack clears the unread reply from Agent replies.
-        onAllNodesWithTag("task_pill_ack_t-reply")[0].performClick()
-        waitForIdle()
-        assertTrue("t-reply" in ackedIds)
+        // NEEDS ATTENTION surfaces priority tasks only; no "Agent replies", "Awaiting reply", or "Unread" text badges.
         onNodeWithText("NEEDS ATTENTION (1)").assertIsDisplayed()
+        onNodeWithText("High impact & urgent (1)").assertIsDisplayed()
+        kotlin.test.assertEquals(0, onAllNodesWithText("Agent replies (1)").fetchSemanticsNodes().size)
+        kotlin.test.assertEquals(0, onAllNodesWithText("Awaiting reply").fetchSemanticsNodes().size)
+        onNodeWithTag("task_indicator_t-reply").assertIsDisplayed()
+        onNodeWithTag("project_unread_p1").assertIsDisplayed()
+        onNodeWithTag("task_pill_ack_t-reply").assertDoesNotExist()
+
+        // Toolbar "Unread" filter chip narrows the board to unread tasks only, then restores all tasks on second click.
+        onNodeWithTag("board_filter_unread").performClick()
+        waitForIdle()
+        onNodeWithText("Review agent summary").assertIsDisplayed()
+        kotlin.test.assertEquals(0, onAllNodesWithText("Fix billing outage").fetchSemanticsNodes().size)
+
+        onNodeWithTag("board_filter_unread").performClick()
+        waitForIdle()
+        onNodeWithText("Fix billing outage").assertIsDisplayed()
 
         // Switch board to 2D Matrix view and verify all 4 Cartesian quadrants render.
         onNodeWithText("Matrix").performClick()
@@ -878,6 +883,87 @@ class TasksPageUiTest {
         onNodeWithTag("matrix_pad_apply").performClick()
         waitForIdle()
         assertEquals(Triple("t-reply", MatrixLevel.HIGH, MatrixLevel.HIGH), updatedMatrix)
+    }
+
+    @Test
+    fun dispatchSessionSidePanelEditsMetadataAndOpensActionProposalWithoutPlanReadyChip() = runDesktopComposeUiTest(width = 520, height = 760) {
+        val pendingTask = DirectusTask(
+            id = "t-side",
+            title = "Ship landing page checklist",
+            description = "Finalize design handoff checklist.",
+            status = DirectusTask.STATUS_TODO,
+            context = TaskContext(
+                taskId = "t-side",
+                projectId = "p1",
+                impact = "high",
+                urgency = "medium",
+                agentState = TaskContext.STATE_NEEDS_YOU,
+                assignedBots = listOf("ops"),
+                channels = listOf(TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-side", label = "Session (@ops)", profile = "ops")),
+                stagedPlan = StagedPlan(
+                    summary = "Review checklist before shipping.",
+                    actions = listOf(PlanAction(label = "Ship checklist", instruction = "Verify and ship")),
+                    generatedAt = "2026-11-27T10:00:00Z",
+                ),
+            ),
+        )
+        var approved = false
+        var updatedMatrix: Pair<MatrixLevel, MatrixLevel>? = null
+        val state = TasksUiState(
+            config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+            projects = listOf(DirectusProject(id = "p1", name = "Delivery", sort = 1)),
+            tasks = listOf(pendingTask),
+            selectedTaskId = "t-side",
+            todayEpochDay = epochDayFromCivilIso("2026-11-27")!!,
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        DispatchTaskSidePanel(
+                            state = state,
+                            activeChannelId = "sess-side",
+                            clearWindowControls = false,
+                            onClose = {},
+                            onAssignProject = {},
+                            onUpdateStatus = {},
+                            onUpdateMatrix = { imp, urg -> updatedMatrix = imp to urg },
+                            onSelectChannel = {},
+                            onCreateSessionChannel = { _, _ -> },
+                            onCreateRoomChannel = { _, _ -> },
+                            onReplaceWithSession = { _, _, _ -> },
+                            onReplaceWithRoom = { _, _, _ -> },
+                            onUnlinkChannel = { _, _ -> },
+                            onSwitchToAssignedAgent = {},
+                            onPreparePlan = {},
+                            onApprovePlan = { _, _, _, _ -> approved = true },
+                            onOpenScheduleBlock = { _, _ -> },
+                            onDeleteTimeBlock = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithTag("dispatch_task_panel").assertIsDisplayed()
+        onNodeWithText("Finalize design handoff checklist.").assertIsDisplayed()
+        kotlin.test.assertEquals(0, onAllNodesWithText("Plan ready").fetchSemanticsNodes().size)
+
+        onNodeWithTag("task_matrix_picker_pill").performClick()
+        waitForIdle()
+        onNodeWithTag("matrix_pad_cell_high_high").performClick()
+        onNodeWithTag("matrix_pad_apply").performClick()
+        waitForIdle()
+        assertEquals(MatrixLevel.HIGH to MatrixLevel.HIGH, updatedMatrix)
+
+        onNodeWithTag("task_plan_dock_button").performClick()
+        waitForIdle()
+        onNodeWithTag("task_plan_sheet").assertIsDisplayed()
+        onNodeWithText("Ship checklist").performClick()
+        waitForIdle()
+        assertTrue(approved)
     }
 
     @Test

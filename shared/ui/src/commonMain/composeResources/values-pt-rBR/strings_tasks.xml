@@ -28,7 +28,6 @@
     <string name="tasks_task_description">Detalhes (opcional)</string>
     <string name="tasks_task_project">Projeto</string>
     <string name="tasks_task_priority">Prioridade</string>
-    <string name="tasks_state_needs_you">Plano pronto</string>
     <string name="tasks_state_running">Em execução</string>
     <string name="tasks_state_queued">Na fila</string>
     <string name="tasks_state_idle">Inativo</string>
@@ -122,16 +121,9 @@
     <string name="tasks_view_projects">Projetos</string>
     <string name="tasks_view_matrix">Matriz</string>
     <string name="tasks_focus_group_matrix">Por matriz</string>
-    <string name="tasks_attention_replies">Respostas dos agentes (%1$d)</string>
     <string name="tasks_attention_high_priority">Alto impacto e urgente (%1$d)</string>
-    <string name="tasks_attention_empty_v2">Requer atenção (0) · Sem respostas não lidas ou tarefas críticas</string>
+    <string name="tasks_attention_empty_v2">Requer atenção (0) · Sem tarefas de alto impacto ou urgentes</string>
     <string name="tasks_attention_more_priority">+%1$d tarefas prioritárias</string>
-    <string name="tasks_reply_unread">Não lida</string>
-    <string name="tasks_reply_awaiting">Aguardando resposta</string>
-    <string name="tasks_reply_waiting_input">Requer ação</string>
-    <string name="tasks_reply_ack">Marcar vista</string>
-    <string name="tasks_reply_banner_unread">Agente respondeu — não vista</string>
-    <string name="tasks_reply_banner_awaiting">Aguardando sua resposta</string>
     <string name="tasks_matrix_title">Impacto × Urgência</string>
     <string name="tasks_matrix_impact">Impacto</string>
     <string name="tasks_matrix_urgency">Urgência</string>
@@ -161,4 +153,7 @@
     <string name="tasks_replace_room_confirm">Trocar sala</string>
     <string name="tasks_agent_mismatch_notice">Atribuído a %1$s · sessão atual é %2$s</string>
     <string name="tasks_switch_to_agent">Mudar para %1$s</string>
+    <string name="tasks_filter_unread">Não lidas</string>
+    <string name="tasks_unread_empty">Sem tarefas com respostas não lidas</string>
+    <string name="tasks_panel_title">Tarefa</string>
 </resources>

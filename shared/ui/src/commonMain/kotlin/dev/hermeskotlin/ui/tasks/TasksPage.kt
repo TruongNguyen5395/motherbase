@@ -57,7 +57,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.focus.onFocusChanged
@@ -81,24 +80,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.composables.icons.lucide.Bot
-import com.composables.icons.lucide.Calendar
-import com.composables.icons.lucide.CalendarClock
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.ChevronUp
-import com.composables.icons.lucide.CircleDot
 import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Folder
 import com.composables.icons.lucide.FolderPlus
-import com.composables.icons.lucide.FolderX
-import com.composables.icons.lucide.LayoutGrid
-import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.ListTodo
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
-import com.composables.icons.lucide.MessageSquareReply
 import com.composables.icons.lucide.Minus
 import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.Pencil
@@ -110,16 +102,12 @@ import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.Target
 import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.TriangleAlert
-import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
-import com.composeunstyled.DropdownMenuPanelScope
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.calendar.DispatchTimeBlock
-import dev.hermeskotlin.core.calendar.calendarZonedFromIso
-import dev.hermeskotlin.core.calendar.formatClockCompact
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
@@ -163,11 +151,8 @@ import dev.hermeskotlin.designsystem.components.ButtonSize
 import dev.hermeskotlin.designsystem.components.ButtonVariant
 import dev.hermeskotlin.designsystem.components.Chip
 import dev.hermeskotlin.designsystem.components.Dialog
-import dev.hermeskotlin.designsystem.components.DropdownMenu
 import dev.hermeskotlin.designsystem.components.IconButton
 import dev.hermeskotlin.designsystem.components.MarkdownText
-import dev.hermeskotlin.designsystem.components.MenuAction
-import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.MinTouchTarget
 import dev.hermeskotlin.designsystem.components.Spinner
 import dev.hermeskotlin.designsystem.components.Switch
@@ -224,7 +209,6 @@ import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.chat.ModelPill
 import dev.hermeskotlin.ui.chat.ModelSelection
 import dev.hermeskotlin.ui.chat.ModelSheet
-import dev.hermeskotlin.ui.chat.ParameterizedActionContent
 import dev.hermeskotlin.ui.chat.ReplyInteractionCard
 import dev.hermeskotlin.ui.chat.RightRailLayout
 import dev.hermeskotlin.ui.chat.SendButton
@@ -270,6 +254,7 @@ internal data class TasksBoardActions(
     val onTogglePriorityStrip: (Boolean) -> Unit = {},
     val onSetBoardViewMode: (TasksBoardViewMode) -> Unit = {},
     val onToggleIncludeDone: () -> Unit = {},
+    val onToggleUnreadOnly: () -> Unit = {},
     val onFocusProject: (String?) -> Unit = {},
     val onSetFocusGrouping: (TaskFocusGrouping) -> Unit = {},
     val onToggleProjectExpanded: (String) -> Unit = {},
@@ -282,7 +267,6 @@ internal data class TasksBoardActions(
     val onAssignProject: (taskId: String, projectId: String?) -> Unit = { _, _ -> },
     val onUpdateStatus: (taskId: String, status: String) -> Unit = { _, _ -> },
     val onUpdateTaskMatrix: (taskId: String, impact: MatrixLevel, urgency: MatrixLevel) -> Unit = { _, _, _ -> },
-    val onAckTaskReply: (taskId: String) -> Unit = {},
     val onCreateSessionChannel: (DirectusTask, profile: String?) -> Unit = { _, _ -> },
     val onCreateRoomChannel: (DirectusTask, members: List<Bot>) -> Unit = { _, _ -> },
     val onReplaceWithSession: (DirectusTask, oldChannel: TaskChannel, profile: String?) -> Unit = { _, _, _ -> },
@@ -321,12 +305,6 @@ private val DEFAULT_DISPATCH_RAIL_WIDTH = 460.dp
 private val BENTO_TWO_COL_THRESHOLD = 620.dp
 private val KANBAN_THREE_COL_THRESHOLD = 840.dp
 private val PRIORITY_OPTIONS = listOf("low", "medium", "high", "urgent")
-private val STATUS_OPTIONS = listOf(
-    DirectusTask.STATUS_TODO,
-    DirectusTask.STATUS_IN_PROGRESS,
-    DirectusTask.STATUS_BLOCKED,
-    DirectusTask.STATUS_DONE,
-)
 
 /**
  * Directus Tasks Command Board: Priority strip toggle + explicit Project Bento boxes + Right-Rail detail
@@ -468,6 +446,7 @@ internal fun TasksPage(
             onTogglePriorityStrip = viewModel::togglePriorityStrip,
             onSetBoardViewMode = viewModel::setBoardViewMode,
             onToggleIncludeDone = viewModel::toggleIncludeDone,
+            onToggleUnreadOnly = viewModel::toggleUnreadOnly,
             onFocusProject = viewModel::focusProject,
             onSetFocusGrouping = viewModel::setFocusGrouping,
             onToggleProjectExpanded = viewModel::toggleProjectExpanded,
@@ -480,7 +459,6 @@ internal fun TasksPage(
             onAssignProject = viewModel::assignProject,
             onUpdateStatus = viewModel::updateTaskStatus,
             onUpdateTaskMatrix = viewModel::updateTaskMatrix,
-            onAckTaskReply = viewModel::ackTaskReply,
             onCreateSessionChannel = viewModel::openOrCreateSessionChannel,
             onCreateRoomChannel = viewModel::openOrCreateRoomChannel,
             onReplaceWithSession = viewModel::replaceWithSessionChannel,
@@ -694,7 +672,6 @@ internal fun TasksBoardContent(
                     bots = state.bots,
                     botAvatars = state.botAvatars,
                     todayEpochDay = state.todayEpochDay,
-                    replyBadge = state.replyBadges[selected.id] ?: TaskReplyBadge.NONE,
                     coordinatorBotName = state.coordinatorBot.name,
                     coordinatorPetSprite = petSprite,
                     coordinatorPetState = coordinatorPetState,
@@ -722,7 +699,6 @@ internal fun TasksBoardContent(
                     onAssignProject = { pid -> actions.onAssignProject(selected.id, pid) },
                     onUpdateStatus = { status -> actions.onUpdateStatus(selected.id, status) },
                     onUpdateMatrix = { imp, urg -> actions.onUpdateTaskMatrix(selected.id, imp, urg) },
-                    onAckReply = { actions.onAckTaskReply(selected.id) },
                     onSelectChannel = actions.onSelectChannel,
                     onRefreshChannel = actions.onRefreshChannel,
                     onOpenPickSession = { pickSessionFor = PickChannelTarget(selected) },
@@ -801,6 +777,7 @@ internal fun TasksBoardContent(
                     onTogglePriorityStrip = actions.onTogglePriorityStrip,
                     onSetBoardViewMode = actions.onSetBoardViewMode,
                     onToggleIncludeDone = actions.onToggleIncludeDone,
+                    onToggleUnreadOnly = actions.onToggleUnreadOnly,
                     onFocusProject = actions.onFocusProject,
                     onSetFocusGrouping = actions.onSetFocusGrouping,
                 )
@@ -857,7 +834,6 @@ internal fun TasksBoardContent(
                         onToggleProjectExpanded = actions.onToggleProjectExpanded,
                         onToggleWorkstreamCollapsed = actions.onToggleWorkstreamCollapsed,
                         onUpdateTaskMatrix = actions.onUpdateTaskMatrix,
-                        onAckTaskReply = actions.onAckTaskReply,
                     )
                 }
 
@@ -1002,6 +978,7 @@ private fun BoardControlsBar(
     onTogglePriorityStrip: (Boolean) -> Unit,
     onSetBoardViewMode: (TasksBoardViewMode) -> Unit,
     onToggleIncludeDone: () -> Unit,
+    onToggleUnreadOnly: () -> Unit,
     onFocusProject: (String?) -> Unit,
     onSetFocusGrouping: (TaskFocusGrouping) -> Unit,
 ) {
@@ -1069,6 +1046,15 @@ private fun BoardControlsBar(
             }
 
             Chip(
+                text = stringResource(Res.string.tasks_filter_unread),
+                count = state.unreadCount.takeIf { it > 0 },
+                countColor = Theme[colors][accentText],
+                selected = state.unreadOnly,
+                onClick = onToggleUnreadOnly,
+                modifier = Modifier.testTag("board_filter_unread"),
+            )
+
+            Chip(
                 text = stringResource(if (state.includeDone) Res.string.tasks_hide_done else Res.string.tasks_show_done),
                 selected = state.includeDone,
                 onClick = onToggleIncludeDone,
@@ -1101,30 +1087,6 @@ private fun BoardControlsBar(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun FeedbackBanner(message: String, onDismiss: () -> Unit) {
-    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(shape)
-            .background(Theme[colors][surface2])
-            .border(1.dp, Theme[colors][strokeStrong], shape)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            message,
-            style = Theme[typography][bodySmall],
-            color = Theme[colors][textColor],
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(Lucide.X, contentDescription = stringResource(Res.string.tasks_close_inspector), onClick = onDismiss)
     }
 }
 
@@ -1203,21 +1165,30 @@ private fun BoardScrollGrid(
     onToggleProjectExpanded: (String) -> Unit,
     onToggleWorkstreamCollapsed: (String) -> Unit,
     onUpdateTaskMatrix: (taskId: String, impact: MatrixLevel, urgency: MatrixLevel) -> Unit,
-    onAckTaskReply: (String) -> Unit,
 ) {
     val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
     val standaloneLabel = stringResource(Res.string.tasks_standalone_group)
     val replyBadges = state.replyBadges
-    val buckets = remember(state.projects, state.tasks, state.todayEpochDay, replyBadges) {
-        buildProjectBuckets(state.projects, state.tasks, state.todayEpochDay, replyBadges)
+    val visibleTasks = remember(state.tasks, state.unreadOnly, replyBadges) {
+        if (state.unreadOnly) {
+            state.tasks.filter { (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE }
+        } else {
+            state.tasks
+        }
     }
-    val projectById = remember(buckets) {
-        buckets.mapNotNull { it.project }.associateBy { it.id }
+    val allBuckets = remember(state.projects, visibleTasks, state.todayEpochDay, replyBadges, state.unreadOnly) {
+        val raw = buildProjectBuckets(state.projects, visibleTasks, state.todayEpochDay, replyBadges)
+        if (state.unreadOnly) raw.filter { it.tasks.isNotEmpty() } else raw
     }
-    val focusedBucket = remember(buckets, state.focusedProjectId) {
-        state.focusedProjectId?.let { fid -> buckets.firstOrNull { it.key == fid } }
+    val projectById = remember(state.projects) {
+        state.projects.associateBy { it.id }
     }
-    val stripSplit = remember(focusedBucket, state.tasks, state.todayEpochDay, replyBadges) {
+    val focusedBucket = remember(state.projects, visibleTasks, state.focusedProjectId, state.todayEpochDay, replyBadges) {
+        state.focusedProjectId?.let { fid ->
+            buildProjectBuckets(state.projects, visibleTasks, state.todayEpochDay, replyBadges).firstOrNull { it.key == fid }
+        }
+    }
+    val stripSplit = remember(focusedBucket, visibleTasks, state.todayEpochDay, replyBadges) {
         if (focusedBucket != null) {
             buildAttentionSplit(focusedBucket.tasks, state.todayEpochDay, replyBadges)
         } else {
@@ -1225,7 +1196,7 @@ private fun BoardScrollGrid(
         }
     }
 
-    if (state.tasks.isEmpty() && buckets.all { it.project == null }) {
+    if (state.tasks.isEmpty() && allBuckets.all { it.project == null }) {
         EmptyState(
             icon = Lucide.ListTodo,
             title = stringResource(Res.string.tasks_empty_board),
@@ -1241,6 +1212,14 @@ private fun BoardScrollGrid(
         return
     }
 
+    if (state.unreadOnly && visibleTasks.isEmpty()) {
+        EmptyState(
+            icon = Lucide.Check,
+            title = stringResource(Res.string.tasks_unread_empty),
+        )
+        return
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val columns = if (maxWidth >= BENTO_TWO_COL_THRESHOLD) 2 else 1
         val kanbanWide = maxWidth >= KANBAN_THREE_COL_THRESHOLD
@@ -1249,7 +1228,7 @@ private fun BoardScrollGrid(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            if (state.showPriorityStrip) {
+            if (state.showPriorityStrip && !state.unreadOnly) {
                 item(key = "attention-strip") {
                     AttentionStripSection(
                         split = stripSplit,
@@ -1257,11 +1236,9 @@ private fun BoardScrollGrid(
                         unassignedLabel = unassignedLabel,
                         todayEpochDay = state.todayEpochDay,
                         replyBadges = replyBadges,
-                        twoColumns = columns == 2,
                         selectedTaskId = state.selectedTaskId,
                         busyTaskIds = state.busyTaskIds,
                         onSelectTask = onSelectTask,
-                        onAckReply = onAckTaskReply,
                     )
                 }
             }
@@ -1299,7 +1276,6 @@ private fun BoardScrollGrid(
                             busyTaskIds = state.busyTaskIds,
                             onSelectTask = onSelectTask,
                             onUpdateTaskMatrix = onUpdateTaskMatrix,
-                            onAckReply = onAckTaskReply,
                         )
                     }
                 } else if (state.focusGrouping == TaskFocusGrouping.WORKSTREAM) {
@@ -1322,7 +1298,6 @@ private fun BoardScrollGrid(
                             busyTaskIds = state.busyTaskIds,
                             onToggleCollapse = { onToggleWorkstreamCollapsed(group.key) },
                             onSelectTask = onSelectTask,
-                            onAckReply = onAckTaskReply,
                         )
                     }
                 } else {
@@ -1337,14 +1312,13 @@ private fun BoardScrollGrid(
                             selectedTaskId = state.selectedTaskId,
                             busyTaskIds = state.busyTaskIds,
                             onSelectTask = onSelectTask,
-                            onAckReply = onAckTaskReply,
                         )
                     }
                 }
             } else if (state.boardViewMode == TasksBoardViewMode.MATRIX) {
                 item(key = "board-matrix") {
                     TasksEisenhowerMatrixBoard(
-                        tasks = state.tasks,
+                        tasks = visibleTasks,
                         projectById = projectById,
                         unassignedLabel = unassignedLabel,
                         showProjectBadge = true,
@@ -1355,12 +1329,11 @@ private fun BoardScrollGrid(
                         busyTaskIds = state.busyTaskIds,
                         onSelectTask = onSelectTask,
                         onUpdateTaskMatrix = onUpdateTaskMatrix,
-                        onAckReply = onAckTaskReply,
                     )
                 }
             } else if (columns == 2) {
                 val (leftBuckets, rightBuckets) = distributeBentoMasonry(
-                    buckets = buckets,
+                    buckets = allBuckets,
                     expandedProjectIds = state.expandedProjectIds,
                     previewLimit = DEFAULT_PROJECT_PREVIEW_LIMIT,
                 )
@@ -1376,7 +1349,6 @@ private fun BoardScrollGrid(
                             onSelectTask = onSelectTask,
                             onToggleProjectExpanded = onToggleProjectExpanded,
                             onFocusProject = onFocusProject,
-                            onAckReply = onAckTaskReply,
                             modifier = Modifier.weight(1f),
                         )
                         BentoColumnStack(
@@ -1386,14 +1358,13 @@ private fun BoardScrollGrid(
                             onSelectTask = onSelectTask,
                             onToggleProjectExpanded = onToggleProjectExpanded,
                             onFocusProject = onFocusProject,
-                            onAckReply = onAckTaskReply,
                             modifier = Modifier.weight(1f),
                         )
                     }
                 }
             } else {
-                items(buckets.size, key = { idx -> buckets[idx].key }) { idx ->
-                    val bucket = buckets[idx]
+                items(allBuckets.size, key = { idx -> allBuckets[idx].key }) { idx ->
+                    val bucket = allBuckets[idx]
                     ProjectBentoCard(
                         bucket = bucket,
                         projectLabel = bucket.project?.name ?: unassignedLabel,
@@ -1405,7 +1376,6 @@ private fun BoardScrollGrid(
                         onSelectTask = onSelectTask,
                         onToggleExpand = { onToggleProjectExpanded(bucket.key) },
                         onFocusProject = { onFocusProject(bucket.key) },
-                        onAckReply = onAckTaskReply,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -1421,11 +1391,9 @@ private fun AttentionStripSection(
     unassignedLabel: String,
     todayEpochDay: Long,
     replyBadges: Map<String, TaskReplyBadge>,
-    twoColumns: Boolean,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
     onSelectTask: (String?) -> Unit,
-    onAckReply: (String) -> Unit,
 ) {
     if (split.isEmpty) {
         val compactShape = RoundedCornerShape(Theme[radii][radiusMedium])
@@ -1450,15 +1418,7 @@ private fun AttentionStripSection(
     }
 
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
-    val hasUnreadReply = split.agentReplies.any {
-        val b = replyBadges[it.id] ?: TaskReplyBadge.NONE
-        b == TaskReplyBadge.UNREAD || b == TaskReplyBadge.WAITING_INPUT
-    }
-    val stripeColor = when {
-        hasUnreadReply -> Theme[colors][accent]
-        split.highPriority.isNotEmpty() -> Theme[colors][danger]
-        else -> Theme[colors][warning]
-    }
+    val stripeColor = Theme[colors][danger]
     Column(
         Modifier
             .fillMaxWidth()
@@ -1481,7 +1441,7 @@ private fun AttentionStripSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             UnstyledIcon(
-                if (split.agentReplies.isNotEmpty()) Lucide.MessageSquareReply else Lucide.Target,
+                Lucide.Target,
                 contentDescription = null,
                 tint = stripeColor,
                 modifier = Modifier.size(16.dp),
@@ -1493,77 +1453,21 @@ private fun AttentionStripSection(
             )
         }
 
-        if (twoColumns && split.agentReplies.isNotEmpty() && split.highPriority.isNotEmpty()) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                AttentionSubgroupColumn(
-                    heading = stringResource(Res.string.tasks_attention_replies, split.agentReplies.size),
-                    headingColor = if (hasUnreadReply) Theme[colors][accentText] else Theme[colors][warning],
-                    tasks = split.agentReplies,
-                    extraCount = 0,
-                    projectById = projectById,
-                    unassignedLabel = unassignedLabel,
-                    todayEpochDay = todayEpochDay,
-                    replyBadges = replyBadges,
-                    selectedTaskId = selectedTaskId,
-                    busyTaskIds = busyTaskIds,
-                    onSelectTask = onSelectTask,
-                    onAckReply = onAckReply,
-                    modifier = Modifier.weight(1f),
-                )
-                AttentionSubgroupColumn(
-                    heading = stringResource(Res.string.tasks_attention_high_priority, split.highPriority.size + split.extraHighPriorityCount),
-                    headingColor = Theme[colors][danger],
-                    tasks = split.highPriority,
-                    extraCount = split.extraHighPriorityCount,
-                    projectById = projectById,
-                    unassignedLabel = unassignedLabel,
-                    todayEpochDay = todayEpochDay,
-                    replyBadges = replyBadges,
-                    selectedTaskId = selectedTaskId,
-                    busyTaskIds = busyTaskIds,
-                    onSelectTask = onSelectTask,
-                    onAckReply = onAckReply,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        } else {
-            if (split.agentReplies.isNotEmpty()) {
-                AttentionSubgroupColumn(
-                    heading = stringResource(Res.string.tasks_attention_replies, split.agentReplies.size),
-                    headingColor = if (hasUnreadReply) Theme[colors][accentText] else Theme[colors][warning],
-                    tasks = split.agentReplies,
-                    extraCount = 0,
-                    projectById = projectById,
-                    unassignedLabel = unassignedLabel,
-                    todayEpochDay = todayEpochDay,
-                    replyBadges = replyBadges,
-                    selectedTaskId = selectedTaskId,
-                    busyTaskIds = busyTaskIds,
-                    onSelectTask = onSelectTask,
-                    onAckReply = onAckReply,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (split.highPriority.isNotEmpty()) {
-                AttentionSubgroupColumn(
-                    heading = stringResource(Res.string.tasks_attention_high_priority, split.highPriority.size + split.extraHighPriorityCount),
-                    headingColor = Theme[colors][danger],
-                    tasks = split.highPriority,
-                    extraCount = split.extraHighPriorityCount,
-                    projectById = projectById,
-                    unassignedLabel = unassignedLabel,
-                    todayEpochDay = todayEpochDay,
-                    replyBadges = replyBadges,
-                    selectedTaskId = selectedTaskId,
-                    busyTaskIds = busyTaskIds,
-                    onSelectTask = onSelectTask,
-                    onAckReply = onAckReply,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+        if (split.highPriority.isNotEmpty()) {
+            AttentionSubgroupColumn(
+                heading = stringResource(Res.string.tasks_attention_high_priority, split.highPriority.size + split.extraHighPriorityCount),
+                headingColor = Theme[colors][danger],
+                tasks = split.highPriority,
+                extraCount = split.extraHighPriorityCount,
+                projectById = projectById,
+                unassignedLabel = unassignedLabel,
+                todayEpochDay = todayEpochDay,
+                replyBadges = replyBadges,
+                selectedTaskId = selectedTaskId,
+                busyTaskIds = busyTaskIds,
+                onSelectTask = onSelectTask,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -1581,7 +1485,6 @@ private fun AttentionSubgroupColumn(
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
     onSelectTask: (String?) -> Unit,
-    onAckReply: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1602,11 +1505,6 @@ private fun AttentionSubgroupColumn(
                 selected = task.id == selectedTaskId,
                 busy = task.id in busyTaskIds,
                 onClick = { onSelectTask(task.id) },
-                onAckReply = if (badge == TaskReplyBadge.UNREAD || badge == TaskReplyBadge.AWAITING_REPLY) {
-                    { onAckReply(task.id) }
-                } else {
-                    null
-                },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -1628,7 +1526,6 @@ private fun BentoColumnStack(
     onSelectTask: (String?) -> Unit,
     onToggleProjectExpanded: (String) -> Unit,
     onFocusProject: (String?) -> Unit,
-    onAckReply: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val replyBadges = state.replyBadges
@@ -1645,7 +1542,6 @@ private fun BentoColumnStack(
                 onSelectTask = onSelectTask,
                 onToggleExpand = { onToggleProjectExpanded(bucket.key) },
                 onFocusProject = { onFocusProject(bucket.key) },
-                onAckReply = onAckReply,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -1710,7 +1606,6 @@ private fun WorkstreamSectionCard(
     busyTaskIds: Set<String>,
     onToggleCollapse: () -> Unit,
     onSelectTask: (String?) -> Unit,
-    onAckReply: (String) -> Unit,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
     Column(
@@ -1743,6 +1638,9 @@ private fun WorkstreamSectionCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (group.unreadCount > 0) {
+                UnreadCountIndicator(group.unreadCount, Modifier.testTag("workstream_unread_${group.key}"))
+            }
             if (group.alertCount > 0) {
                 MiniBadge(
                     text = stringResource(Res.string.tasks_attention_count, group.alertCount),
@@ -1781,11 +1679,6 @@ private fun WorkstreamSectionCard(
                                     selected = task.id == selectedTaskId,
                                     busy = task.id in busyTaskIds,
                                     onClick = { onSelectTask(task.id) },
-                                    onAckReply = if (badge == TaskReplyBadge.UNREAD || badge == TaskReplyBadge.AWAITING_REPLY) {
-                                        { onAckReply(task.id) }
-                                    } else {
-                                        null
-                                    },
                                     modifier = Modifier.weight(1f),
                                 )
                             }
@@ -1804,11 +1697,6 @@ private fun WorkstreamSectionCard(
                             selected = task.id == selectedTaskId,
                             busy = task.id in busyTaskIds,
                             onClick = { onSelectTask(task.id) },
-                            onAckReply = if (badge == TaskReplyBadge.UNREAD || badge == TaskReplyBadge.AWAITING_REPLY) {
-                                { onAckReply(task.id) }
-                            } else {
-                                null
-                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -1835,7 +1723,6 @@ private fun StatusKanbanBoard(
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
     onSelectTask: (String?) -> Unit,
-    onAckReply: (String) -> Unit,
 ) {
     val blockedOrOverdue = tasks.filter { it.status != DirectusTask.STATUS_DONE && isAttentionRisk(it, todayEpochDay) }
     val inProgress = tasks.filter { it.status == DirectusTask.STATUS_IN_PROGRESS && !isAttentionRisk(it, todayEpochDay) }
@@ -1865,7 +1752,6 @@ private fun StatusKanbanBoard(
                     selectedTaskId = selectedTaskId,
                     busyTaskIds = busyTaskIds,
                     onSelectTask = onSelectTask,
-                    onAckReply = onAckReply,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -1881,7 +1767,6 @@ private fun StatusKanbanBoard(
                     selectedTaskId = selectedTaskId,
                     busyTaskIds = busyTaskIds,
                     onSelectTask = onSelectTask,
-                    onAckReply = onAckReply,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -1898,7 +1783,6 @@ private fun KanbanColumnCard(
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
     onSelectTask: (String?) -> Unit,
-    onAckReply: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
@@ -1939,11 +1823,6 @@ private fun KanbanColumnCard(
                 selected = task.id == selectedTaskId,
                 busy = task.id in busyTaskIds,
                 onClick = { onSelectTask(task.id) },
-                onAckReply = if (badge == TaskReplyBadge.UNREAD || badge == TaskReplyBadge.AWAITING_REPLY) {
-                    { onAckReply(task.id) }
-                } else {
-                    null
-                },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -1962,17 +1841,14 @@ private fun ProjectBentoCard(
     onSelectTask: (String?) -> Unit,
     onToggleExpand: () -> Unit,
     onFocusProject: () -> Unit,
-    onAckReply: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val project = bucket.project
     val tasks = bucket.tasks
     val hiddenCount = (tasks.size - DEFAULT_PROJECT_PREVIEW_LIMIT).coerceAtLeast(0)
     val shown = if (expanded || hiddenCount == 0) tasks else tasks.take(DEFAULT_PROJECT_PREVIEW_LIMIT)
-    val alertCount = tasks.count {
-        (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE ||
-            isHighPriorityAttention(it, todayEpochDay)
-    }
+    val alertCount = tasks.count { isHighPriorityAttention(it, todayEpochDay) }
+    val unreadCount = tasks.count { (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE }
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
     val folderTint = Theme[colors][textTertiary]
 
@@ -2005,6 +1881,9 @@ private fun ProjectBentoCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                if (unreadCount > 0) {
+                    UnreadCountIndicator(unreadCount, Modifier.testTag("project_unread_${bucket.key}"))
+                }
                 if (alertCount > 0) {
                     MiniBadge(
                         text = stringResource(Res.string.tasks_attention_count, alertCount),
@@ -2055,11 +1934,6 @@ private fun ProjectBentoCard(
                     selected = task.id == selectedTaskId,
                     busy = task.id in busyTaskIds,
                     onClick = { onSelectTask(task.id) },
-                    onAckReply = if (badge == TaskReplyBadge.UNREAD || badge == TaskReplyBadge.AWAITING_REPLY) {
-                        { onAckReply(task.id) }
-                    } else {
-                        null
-                    },
                     modifier = Modifier.fillMaxWidth(),
                     flat = true,
                 )
@@ -2111,30 +1985,29 @@ private fun TaskPill(
     modifier: Modifier = Modifier,
     flat: Boolean = false,
     replyBadge: TaskReplyBadge = TaskReplyBadge.NONE,
-    onAckReply: (() -> Unit)? = null,
 ) {
     val overdueDays = taskOverdueDays(task, todayEpochDay)
     val dueEpochDay = parseDueEpochDay(task.dueDate)
     val matrixPos = resolveTaskMatrix(task, todayEpochDay)
     val isDoNow = task.status != DirectusTask.STATUS_DONE && matrixPos.quadrant == EisenhowerQuadrant.DO_NOW
-    val isUnread = replyBadge == TaskReplyBadge.UNREAD || replyBadge == TaskReplyBadge.WAITING_INPUT
-    val isAwaiting = replyBadge == TaskReplyBadge.AWAITING_REPLY
-    val isAttention = task.agentState == TaskContext.STATE_NEEDS_YOU || isAwaiting
+    val isWaitingInput = replyBadge == TaskReplyBadge.WAITING_INPUT
+    val isUnread = replyBadge == TaskReplyBadge.UNREAD || isWaitingInput
     val isRisk = task.status == DirectusTask.STATUS_BLOCKED || overdueDays > 0 || isDoNow
     val surfaceColor = Theme[colors][surface]
     val fill = when {
         selected -> Theme[colors][accentSoft].compositeOver(surfaceColor)
         !flat -> Theme[colors][surface2]
+        isWaitingInput -> Theme[colors][dangerSoft].compositeOver(surfaceColor)
         isUnread -> Theme[colors][accentSoft].compositeOver(surfaceColor)
-        isAttention -> Theme[colors][warningSoft].compositeOver(surfaceColor)
         isRisk -> Theme[colors][dangerSoft].compositeOver(surfaceColor)
         else -> Color.Transparent
     }
     val edgeStripeColor = if (flat) {
         when {
-            selected || isUnread -> Theme[colors][accent]
+            selected -> Theme[colors][accent]
+            isWaitingInput -> Theme[colors][danger]
+            isUnread -> Theme[colors][accent]
             isRisk -> Theme[colors][danger]
-            isAttention -> Theme[colors][warning]
             else -> null
         }
     } else {
@@ -2163,9 +2036,10 @@ private fun TaskPill(
     } else {
         val shape = RoundedCornerShape(Theme[radii][radiusMedium])
         val borderColor = when {
-            selected || isUnread -> Theme[colors][accent]
+            selected -> Theme[colors][accent]
+            isWaitingInput -> Theme[colors][danger]
+            isUnread -> Theme[colors][accent]
             isRisk -> Theme[colors][danger].copy(alpha = 0.5f)
-            isAttention -> Theme[colors][warning].copy(alpha = 0.6f)
             else -> Theme[colors][stroke]
         }
         modifier
@@ -2177,18 +2051,16 @@ private fun TaskPill(
             .padding(horizontal = 10.dp, vertical = 8.dp)
     }
     val dotColor = when {
-        isUnread -> Theme[colors][accent]
-        isAwaiting -> Theme[colors][warning]
         isDoNow -> Theme[colors][danger]
         else -> stateDotColor(task, overdueDays)
     }
     val neutralBadgeBg = if (flat) Theme[colors][surface2] else surfaceColor
     val showMatrixBadge = task.status != DirectusTask.STATUS_DONE &&
         (isDoNow || task.impact != null || task.urgency != null)
+    val showRunningBadge = task.agentState == TaskContext.STATE_RUNNING || task.agentState == TaskContext.STATE_QUEUED
     val hasMetaBadges = showProjectBadge ||
-        replyBadge != TaskReplyBadge.NONE ||
         showMatrixBadge ||
-        task.agentState != TaskContext.STATE_IDLE ||
+        showRunningBadge ||
         task.status != DirectusTask.STATUS_TODO ||
         overdueDays > 0 ||
         (dueEpochDay != null && task.status != DirectusTask.STATUS_DONE) ||
@@ -2205,38 +2077,31 @@ private fun TaskPill(
         ) {
             if (busy) {
                 Spinner(Modifier.size(12.dp))
+            } else if (isWaitingInput) {
+                UnreadIndicatorDot(
+                    color = Theme[colors][danger],
+                    ringColor = Theme[colors][dangerSoft],
+                    modifier = Modifier.testTag("task_indicator_${task.id}"),
+                )
+            } else if (isUnread) {
+                UnreadIndicatorDot(
+                    color = Theme[colors][accent],
+                    ringColor = Theme[colors][accentSoft],
+                    modifier = Modifier.testTag("task_indicator_${task.id}"),
+                )
             } else {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
             }
             Text(
                 task.title,
-                style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
+                style = Theme[typography][bodySmall].copy(
+                    fontWeight = if (isUnread) FontWeight.SemiBold else FontWeight.Medium,
+                ),
                 color = Theme[colors][textColor],
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            if (onAckReply != null) {
-                val ackShape = RoundedCornerShape(Theme[radii][radiusSmall])
-                Box(
-                    Modifier
-                        .testTag("task_pill_ack_${task.id}")
-                        .clip(ackShape)
-                        .background(Theme[colors][surface])
-                        .border(1.dp, Theme[colors][strokeStrong], ackShape)
-                        .clickable(role = Role.Button, onClick = onAckReply)
-                        .handCursor()
-                        .padding(horizontal = 5.dp, vertical = 3.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    UnstyledIcon(
-                        Lucide.Check,
-                        contentDescription = stringResource(Res.string.tasks_reply_ack),
-                        tint = Theme[colors][textSecondary],
-                        modifier = Modifier.size(12.dp),
-                    )
-                }
-            }
         }
 
         if (hasMetaBadges) {
@@ -2246,15 +2111,6 @@ private fun TaskPill(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 itemVerticalAlignment = Alignment.CenterVertically,
             ) {
-                if (replyBadge != TaskReplyBadge.NONE) {
-                    val replyBg = if (isUnread) Theme[colors][accentSoft] else Theme[colors][warningSoft]
-                    val replyFg = if (isUnread) Theme[colors][accentText] else Theme[colors][warning]
-                    MiniBadge(
-                        text = replyBadgeLabel(replyBadge),
-                        backgroundColor = replyBg,
-                        contentColor = replyFg,
-                    )
-                }
                 if (showMatrixBadge) {
                     MiniBadge(
                         text = "${quadrantTitle(matrixPos.quadrant)} · ${matrixLevelShortCode(matrixPos.impact)}/${matrixLevelShortCode(matrixPos.effectiveUrgency)}",
@@ -2269,12 +2125,11 @@ private fun TaskPill(
                         contentColor = Theme[colors][textSecondary],
                     )
                 }
-                if (task.agentState != TaskContext.STATE_IDLE) {
-                    val planReady = task.agentState == TaskContext.STATE_NEEDS_YOU
+                if (showRunningBadge) {
                     MiniBadge(
                         text = agentStateLabel(task.agentState),
-                        backgroundColor = if (planReady) Theme[colors][warningSoft] else Theme[colors][accentSoft],
-                        contentColor = if (planReady) Theme[colors][warning] else Theme[colors][accentText],
+                        backgroundColor = Theme[colors][accentSoft],
+                        contentColor = Theme[colors][accentText],
                     )
                 }
                 if (task.status != DirectusTask.STATUS_TODO) {
@@ -2316,25 +2171,6 @@ private fun TaskPill(
             }
         }
     }
-}
-
-@Composable
-private fun MiniBadge(
-    text: String,
-    backgroundColor: Color,
-    contentColor: Color,
-) {
-    Text(
-        text,
-        style = Theme[typography][caption].copy(fontSize = 11.sp),
-        color = contentColor,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier
-            .clip(RoundedCornerShape(Theme[radii][radiusFull]))
-            .background(backgroundColor)
-            .padding(horizontal = 7.dp, vertical = 2.dp),
-    )
 }
 
 @Composable
@@ -2622,7 +2458,6 @@ private fun TaskDetailInspector(
     bots: List<Bot>,
     botAvatars: Map<String, ByteArray>,
     todayEpochDay: Long,
-    replyBadge: TaskReplyBadge,
     coordinatorBotName: String? = null,
     coordinatorPetSprite: PetSprite? = null,
     coordinatorPetState: PetState = PetState.Idle,
@@ -2650,7 +2485,6 @@ private fun TaskDetailInspector(
     onAssignProject: (String?) -> Unit,
     onUpdateStatus: (String) -> Unit,
     onUpdateMatrix: (MatrixLevel, MatrixLevel) -> Unit,
-    onAckReply: () -> Unit,
     onSelectChannel: (Int) -> Unit,
     onRefreshChannel: () -> Unit,
     onOpenPickSession: () -> Unit,
@@ -2793,119 +2627,14 @@ private fun TaskDetailInspector(
             }
         }
 
-        if (replyBadge == TaskReplyBadge.UNREAD || replyBadge == TaskReplyBadge.AWAITING_REPLY) {
-            val isUnread = replyBadge == TaskReplyBadge.UNREAD
-            val bannerShape = RoundedCornerShape(Theme[radii][radiusMedium])
-            val bannerAccent = if (isUnread) Theme[colors][accentText] else Theme[colors][warning]
-            val bannerBg = if (isUnread) Theme[colors][accentSoft] else Theme[colors][warningSoft]
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
-                    .clip(bannerShape)
-                    .background(bannerBg.compositeOver(Theme[colors][surface]))
-                    .border(1.dp, bannerAccent.copy(alpha = 0.45f), bannerShape)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    UnstyledIcon(Lucide.MessageSquareReply, contentDescription = null, tint = bannerAccent, modifier = Modifier.size(13.dp))
-                    Text(
-                        stringResource(if (isUnread) Res.string.tasks_reply_banner_unread else Res.string.tasks_reply_banner_awaiting),
-                        style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
-                        color = bannerAccent,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Row(
-                    Modifier
-                        .testTag("inspector_ack_reply")
-                        .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
-                        .background(Theme[colors][surface])
-                        .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(Theme[radii][radiusSmall]))
-                        .clickable(role = Role.Button, onClick = onAckReply)
-                        .handCursor()
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    UnstyledIcon(Lucide.Check, contentDescription = null, tint = Theme[colors][textSecondary], modifier = Modifier.size(11.dp))
-                    Text(
-                        stringResource(Res.string.tasks_reply_ack),
-                        style = Theme[typography][caption],
-                        color = Theme[colors][textColor],
-                    )
-                }
-            }
-        }
-
-        val activeHandler = remember(activeChannel, bots, task.assignedBots) {
-            activeChannel?.let { resolveChannelHandler(it, bots, task.assignedBots) }
-        }
-        val assignedPrimary = task.assignedBots.firstOrNull()?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }
-        val handlerMismatch = activeChannel != null &&
-            !activeChannel.isRoom &&
-            assignedPrimary != null &&
-            activeHandler?.effectiveProfile?.equals(assignedPrimary, ignoreCase = true) == false
-        if (handlerMismatch) {
-            val bannerShape = RoundedCornerShape(Theme[radii][radiusMedium])
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
-                    .clip(bannerShape)
-                    .background(Theme[colors][warningSoft].compositeOver(Theme[colors][surface]))
-                    .border(1.dp, Theme[colors][warning].copy(alpha = 0.45f), bannerShape)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    UnstyledIcon(Lucide.TriangleAlert, contentDescription = null, tint = Theme[colors][warning], modifier = Modifier.size(13.dp))
-                    Text(
-                        stringResource(
-                            Res.string.tasks_agent_mismatch_notice,
-                            "@$assignedPrimary",
-                            "@${activeHandler?.effectiveProfile.orEmpty()}",
-                        ),
-                        style = Theme[typography][caption],
-                        color = Theme[colors][textColor],
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Row(
-                    Modifier
-                        .testTag("inspector_switch_assigned_agent")
-                        .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
-                        .background(Theme[colors][surface])
-                        .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(Theme[radii][radiusSmall]))
-                        .clickable(enabled = !busy, role = Role.Button, onClick = onSwitchToAssignedAgent)
-                        .handCursor(enabled = !busy)
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    UnstyledIcon(Lucide.RefreshCw, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(11.dp))
-                    Text(
-                        stringResource(Res.string.tasks_switch_to_agent, "@$assignedPrimary"),
-                        style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
-                        color = Theme[colors][accentText],
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
+        TaskHandlerMismatchBanner(
+            task = task,
+            activeChannel = activeChannel,
+            bots = bots,
+            busy = busy,
+            onSwitchToAssignedAgent = onSwitchToAssignedAgent,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+        )
 
         AnimatedVisibility(
             visible = detailsExpanded,
@@ -2922,25 +2651,11 @@ private fun TaskDetailInspector(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (!task.description.isNullOrBlank()) {
-                    val descShape = RoundedCornerShape(Theme[radii][radiusMedium])
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(descShape)
-                            .background(Theme[colors][surface])
-                            .border(1.dp, Theme[colors][stroke], descShape)
-                            .clickable { descExpanded = !descExpanded }
-                            .handCursor()
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                    ) {
-                        MarkdownText(
-                            text = task.description.orEmpty(),
-                            textStyle = Theme[typography][bodySmall].copy(color = Theme[colors][textSecondary]),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .then(if (descExpanded) Modifier else Modifier.heightIn(max = 96.dp).clipToBounds()),
-                        )
-                    }
+                    TaskDescriptionCard(
+                        description = task.description.orEmpty(),
+                        expanded = descExpanded,
+                        onToggleExpand = { descExpanded = !descExpanded },
+                    )
                 }
 
                 TaskMetadataPickers(
@@ -3120,583 +2835,6 @@ private fun TaskDetailInspector(
             todayEpochDay = todayEpochDay,
             onDismiss = { matrixPadOpen = false },
             onApply = onUpdateMatrix,
-        )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TaskMetadataPickers(
-    currentProjectId: String?,
-    currentProjectLabel: String,
-    projects: List<DirectusProject>,
-    unassignedLabel: String,
-    currentStatus: String,
-    matrixPosition: TaskMatrixPosition,
-    onAssignProject: (String?) -> Unit,
-    onUpdateStatus: (String) -> Unit,
-    onOpenMatrixPad: () -> Unit,
-) {
-    var projectMenuOpen by remember { mutableStateOf(false) }
-    var statusMenuOpen by remember { mutableStateOf(false) }
-
-    FlowRow(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        DropdownMenu(
-            expanded = projectMenuOpen,
-            onExpandedChange = { projectMenuOpen = it },
-            items = {
-                MenuChoice(
-                    text = unassignedLabel,
-                    icon = Lucide.FolderX,
-                    selected = currentProjectId == null,
-                    onClick = {
-                        projectMenuOpen = false
-                        onAssignProject(null)
-                    },
-                )
-                projects.filterNot { it.archived }.forEach { proj ->
-                    MenuChoice(
-                        text = proj.name,
-                        icon = Lucide.Folder,
-                        selected = proj.id == currentProjectId,
-                        onClick = {
-                            projectMenuOpen = false
-                            onAssignProject(proj.id)
-                        },
-                    )
-                }
-            },
-        ) {
-            PickerPill(
-                icon = Lucide.Folder,
-                label = currentProjectLabel,
-                onClick = { projectMenuOpen = true },
-            )
-        }
-
-        DropdownMenu(
-            expanded = statusMenuOpen,
-            onExpandedChange = { statusMenuOpen = it },
-            items = {
-                STATUS_OPTIONS.forEach { st ->
-                    MenuChoice(
-                        text = taskStatusLabel(st),
-                        icon = Lucide.ListChecks,
-                        selected = st == currentStatus,
-                        onClick = {
-                            statusMenuOpen = false
-                            onUpdateStatus(st)
-                        },
-                    )
-                }
-            },
-        ) {
-            PickerPill(
-                icon = Lucide.CircleDot,
-                label = taskStatusLabel(currentStatus),
-                onClick = { statusMenuOpen = true },
-            )
-        }
-
-        MatrixPickerPill(
-            position = matrixPosition,
-            onClick = onOpenMatrixPad,
-        )
-    }
-}
-
-@Composable
-private fun PickerPill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
-    Row(
-        Modifier
-            .clip(shape)
-            .background(Theme[colors][surface])
-            .border(1.dp, Theme[colors][strokeStrong], shape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .handCursor()
-            .padding(horizontal = 9.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        UnstyledIcon(icon, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(13.dp))
-        Text(
-            label,
-            style = Theme[typography][bodySmall],
-            color = Theme[colors][textColor],
-            singleLine = true,
-            overflow = TextOverflow.Ellipsis,
-        )
-        UnstyledIcon(Lucide.ChevronDown, contentDescription = null, tint = Theme[colors][textTertiary], modifier = Modifier.size(13.dp))
-    }
-}
-
-@Composable
-private fun ActionPill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    loading: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
-    Row(
-        Modifier
-            .clip(shape)
-            .background(Theme[colors][surface])
-            .border(1.dp, Theme[colors][strokeStrong], shape)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .handCursor(enabled)
-            .padding(horizontal = 9.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (loading) {
-            Spinner(Modifier.size(13.dp))
-        } else {
-            UnstyledIcon(icon, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(13.dp))
-        }
-        Text(
-            label,
-            style = Theme[typography][bodySmall],
-            color = if (enabled) Theme[colors][textColor] else Theme[colors][textMuted],
-            singleLine = true,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TaskChannelsSection(
-    channels: List<TaskChannel>,
-    bots: List<Bot>,
-    assignedBots: List<String>,
-    activeIdx: Int,
-    busy: Boolean,
-    onSelectChannel: (Int) -> Unit,
-    onOpenPickSession: () -> Unit,
-    onOpenPickRoom: () -> Unit,
-    onReplaceWithSession: (TaskChannel) -> Unit,
-    onReplaceWithRoom: (TaskChannel) -> Unit,
-    onUnlinkChannel: (TaskChannel) -> Unit,
-) {
-    val menuHint = stringResource(Res.string.tasks_drop_pick_agent)
-    FlowRow(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        itemVerticalAlignment = Alignment.CenterVertically,
-    ) {
-        channels.forEachIndexed { idx, ch ->
-            val info = remember(ch, bots, assignedBots) { resolveChannelHandler(ch, bots, assignedBots) }
-            val isActive = idx == activeIdx
-            var menuOpen by remember(ch.id) { mutableStateOf(false) }
-            DropdownMenu(
-                expanded = menuOpen,
-                onExpandedChange = { menuOpen = it },
-                items = {
-                    if (!isActive) {
-                        MenuAction(
-                            text = stringResource(Res.string.tasks_open_channel),
-                            icon = if (ch.isRoom) Lucide.Users else Lucide.MessageSquare,
-                            onClick = {
-                                menuOpen = false
-                                onSelectChannel(idx)
-                            },
-                        )
-                    }
-                    ChannelDropMenuActions(
-                        onReplaceWithSession = {
-                            menuOpen = false
-                            onReplaceWithSession(ch)
-                        },
-                        onReplaceWithRoom = {
-                            menuOpen = false
-                            onReplaceWithRoom(ch)
-                        },
-                        onUnlink = {
-                            menuOpen = false
-                            onUnlinkChannel(ch)
-                        },
-                    )
-                },
-            ) {
-                Chip(
-                    text = info.fullChipLabel,
-                    selected = isActive,
-                    onClick = {
-                        if (!busy) {
-                            if (channels.size == 1 || isActive) menuOpen = true else onSelectChannel(idx)
-                        }
-                    },
-                    onLongClick = { if (!busy) menuOpen = true },
-                    onLongClickLabel = menuHint,
-                )
-            }
-        }
-        ActionPill(
-            icon = Lucide.MessageSquare,
-            label = stringResource(Res.string.tasks_add_session),
-            loading = false,
-            enabled = !busy,
-            onClick = onOpenPickSession,
-        )
-        ActionPill(
-            icon = Lucide.Users,
-            label = stringResource(Res.string.tasks_add_room),
-            loading = false,
-            enabled = !busy,
-            onClick = onOpenPickRoom,
-        )
-    }
-}
-
-private data class PickChannelTarget(
-    val task: DirectusTask,
-    val replaceChannel: TaskChannel? = null,
-)
-
-private data class ChannelHandlerInfo(
-    val shortLabel: String,
-    val fullChipLabel: String,
-    val bot: Bot?,
-    val effectiveProfile: String?,
-)
-
-private fun resolveChannelHandler(
-    channel: TaskChannel,
-    bots: List<Bot>,
-    assignedBots: List<String> = emptyList(),
-): ChannelHandlerInfo {
-    if (channel.isRoom) {
-        val raw = channel.label.trim()
-        val roomMembersText = when {
-            raw.startsWith("Room (", ignoreCase = true) && raw.endsWith(")") ->
-                raw.removePrefix("Room (").removePrefix("room (").removeSuffix(")")
-            raw.isNotBlank() -> raw
-            assignedBots.isNotEmpty() -> assignedBots.joinToString(", ") { "@${it.removePrefix("@")}" }
-            else -> ""
-        }
-        val full = when {
-            raw.startsWith("Room", ignoreCase = true) -> raw
-            roomMembersText.isNotBlank() -> "Room · $roomMembersText"
-            else -> "Room"
-        }
-        val short = if (roomMembersText.isNotBlank() && !raw.startsWith("Room", ignoreCase = true)) {
-            "Room · $roomMembersText"
-        } else {
-            full
-        }
-        return ChannelHandlerInfo(
-            shortLabel = short,
-            fullChipLabel = full,
-            bot = null,
-            effectiveProfile = null,
-        )
-    }
-    val defaultBot = bots.firstOrNull { it.isDefault }
-    val explicitProfile = channel.profile?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }
-    val effectiveProfile = explicitProfile ?: defaultBot?.name ?: Bot.DEFAULT
-    val matchedBot = explicitProfile?.let { p ->
-        bots.firstOrNull { it.name.equals(p, ignoreCase = true) }
-    } ?: defaultBot
-    val botLabel = matchedBot?.label?.trim()?.takeIf { it.isNotBlank() }
-    val displayName = when {
-        botLabel != null && !botLabel.equals(effectiveProfile, ignoreCase = true) -> "$botLabel (@$effectiveProfile)"
-        else -> "@$effectiveProfile"
-    }
-    val rawLabel = channel.label.trim()
-    val fullLabel = when {
-        rawLabel.isBlank() || rawLabel.equals("Session (@Hermes)", ignoreCase = true) -> displayName
-        effectiveProfile.lowercase() in rawLabel.lowercase() -> rawLabel
-        else -> "$rawLabel ($displayName)"
-    }
-    return ChannelHandlerInfo(
-        shortLabel = displayName,
-        fullChipLabel = fullLabel,
-        bot = matchedBot,
-        effectiveProfile = effectiveProfile,
-    )
-}
-
-@Composable
-private fun DropdownMenuPanelScope.ChannelDropMenuActions(
-    onReplaceWithSession: () -> Unit,
-    onReplaceWithRoom: () -> Unit,
-    onUnlink: () -> Unit,
-) {
-    MenuAction(
-        text = stringResource(Res.string.tasks_drop_pick_agent),
-        icon = Lucide.Bot,
-        onClick = onReplaceWithSession,
-    )
-    MenuAction(
-        text = stringResource(Res.string.tasks_drop_pick_room),
-        icon = Lucide.Users,
-        onClick = onReplaceWithRoom,
-    )
-    MenuAction(
-        text = stringResource(Res.string.tasks_remove_channel),
-        icon = Lucide.Trash2,
-        onClick = onUnlink,
-    )
-}
-
-@Composable
-private fun TaskChannelHandlerBadge(
-    channels: List<TaskChannel>,
-    activeIdx: Int,
-    activeChannel: TaskChannel?,
-    bots: List<Bot>,
-    botAvatars: Map<String, ByteArray>,
-    assignedBots: List<String>,
-    busy: Boolean,
-    onSelectChannel: (Int) -> Unit,
-    onOpenPickSession: () -> Unit,
-    onOpenPickRoom: () -> Unit,
-    onReplaceWithSession: (TaskChannel) -> Unit,
-    onReplaceWithRoom: (TaskChannel) -> Unit,
-    onUnlinkChannel: (TaskChannel) -> Unit,
-) {
-    var menuOpen by remember(activeChannel?.id, channels.size) { mutableStateOf(false) }
-    val activeInfo = remember(activeChannel, bots, assignedBots) {
-        activeChannel?.let { resolveChannelHandler(it, bots, assignedBots) }
-    }
-    val unassignedHandler = remember(activeChannel, assignedBots, bots) {
-        if (activeChannel != null) null
-        else assignedBots.firstOrNull()?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }?.let { prof ->
-            val bot = bots.firstOrNull { it.name.equals(prof, ignoreCase = true) }
-            val label = bot?.label?.trim()?.takeIf { it.isNotBlank() && !it.equals(prof, ignoreCase = true) }
-            val text = if (label != null) "$label (@$prof)" else "@$prof"
-            bot to text
-        }
-    }
-    val badgeShape = RoundedCornerShape(Theme[radii][radiusFull])
-    val pillText = activeInfo?.shortLabel
-        ?: unassignedHandler?.second
-        ?: stringResource(Res.string.tasks_pick_agent_short)
-    val badgeBot = activeInfo?.bot ?: unassignedHandler?.first
-
-    DropdownMenu(
-        expanded = menuOpen,
-        onExpandedChange = { menuOpen = it },
-        items = {
-            if (activeChannel == null) {
-                MenuAction(
-                    text = stringResource(Res.string.tasks_pick_bot_title),
-                    icon = Lucide.Bot,
-                    onClick = {
-                        menuOpen = false
-                        onOpenPickSession()
-                    },
-                )
-                MenuAction(
-                    text = stringResource(Res.string.tasks_add_room),
-                    icon = Lucide.Users,
-                    onClick = {
-                        menuOpen = false
-                        onOpenPickRoom()
-                    },
-                )
-            } else {
-                if (channels.size > 1) {
-                    channels.forEachIndexed { idx, ch ->
-                        val info = resolveChannelHandler(ch, bots, assignedBots)
-                        MenuChoice(
-                            text = info.fullChipLabel,
-                            icon = if (ch.isRoom) Lucide.Users else Lucide.Bot,
-                            selected = idx == activeIdx,
-                            onClick = {
-                                menuOpen = false
-                                onSelectChannel(idx)
-                            },
-                        )
-                    }
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp)
-                            .height(1.dp)
-                            .background(Theme[colors][stroke]),
-                    )
-                }
-                ChannelDropMenuActions(
-                    onReplaceWithSession = {
-                        menuOpen = false
-                        onReplaceWithSession(activeChannel)
-                    },
-                    onReplaceWithRoom = {
-                        menuOpen = false
-                        onReplaceWithRoom(activeChannel)
-                    },
-                    onUnlink = {
-                        menuOpen = false
-                        onUnlinkChannel(activeChannel)
-                    },
-                )
-            }
-        },
-    ) {
-        Row(
-            Modifier
-                .testTag("task_channel_handler_chip")
-                .clip(badgeShape)
-                .background(Theme[colors][surface])
-                .border(1.dp, Theme[colors][strokeStrong], badgeShape)
-                .clickable(enabled = !busy, role = Role.Button) { menuOpen = true }
-                .handCursor(enabled = !busy)
-                .padding(horizontal = 8.dp, vertical = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            when {
-                activeChannel?.isRoom == true -> UnstyledIcon(
-                    Lucide.Users,
-                    contentDescription = null,
-                    tint = Theme[colors][accentText],
-                    modifier = Modifier.size(13.dp),
-                )
-                badgeBot != null -> BotAvatar(
-                    bot = badgeBot,
-                    picture = botAvatars[badgeBot.name],
-                    size = 15.dp,
-                )
-                else -> UnstyledIcon(
-                    Lucide.Bot,
-                    contentDescription = null,
-                    tint = Theme[colors][accentText],
-                    modifier = Modifier.size(13.dp),
-                )
-            }
-            Text(
-                pillText,
-                style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
-                color = Theme[colors][textColor],
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (channels.size > 1) {
-                Text(
-                    "+${channels.size - 1}",
-                    style = Theme[typography][caption],
-                    color = Theme[colors][textTertiary],
-                    maxLines = 1,
-                )
-            }
-            UnstyledIcon(
-                Lucide.ChevronDown,
-                contentDescription = null,
-                tint = Theme[colors][textTertiary],
-                modifier = Modifier.size(11.dp),
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TaskTimeBlocksSection(
-    task: DirectusTask,
-    timeBlocks: List<DispatchTimeBlock>,
-    timezone: String,
-    onScheduleBlock: (DispatchTimeBlock?) -> Unit,
-    onDeleteBlock: (String) -> Unit,
-    onOpenCalendar: (() -> Unit)?,
-) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(Theme[colors][surface], RoundedCornerShape(Theme[radii][radiusMedium]))
-            .border(1.dp, Theme[colors][stroke], RoundedCornerShape(Theme[radii][radiusMedium]))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            UnstyledIcon(Lucide.Calendar, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(14.dp))
-            Text(
-                stringResource(Res.string.cal_time_blocks_heading),
-                style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
-                color = Theme[colors][textColor],
-                modifier = Modifier.weight(1f),
-            )
-            task.estimatedMinutes?.let { est ->
-                Text(
-                    stringResource(Res.string.cal_estimated_minutes, est),
-                    style = Theme[typography][caption],
-                    color = Theme[colors][accentText],
-                )
-            }
-            if (onOpenCalendar != null) {
-                ActionPill(
-                    icon = Lucide.ExternalLink,
-                    label = stringResource(Res.string.cal_view_in_calendar),
-                    loading = false,
-                    enabled = true,
-                    onClick = onOpenCalendar,
-                )
-            }
-        }
-        if (timeBlocks.isEmpty()) {
-            Text(
-                stringResource(Res.string.cal_no_time_blocks),
-                style = Theme[typography][caption],
-                color = Theme[colors][textTertiary],
-            )
-        } else {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                timeBlocks.forEach { blk ->
-                    val s = calendarZonedFromIso(blk.startAt, timezone.ifBlank { null })
-                    val e = calendarZonedFromIso(blk.endAt, timezone.ifBlank { null })
-                    val timeLabel = if (s != null && e != null) {
-                        "${s.date.iso.drop(5)} ${formatClockCompact(s.minuteOfDay, use24Hour = true)}–${formatClockCompact(e.minuteOfDay, use24Hour = true)}"
-                    } else blk.startAt
-                    Row(
-                        Modifier
-                            .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
-                            .background(Theme[colors][surface2])
-                            .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(Theme[radii][radiusSmall]))
-                            .clickable(role = Role.Button) { onScheduleBlock(blk) }
-                            .handCursor()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(timeLabel, style = Theme[typography][caption], color = Theme[colors][textColor])
-                        Box(
-                            Modifier
-                                .clip(CircleShape)
-                                .clickable(role = Role.Button) { onDeleteBlock(blk.id) }
-                                .padding(2.dp),
-                        ) {
-                            UnstyledIcon(Lucide.X, contentDescription = stringResource(Res.string.cal_unschedule_block), tint = Theme[colors][textTertiary], modifier = Modifier.size(11.dp))
-                        }
-                    }
-                }
-            }
-        }
-        ActionPill(
-            icon = Lucide.CalendarClock,
-            label = stringResource(Res.string.cal_schedule_task),
-            loading = false,
-            enabled = true,
-            onClick = { onScheduleBlock(null) },
         )
     }
 }
@@ -3948,180 +3086,6 @@ private fun TaskChannelLog(
                     .fillMaxWidth()
                     .height(16.dp)
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Theme[colors][sidebarColor]))),
-            )
-        }
-    }
-}
-
-@Composable
-private fun TaskStagedPlanSheet(
-    task: DirectusTask,
-    busy: Boolean,
-    maxSheetHeight: Dp,
-    onCollapse: () -> Unit,
-    onPreparePlan: () -> Unit,
-    onApprovePlan: (ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit,
-) {
-    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
-    val plan = task.stagedPlan ?: return
-    val approveFallback = stringResource(Res.string.tasks_approve_action)
-    val sheetScroll = rememberScrollState()
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(max = maxSheetHeight)
-            .testTag("task_plan_sheet")
-            .dropShadow(shape, DockShadow)
-            .clip(shape)
-            .background(Theme[colors][surface], shape)
-            .border(1.dp, Theme[colors][strokeStrong], shape)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                UnstyledIcon(
-                    Lucide.Sparkles,
-                    contentDescription = null,
-                    tint = Theme[colors][accentText],
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    stringResource(Res.string.tasks_plan_heading).uppercase(),
-                    style = Theme[typography][eyebrow],
-                    color = Theme[colors][textTertiary],
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (plan.approvedAt == null) {
-                    MiniBadge(
-                        text = stringResource(Res.string.tasks_state_needs_you),
-                        backgroundColor = Theme[colors][warningSoft],
-                        contentColor = Theme[colors][warning],
-                    )
-                }
-            }
-            Button(
-                text = stringResource(Res.string.tasks_refresh_plan),
-                onClick = onPreparePlan,
-                enabled = !busy,
-                loading = busy,
-                variant = ButtonVariant.Outline,
-                size = ButtonSize.Small,
-                leadingIcon = Lucide.Sparkles,
-            )
-            IconButton(
-                Lucide.ChevronDown,
-                contentDescription = stringResource(Res.string.chat_collapse),
-                onClick = onCollapse,
-                modifier = Modifier.testTag("task_plan_sheet_collapse"),
-            )
-        }
-
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = false)
-                .scrollbar(sheetScroll)
-                .verticalScroll(sheetScroll),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            val params = remember(plan.params) {
-                plan.params.map { ReplyInteraction.Param(key = it.key, label = it.label, options = it.options, defaultValue = it.default) }
-            }
-            val options = remember(plan.actions, approveFallback) {
-                if (plan.actions.isNotEmpty()) {
-                    plan.actions.map { act ->
-                        ReplyInteraction.Option(
-                            label = act.label,
-                            description = act.description,
-                            value = act.instruction.ifBlank { act.label },
-                        )
-                    }
-                } else {
-                    listOf(ReplyInteraction.Option(label = approveFallback, value = approveFallback))
-                }
-            }
-            if (!plan.summary.isBlank() && plan.question != null && plan.question != plan.summary) {
-                Text(plan.summary, style = Theme[typography][bodySmall], color = Theme[colors][textSecondary])
-            }
-            ParameterizedActionContent(
-                cardKey = "task-${task.id}-${plan.hashCode()}",
-                question = plan.question ?: plan.summary.takeIf { it.isNotBlank() },
-                params = params,
-                options = options,
-                sendEnabled = !busy,
-                onAction = onApprovePlan,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TaskPlanDockBar(
-    hasPlan: Boolean,
-    pendingApproval: Boolean,
-    expanded: Boolean,
-    busy: Boolean,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
-    val enabled = hasPlan || !busy
-    val borderColor = if (pendingApproval) Theme[colors][accent].copy(alpha = 0.55f) else Theme[colors][strokeStrong]
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 2.dp)
-            .testTag("task_plan_dock_button")
-            .clip(shape)
-            .background(if (pendingApproval) Theme[colors][accentSoft] else Theme[colors][surface], shape)
-            .border(1.dp, borderColor, shape)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .handCursor(enabled)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (busy && !hasPlan) {
-            Spinner(Modifier.size(14.dp))
-        } else {
-            UnstyledIcon(
-                Lucide.Sparkles,
-                contentDescription = null,
-                tint = Theme[colors][accentText],
-                modifier = Modifier.size(14.dp),
-            )
-        }
-        Text(
-            stringResource(if (hasPlan) Res.string.tasks_plan_heading else Res.string.tasks_prepare_plan),
-            style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
-            color = if (enabled) Theme[colors][textColor] else Theme[colors][textMuted],
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (pendingApproval) {
-            MiniBadge(
-                text = stringResource(Res.string.tasks_state_needs_you),
-                backgroundColor = Theme[colors][warningSoft],
-                contentColor = Theme[colors][warning],
-            )
-        }
-        if (hasPlan) {
-            UnstyledIcon(
-                if (expanded) Lucide.ChevronDown else Lucide.ChevronUp,
-                contentDescription = null,
-                tint = Theme[colors][textTertiary],
-                modifier = Modifier.size(15.dp),
             )
         }
     }
@@ -5206,133 +4170,4 @@ private fun NewTaskDialog(
             }
         }
     }
-}
-
-@Composable
-private fun PickSessionBotDialog(
-    bots: List<Bot>,
-    onDismiss: () -> Unit,
-    onPick: (profile: String?) -> Unit,
-) {
-    val visibleBots = remember(bots) { bots.filterNot { it.meta.hidden } }
-    val defaultBot = remember(visibleBots) { visibleBots.firstOrNull { it.isDefault } }
-    val nonDefaultBots = remember(visibleBots, defaultBot) {
-        if (defaultBot != null) visibleBots.filterNot { it.name == defaultBot.name } else visibleBots
-    }
-    Dialog(
-        visible = true,
-        onDismissRequest = onDismiss,
-        title = stringResource(Res.string.tasks_pick_bot_title),
-        actions = {
-            Button(stringResource(Res.string.common_cancel), onClick = onDismiss, variant = ButtonVariant.Ghost)
-        },
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (defaultBot != null) {
-                BotPickRow(
-                    label = "${defaultBot.label} (${stringResource(Res.string.tasks_default_bot)})",
-                    sub = "@${defaultBot.name}",
-                    onClick = { onPick(defaultBot.name) },
-                )
-            } else {
-                BotPickRow(
-                    label = stringResource(Res.string.tasks_default_bot),
-                    sub = null,
-                    onClick = { onPick(null) },
-                )
-            }
-            nonDefaultBots.forEach { bot ->
-                BotPickRow(
-                    label = bot.label,
-                    sub = "@${bot.name}",
-                    onClick = { onPick(bot.name) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BotPickRow(label: String, sub: String?, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Theme[colors][surface2])
-            .clickable(role = Role.Button, onClick = onClick)
-            .handCursor()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        UnstyledIcon(Lucide.Bot, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(16.dp))
-        Text(label, style = Theme[typography][body], color = Theme[colors][textColor], modifier = Modifier.weight(1f))
-        if (sub != null) {
-            Text(sub, style = Theme[typography][code].copy(fontSize = 12.sp), color = Theme[colors][textTertiary])
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PickRoomBotsDialog(
-    bots: List<Bot>,
-    confirmLabel: String = stringResource(Res.string.tasks_add_room),
-    onDismiss: () -> Unit,
-    onCreate: (List<Bot>) -> Unit,
-) {
-    val visibleBots = remember(bots) { bots.filterNot { it.meta.hidden } }
-    val selected = remember { mutableStateListOf<Bot>() }
-    Dialog(
-        visible = true,
-        onDismissRequest = onDismiss,
-        title = stringResource(Res.string.tasks_pick_bots_title),
-        message = stringResource(Res.string.tasks_room_needs_two),
-        actions = {
-            Button(stringResource(Res.string.common_cancel), onClick = onDismiss, variant = ButtonVariant.Ghost)
-            Button(
-                confirmLabel,
-                onClick = { onCreate(selected.toList()) },
-                enabled = selected.size >= 2,
-            )
-        },
-    ) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            visibleBots.forEach { bot ->
-                val on = selected.any { it.name == bot.name }
-                Chip(
-                    text = "${bot.label} (@${bot.name})",
-                    selected = on,
-                    onClick = {
-                        if (on) selected.removeAll { it.name == bot.name } else selected.add(bot)
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun stateDotColor(task: DirectusTask, overdueDays: Int): Color = when {
-    task.agentState == TaskContext.STATE_NEEDS_YOU -> Theme[colors][warning]
-    task.status == DirectusTask.STATUS_BLOCKED || overdueDays > 0 -> Theme[colors][danger]
-    task.agentState == TaskContext.STATE_RUNNING || task.agentState == TaskContext.STATE_QUEUED || task.status == DirectusTask.STATUS_IN_PROGRESS -> Theme[colors][accent]
-    task.status == DirectusTask.STATUS_DONE -> Theme[colors][success]
-    else -> Theme[colors][textTertiary]
-}
-
-private fun taskStatusLabel(status: String): String = when (status) {
-    DirectusTask.STATUS_IN_PROGRESS -> "In progress"
-    DirectusTask.STATUS_BLOCKED -> "Blocked"
-    DirectusTask.STATUS_DONE -> "Done"
-    else -> "Todo"
-}
-
-@Composable
-private fun agentStateLabel(agentState: String): String = when (agentState) {
-    TaskContext.STATE_NEEDS_YOU -> stringResource(Res.string.tasks_state_needs_you)
-    TaskContext.STATE_RUNNING -> stringResource(Res.string.tasks_state_running)
-    TaskContext.STATE_QUEUED -> stringResource(Res.string.tasks_state_queued)
-    else -> stringResource(Res.string.tasks_state_idle)
 }

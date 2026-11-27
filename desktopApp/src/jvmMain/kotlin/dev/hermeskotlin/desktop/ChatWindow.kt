@@ -35,6 +35,7 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.chat.ChatHost
+import dev.hermeskotlin.core.rooms.RoomLinks
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.designsystem.background
 import dev.hermeskotlin.designsystem.colors
@@ -57,6 +58,9 @@ import dev.hermeskotlin.ui.chat.ChatTarget
 import dev.hermeskotlin.ui.chat.ChatViewModel
 import dev.hermeskotlin.ui.chat.ProvideReplySpeakerFor
 import dev.hermeskotlin.ui.di.CHAT_WINDOW
+import dev.hermeskotlin.ui.tasks.DispatchTaskPanelHost
+import dev.hermeskotlin.ui.tasks.TasksNavEvent
+import dev.hermeskotlin.ui.tasks.TasksViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -196,6 +200,49 @@ fun ChatWindow(
                                 dispatchStore.entriesFor(shown.gateway.gatewayUrl)
                             }.collectAsState(emptyMap())
                             val dispatchEntry = (storedId ?: shown.storedSessionId)?.let { dispatchEntries[it] }
+                            val taskBinding = dispatchEntry?.takeIf { it.taskId != DispatchSessionsStore.COORDINATOR_TASK_ID }
+                            val tasksVm: TasksViewModel = koinViewModel()
+                            val tasksState by tasksVm.state.collectAsState()
+                            if (taskBinding != null) {
+                                LaunchedEffect(shown.gateway.gatewayUrl, taskBinding.taskId, taskBinding.sessionId) {
+                                    tasksVm.syncTaskContextOnly(shown.gateway, taskBinding.taskId, taskBinding.sessionId)
+                                }
+                                DisposableEffect(taskBinding.taskId) {
+                                    onDispose { tasksVm.clearExternalTaskContext(taskBinding.taskId) }
+                                }
+                                LaunchedEffect(tasksVm) {
+                                    tasksVm.events.collect { ev ->
+                                        when (ev) {
+                                            is TasksNavEvent.OpenSession -> onShown(
+                                                ChatTarget(
+                                                    gateway = shown.gateway,
+                                                    storedSessionId = ev.sessionId,
+                                                    title = ev.title,
+                                                    profile = ev.profile ?: shown.profile,
+                                                ),
+                                            )
+                                            is TasksNavEvent.OpenRoom -> {
+                                                koin.get<RoomLinks>().open(ev.room.roomId, ev.room.name)
+                                                onShowMain()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            val taskHasPendingPlan = taskBinding != null &&
+                                tasksState.selectedTask?.id == taskBinding.taskId &&
+                                tasksState.selectedTask?.stagedPlan?.approvedAt == null
+                            val taskPanel: (@Composable (onClose: () -> Unit) -> Unit)? = taskBinding?.let { binding ->
+                                { onClose ->
+                                    DispatchTaskPanelHost(
+                                        viewModel = tasksVm,
+                                        state = tasksState,
+                                        activeChannelId = binding.sessionId,
+                                        clearWindowControls = false,
+                                        onClose = onClose,
+                                    )
+                                }
+                            }
                             ProvideReplySpeakerFor(shown) {
                                 ChatScreen(
                                     target = shown,
@@ -211,6 +258,8 @@ fun ChatWindow(
                                             onShowMain()
                                         }
                                     },
+                                    taskHasPendingPlan = taskHasPendingPlan,
+                                    taskPanel = taskPanel,
                                     onRailWidthChange = { width -> koin.get<SettingsStore>().update { it.copy(railWidth = width.value.roundToInt()) } },
                                 )
                             }

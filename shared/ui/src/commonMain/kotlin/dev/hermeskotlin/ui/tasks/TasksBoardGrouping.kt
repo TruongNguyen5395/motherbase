@@ -22,12 +22,11 @@ enum class TasksBoardViewMode { PROJECTS, MATRIX }
 
 enum class TaskFocusGrouping { WORKSTREAM, STATUS, MATRIX }
 
-/** Two-tier reply attention signal separating unseen replies from opened-but-unanswered replies. */
+/** Unread and blocking-input attention signals for task indicators. */
 enum class TaskReplyBadge(val rank: Int) {
     NONE(0),
-    AWAITING_REPLY(1),
-    UNREAD(2),
-    WAITING_INPUT(3),
+    UNREAD(1),
+    WAITING_INPUT(2),
 }
 
 /** Resolved 2D matrix position for a task, preserving manual urgency while applying due-date elevation. */
@@ -50,15 +49,15 @@ internal data class WorkstreamGroup(
     val title: String,
     val tasks: List<DirectusTask>,
     val alertCount: Int,
+    val unreadCount: Int = 0,
 )
 
 internal data class AttentionSplit(
-    val agentReplies: List<DirectusTask> = emptyList(),
     val highPriority: List<DirectusTask> = emptyList(),
     val extraHighPriorityCount: Int = 0,
 ) {
-    val totalCount: Int get() = agentReplies.size + highPriority.size + extraHighPriorityCount
-    val isEmpty: Boolean get() = agentReplies.isEmpty() && highPriority.isEmpty()
+    val totalCount: Int get() = highPriority.size + extraHighPriorityCount
+    val isEmpty: Boolean get() = highPriority.isEmpty()
 }
 
 private val EXPLICIT_TZ_OFFSET_RE = Regex("""[+-]\d{2}:?\d{2}$""")
@@ -178,13 +177,11 @@ internal fun resolveTaskReplyBadge(
     task: DirectusTask,
     seenRoomSeqs: Map<String, Int> = emptyMap(),
     waitingSessionIds: Set<String> = emptySet(),
-    localReadTaskIds: Set<String> = emptySet(),
-    localAckedTaskIds: Set<String> = emptySet(),
+    localReadAtByTaskId: Map<String, Double> = emptyMap(),
     localUnreadTaskIds: Set<String> = emptySet(),
 ): TaskReplyBadge {
     if (task.status == DirectusTask.STATUS_DONE) return TaskReplyBadge.NONE
     if (task.channels.any { it.isSession && it.id in waitingSessionIds }) return TaskReplyBadge.WAITING_INPUT
-    if (task.id in localAckedTaskIds) return TaskReplyBadge.NONE
     if (task.id in localUnreadTaskIds) return TaskReplyBadge.UNREAD
     val rs = task.replyStatus ?: return TaskReplyBadge.NONE
     val roomChannelId = rs.lastReplyChannelId
@@ -192,10 +189,15 @@ internal fun resolveTaskReplyBadge(
     val roomUnread = rs.lastReplyChannelType == TaskChannel.TYPE_ROOM &&
         roomChannelId != null &&
         roomSeq != null &&
-        seenRoomSeqs[roomChannelId]?.let { seen -> roomSeq > seen } == true
+        roomSeq > 0 &&
+        (seenRoomSeqs[roomChannelId] ?: 0) < roomSeq
     val serverUnread = rs.hasUnreadReply || roomUnread
-    if (serverUnread && task.id !in localReadTaskIds) return TaskReplyBadge.UNREAD
-    if (rs.awaitingReply) return TaskReplyBadge.AWAITING_REPLY
+    if (serverUnread) {
+        val localReadAt = localReadAtByTaskId[task.id]
+        val replyAt = rs.lastReplyAt
+        val suppressedLocally = localReadAt != null && (replyAt == null || replyAt <= localReadAt + 1.0)
+        if (!suppressedLocally) return TaskReplyBadge.UNREAD
+    }
     return TaskReplyBadge.NONE
 }
 
@@ -207,8 +209,7 @@ internal fun isHighPriorityAttention(task: DirectusTask, todayEpochDay: Long): B
     if (task.status == DirectusTask.STATUS_DONE) return false
     val matrix = resolveTaskMatrix(task, todayEpochDay)
     return matrix.quadrant == EisenhowerQuadrant.DO_NOW ||
-        isAttentionRisk(task, todayEpochDay) ||
-        task.agentState == TaskContext.STATE_NEEDS_YOU
+        isAttentionRisk(task, todayEpochDay)
 }
 
 private fun priorityWeight(priority: String?): Int = when (priority?.lowercase()) {
@@ -229,12 +230,10 @@ private fun taskUrgencyScore(
     var score = matrix.impact.rank * 600 + matrix.effectiveUrgency.rank * 500 + priorityWeight(task.priority)
     if (replyBadge == TaskReplyBadge.WAITING_INPUT) score += 14_000
     if (replyBadge == TaskReplyBadge.UNREAD) score += 11_000
-    if (replyBadge == TaskReplyBadge.AWAITING_REPLY) score += 7_000
     if (matrix.quadrant == EisenhowerQuadrant.DO_NOW) score += 6_000
     if (task.status == DirectusTask.STATUS_BLOCKED) score += 4_500
     val overdue = taskOverdueDays(task, todayEpochDay)
     if (overdue > 0) score += 3_000 + minOf(overdue, 90) * 15
-    if (task.agentState == TaskContext.STATE_NEEDS_YOU) score += 2_000
     if (task.status == DirectusTask.STATUS_IN_PROGRESS) score += 1_000
     if (task.agentState == TaskContext.STATE_RUNNING || task.agentState == TaskContext.STATE_QUEUED) score += 600
     if (parseDueEpochDay(task.dueDate) != null) score += 20
@@ -259,24 +258,12 @@ internal fun sortTasksForBoard(
 internal fun buildAttentionSplit(
     tasks: List<DirectusTask>,
     todayEpochDay: Long,
-    replyBadges: Map<String, TaskReplyBadge> = emptyMap(),
+    @Suppress("UNUSED_PARAMETER") replyBadges: Map<String, TaskReplyBadge> = emptyMap(),
     priorityLimit: Int = DEFAULT_ATTENTION_PRIORITY_LIMIT,
 ): AttentionSplit {
     val active = tasks.filter { it.status != DirectusTask.STATUS_DONE }
-    val agentReplies = active
-        .filter { (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE }
-        .withIndex()
-        .sortedWith(
-            compareByDescending<IndexedValue<DirectusTask>> { (replyBadges[it.value.id] ?: TaskReplyBadge.NONE).rank }
-                .thenByDescending { taskUrgencyScore(it.value, todayEpochDay, replyBadges[it.value.id] ?: TaskReplyBadge.NONE) }
-                .thenByDescending { it.value.replyStatus?.lastReplyAt ?: 0.0 }
-                .thenBy { it.index },
-        )
-        .map { it.value }
-    val replyIds = agentReplies.mapTo(HashSet()) { it.id }
-
     val allHighPriority = active
-        .filter { it.id !in replyIds && isHighPriorityAttention(it, todayEpochDay) }
+        .filter { isHighPriorityAttention(it, todayEpochDay) }
         .withIndex()
         .sortedWith(
             compareByDescending<IndexedValue<DirectusTask>> {
@@ -291,7 +278,6 @@ internal fun buildAttentionSplit(
         .map { it.value }
 
     return AttentionSplit(
-        agentReplies = agentReplies,
         highPriority = allHighPriority.take(priorityLimit),
         extraHighPriorityCount = (allHighPriority.size - priorityLimit).coerceAtLeast(0),
     )
@@ -414,15 +400,17 @@ internal fun buildWorkstreamGroups(
         collectOwnedDescendants(root, collected)
         if (collected.isNotEmpty()) {
             val sorted = sortTasksForBoard(collected, todayEpochDay, replyBadges)
-            val alerts = sorted.count {
-                (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE ||
-                    isHighPriorityAttention(it, todayEpochDay)
+            val alerts = sorted.count { isHighPriorityAttention(it, todayEpochDay) }
+            val unread = sorted.count {
+                val b = replyBadges[it.id] ?: TaskReplyBadge.NONE
+                b == TaskReplyBadge.UNREAD || b == TaskReplyBadge.WAITING_INPUT
             }
             groups += WorkstreamGroup(
                 key = root.id,
                 title = root.title,
                 tasks = sorted,
                 alertCount = alerts,
+                unreadCount = unread,
             )
         }
     }
@@ -430,15 +418,17 @@ internal fun buildWorkstreamGroups(
     val standalone = tasks.filter { it.id !in assignedIds }
     if (standalone.isNotEmpty()) {
         val sorted = sortTasksForBoard(standalone, todayEpochDay, replyBadges)
-        val alerts = sorted.count {
-            (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE ||
-                isHighPriorityAttention(it, todayEpochDay)
+        val alerts = sorted.count { isHighPriorityAttention(it, todayEpochDay) }
+        val unread = sorted.count {
+            val b = replyBadges[it.id] ?: TaskReplyBadge.NONE
+            b == TaskReplyBadge.UNREAD || b == TaskReplyBadge.WAITING_INPUT
         }
         groups += WorkstreamGroup(
             key = STANDALONE_WORKSTREAM_KEY,
             title = standaloneTitle,
             tasks = sorted,
             alertCount = alerts,
+            unreadCount = unread,
         )
     }
 

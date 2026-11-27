@@ -97,6 +97,7 @@ import androidx.compose.ui.layout.layout
 import kotlin.math.roundToInt
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.draw.dropShadow
@@ -216,6 +217,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.composables.icons.lucide.ArrowDown
+import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ArrowUp
 import com.composables.icons.lucide.Brain
 import com.composables.icons.lucide.Check
@@ -445,6 +447,10 @@ fun ChatScreen(
     greetingPlaces: GreetingPlaces? = null,
     /** Jumps back to Dispatch with this session's owning task open; shown only for Dispatch-linked sessions. */
     onBackToDispatch: (() -> Unit)? = null,
+    /** True when this Dispatch session's owning task has an unapproved staged proposal. */
+    taskHasPendingPlan: Boolean = false,
+    /** Side-rail content for editing this Dispatch session's owning task and Action Proposal. */
+    taskPanel: (@Composable (onClose: () -> Unit) -> Unit)? = null,
     /** Persists a dragged desktop right-rail width when non-null. */
     onRailWidthChange: ((Dp) -> Unit)? = null,
 ) {
@@ -477,6 +483,7 @@ fun ChatScreen(
     var viewing by remember { mutableStateOf<ViewerImage?>(null) }
     var previewing by remember(target) { mutableStateOf<PreviewTarget?>(null) }
     var screenInRail by remember(target) { mutableStateOf(false) }
+    var taskRailOpen by remember(chatKey) { mutableStateOf(false) }
     var railExpanded by remember(target) { mutableStateOf(false) }
     var nextArtifactId by remember { mutableLongStateOf(0L) }
     val chatKey = target.copy(readUpTo = null)
@@ -508,16 +515,34 @@ fun ChatScreen(
     LaunchedEffect(screenOpenForChat, rightRail.docked) {
         if (screenOpenForChat) {
             screenInRail = true
+            taskRailOpen = false
             if (rightRail.docked) railScope.launch { rightRail.open() }
-        } else if (screenInRail && previewing == null && rightRail.docked && rightRail.isOpen) {
+        } else if (screenInRail && previewing == null && !taskRailOpen && rightRail.docked && rightRail.isOpen) {
             screenInRail = false
             rightRail.close()
+        }
+    }
+    LaunchedEffect(rightRail.isOpen) {
+        if (!rightRail.isOpen) taskRailOpen = false
+    }
+    LaunchedEffect(previewing) {
+        if (previewing != null) taskRailOpen = false
+    }
+    LaunchedEffect(taskPanel == null) {
+        if (taskPanel == null && taskRailOpen) {
+            taskRailOpen = false
+            if (rightRail.isOpen && previewing == null && !(screenInRail && screenOpenForChat)) {
+                rightRail.close()
+            }
         }
     }
     val artifacts = remember(state.messages, openedFiles.size) {
         extractChatArtifacts(state.messages, openedFiles.toList())
     }
-    LaunchedEffect(target) { if (!rightRail.docked && rightRail.isOpen) rightRail.close() }
+    LaunchedEffect(target) {
+        taskRailOpen = false
+        if (!rightRail.docked && rightRail.isOpen) rightRail.close()
+    }
     val docked = previewing?.let { rightRail.docked && it.dockedEligible } == true
     // Over a sheet or a viewer, typing and shortcuts are the dialog's, not the chat's behind it.
     val proposalConflict by viewModel.proposalConflict.collectAsStateWithLifecycle()
@@ -525,7 +550,8 @@ fun ChatScreen(
     val dialogOpen = modelsOpen || attachOpen || petsOpen || journeyOpen || usageOpen || processesOpen ||
         checkpointsOpen || controlOpen || viewing != null || proposalConflict != null ||
         (previewing != null && (!docked || railExpanded)) ||
-        (screenOpenForChat && !rightRail.docked)
+        (screenOpenForChat && !rightRail.docked) ||
+        (taskRailOpen && !rightRail.docked && rightRail.isOpen)
     ShortcutHandler(enabled = keysEnabled && isDesktop) { shortcut ->
         (shortcut == Shortcut.ToggleRail).also {
             if (it) railScope.launch { rightRail.toggle() }
@@ -749,12 +775,31 @@ fun ChatScreen(
         rightRailState = rightRail,
         railWidth = railWidth,
         onRailWidthChange = onRailWidthChange,
-        railOpen = rightRail.isOpen,
+        taskPanelOpen = taskRailOpen && rightRail.isOpen,
+        taskHasPendingPlan = taskHasPendingPlan,
+        onToggleTaskPanel = taskPanel?.let {
+            {
+                if (taskRailOpen && rightRail.isOpen) {
+                    taskRailOpen = false
+                    railScope.launch { rightRail.close() }
+                } else {
+                    previewing = null
+                    screenInRail = false
+                    if (screenOpenForChat) botScreen.requestClose()
+                    taskRailOpen = true
+                    railScope.launch { rightRail.open() }
+                }
+            }
+        },
+        railOpen = rightRail.isOpen && !taskRailOpen && !(screenInRail && screenOpenForChat),
         onToggleRail = {
             if (rightRail.isOpen && screenInRail && screenOpenForChat) {
                 botScreen.requestClose()
+            } else if (rightRail.isOpen && taskRailOpen) {
+                taskRailOpen = false
             } else {
                 screenInRail = false
+                taskRailOpen = false
                 railScope.launch { rightRail.toggle() }
             }
         },
@@ -766,6 +811,7 @@ fun ChatScreen(
                 if (screenOpenForChat && (!rightRail.docked || (rightRail.isOpen && screenInRail))) {
                     botScreen.requestClose()
                 } else {
+                    taskRailOpen = false
                     screenInRail = true
                     botScreen.openScreen(target.profile, target.gateway.gatewayUrl)
                     if (rightRail.docked) railScope.launch { rightRail.open() }
@@ -782,7 +828,12 @@ fun ChatScreen(
                     onClose = { railScope.launch { rightRail.close() } },
                 )
             }
-            if (screenInRail && screenOpenForChat && rightRail.docked) {
+            if (taskRailOpen && taskPanel != null) {
+                taskPanel {
+                    taskRailOpen = false
+                    railScope.launch { rightRail.close() }
+                }
+            } else if (screenInRail && screenOpenForChat && rightRail.docked) {
                 BotScreenPane(
                     viewModel = botScreen,
                     title = screenTitle,
@@ -999,6 +1050,9 @@ internal fun ChatView(
     railWidth: Dp = DEFAULT_RAIL_WIDTH,
     onRailWidthChange: ((Dp) -> Unit)? = null,
     onBackToDispatch: (() -> Unit)? = null,
+    taskPanelOpen: Boolean = false,
+    taskHasPendingPlan: Boolean = false,
+    onToggleTaskPanel: (() -> Unit)? = null,
     railOpen: Boolean = false,
     onToggleRail: (() -> Unit)? = null,
     screenOpen: Boolean = false,
@@ -1056,6 +1110,9 @@ internal fun ChatView(
                     onNewChat = onNewChat,
                     onOpenMenu = onOpenMenu,
                     onBackToDispatch = onBackToDispatch,
+                    taskPanelOpen = taskPanelOpen,
+                    taskHasPendingPlan = taskHasPendingPlan,
+                    onToggleTaskPanel = onToggleTaskPanel,
                     sessionsBadge = sessionsBadge,
                     onNextChat = onNextChat,
                     railOpen = railOpen,
@@ -1793,6 +1850,9 @@ internal fun TopBar(
     trailing: (@Composable () -> Unit)? = null,
     /** Jumps back to Dispatch with this session/room's owning task open. */
     onBackToDispatch: (() -> Unit)? = null,
+    taskPanelOpen: Boolean = false,
+    taskHasPendingPlan: Boolean = false,
+    onToggleTaskPanel: (() -> Unit)? = null,
     /** What the Sessions button says about the other chats. */
     sessionsBadge: SessionsBadge = SessionsBadge(),
     /** A long press on Sessions: the next chat needing the user. */
@@ -1842,6 +1902,13 @@ internal fun TopBar(
         ) {
             if (onBackToDispatch != null) {
                 BackToDispatchButton(onBackToDispatch)
+            }
+            if (onToggleTaskPanel != null) {
+                TaskPanelBarButton(
+                    open = taskPanelOpen,
+                    hasPendingPlan = taskHasPendingPlan,
+                    onClick = onToggleTaskPanel,
+                )
             }
             if (trailing != null) {
                 trailing()
@@ -1944,48 +2011,43 @@ internal fun BarButton(
 
 @Composable
 private fun BackToDispatchButton(onClick: () -> Unit) {
-    val label = stringResource(Res.string.tasks_back_to_dispatch)
-    val shortLabel = stringResource(Res.string.tasks_title)
-    if (isDesktop) {
-        val shape = RoundedCornerShape(8.dp)
-        Tooltip(label) {
-            UnstyledButton(
-                onClick = onClick,
-                modifier = Modifier
-                    .height(32.dp)
-                    .handCursor()
-                    .clip(shape)
-                    .background(Theme[colors][accentSoft], shape)
-                    .border(1.dp, Theme[colors][accentText].copy(alpha = 0.28f), shape)
-                    .padding(horizontal = 9.dp),
-                indication = rememberHoverIndication(Theme[colors][accentText]),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    UnstyledIcon(
-                        Lucide.ListTodo,
-                        contentDescription = label,
-                        tint = Theme[colors][accentText],
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Text(
-                        shortLabel,
-                        style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
-                        color = Theme[colors][accentText],
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    } else {
+    BarButton(
+        icon = Lucide.ArrowLeft,
+        contentDescription = stringResource(Res.string.tasks_back_to_dispatch),
+        onClick = onClick,
+        modifier = Modifier.testTag("topbar_back_to_dispatch"),
+    )
+}
+
+@Composable
+private fun TaskPanelBarButton(
+    open: Boolean,
+    hasPendingPlan: Boolean,
+    onClick: () -> Unit,
+) {
+    val label = stringResource(Res.string.tasks_panel_title)
+    val tint = when {
+        hasPendingPlan -> Theme[colors][warning]
+        open -> Theme[colors][accentText]
+        else -> Theme[colors][textSecondary]
+    }
+    Box {
         BarButton(
             icon = Lucide.ListTodo,
             contentDescription = label,
             onClick = onClick,
-            tint = Theme[colors][accentText],
+            tint = tint,
+            modifier = Modifier.testTag("topbar_task_button"),
         )
+        if (hasPendingPlan) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 8.dp, end = 8.dp)
+                    .size(6.dp)
+                    .background(Theme[colors][warning], CircleShape),
+            )
+        }
     }
 }
 

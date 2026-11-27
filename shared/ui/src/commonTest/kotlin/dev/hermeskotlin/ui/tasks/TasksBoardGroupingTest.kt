@@ -102,15 +102,16 @@ class TasksBoardGroupingTest {
     }
 
     @Test
-    fun attentionSplitSurfacesAgentRepliesAndHighImpactUrgentTasksWithoutRequiringPlan() {
+    fun attentionSplitFocusesOnHighPriorityExcludingUnrelatedPlansAndReplies() {
         val unreadReply = task(
             "reply-unread",
             priority = "low",
             replyStatus = TaskReplyStatus(hasUnreadReply = true, awaitingReply = true, lastReplyAt = 2000.0),
         )
-        val awaitingReply = task(
-            "reply-awaiting",
+        val planReadyLow = task(
+            "plan-low",
             priority = "low",
+            agentState = TaskContext.STATE_NEEDS_YOU,
             replyStatus = TaskReplyStatus(hasUnreadReply = false, awaitingReply = true, lastReplyAt = 1800.0),
         )
         val doNowNoPlan = task("do-now", impact = "high", urgency = "high")
@@ -120,8 +121,11 @@ class TasksBoardGroupingTest {
             task("late-$idx", dueDate = "2026-11-1${idx}T12:00:00")
         }
 
-        val all = listOf(highOnTime, awaitingReply, unreadReply, doNowNoPlan, blocked) + overdueTasks
+        val all = listOf(highOnTime, planReadyLow, unreadReply, doNowNoPlan, blocked) + overdueTasks
         val badges = all.associate { it.id to resolveTaskReplyBadge(it) }
+
+        assertEquals(TaskReplyBadge.UNREAD, badges["reply-unread"])
+        assertEquals(TaskReplyBadge.NONE, badges["plan-low"])
 
         val split = buildAttentionSplit(
             tasks = all,
@@ -130,15 +134,14 @@ class TasksBoardGroupingTest {
             priorityLimit = 6,
         )
 
-        assertEquals(listOf("reply-unread", "reply-awaiting"), split.agentReplies.map { it.id })
         assertEquals(6, split.highPriority.size)
         assertEquals("do-now", split.highPriority.first().id)
         assertEquals(2, split.extraHighPriorityCount)
-        assertFalse(split.highPriority.any { it.id == "high-ok" })
+        assertFalse(split.highPriority.any { it.id == "high-ok" || it.id == "reply-unread" || it.id == "plan-low" })
     }
 
     @Test
-    fun replyBadgeSeparatesUnreadAwaitingAndClearedAfterLocalReadOrAck() {
+    fun replyBadgeTracksUnreadAndReTriggersWhenNewerReplyArrives() {
         val roomTask = task(
             "r1",
             channels = listOf(TaskChannel(type = TaskChannel.TYPE_ROOM, id = "room-1", label = "Room")),
@@ -148,17 +151,26 @@ class TasksBoardGroupingTest {
                 lastReplyChannelId = "room-1",
                 lastReplyChannelType = TaskChannel.TYPE_ROOM,
                 latestRoomSeq = 9,
+                lastReplyAt = 2000.0,
             ),
         )
+        // Even with no prior seen-seq entry on client, a room with seq > 0 shows Unread.
+        assertEquals(TaskReplyBadge.UNREAD, resolveTaskReplyBadge(roomTask, seenRoomSeqs = emptyMap()))
         assertEquals(TaskReplyBadge.UNREAD, resolveTaskReplyBadge(roomTask, seenRoomSeqs = mapOf("room-1" to 5)))
-        assertEquals(
-            TaskReplyBadge.AWAITING_REPLY,
-            resolveTaskReplyBadge(roomTask, seenRoomSeqs = mapOf("room-1" to 5), localReadTaskIds = setOf("r1")),
-        )
+        // Local read watermark suppresses the currently seen reply, then clears as soon as room seq advances or newer reply arrives.
         assertEquals(
             TaskReplyBadge.NONE,
-            resolveTaskReplyBadge(roomTask, seenRoomSeqs = mapOf("room-1" to 5), localAckedTaskIds = setOf("r1")),
+            resolveTaskReplyBadge(roomTask, seenRoomSeqs = mapOf("room-1" to 5), localReadAtByTaskId = mapOf("r1" to 2000.0)),
         )
+        assertEquals(
+            TaskReplyBadge.UNREAD,
+            resolveTaskReplyBadge(
+                roomTask.copy(replyStatus = roomTask.replyStatus?.copy(latestRoomSeq = 10, lastReplyAt = 2010.0)),
+                seenRoomSeqs = mapOf("room-1" to 5),
+                localReadAtByTaskId = mapOf("r1" to 2000.0),
+            ),
+        )
+        assertEquals(TaskReplyBadge.NONE, resolveTaskReplyBadge(roomTask, seenRoomSeqs = mapOf("room-1" to 9)))
     }
 
     @Test

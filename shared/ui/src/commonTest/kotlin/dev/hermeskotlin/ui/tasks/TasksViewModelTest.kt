@@ -1500,35 +1500,8 @@ class TasksViewModelTest {
     }
 
     @Test
-    fun ackTaskReplyClearsReplyBadgeAndPersistsReplyAckedAt() = runTest(dispatcher) {
-        val boardWithReply = """
-            {
-              "configured": true,
-              "projects": [{"id":"proj-1","name":"Ops","sort":1}],
-              "tasks": [
-                {
-                  "id":"t1",
-                  "title":"Check logs",
-                  "status":"in_progress",
-                  "priority":"medium",
-                  "context":{
-                    "id":"ctx-1",
-                    "task_id":"t1",
-                    "project_id":"proj-1",
-                    "channels":[{"type":"session","id":"sess-1","label":"Session (@ops)","profile":"ops"}]
-                  },
-                  "reply_status":{
-                    "has_unread_reply":true,
-                    "awaiting_reply":true,
-                    "last_reply_at":1700000000.0,
-                    "last_reply_channel_id":"sess-1",
-                    "last_reply_channel_type":"session"
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-        val ackBodies = mutableListOf<String>()
+    fun unreadReplySurfacesOutsideAttentionClearsOnOpenAndReTriggersOnNewerReply() = runTest(dispatcher) {
+        var lastReplyAt = 1700000000.0
         var markedSessionRead = false
         val h = buildHarness(
             httpRespond = { rec ->
@@ -1536,29 +1509,50 @@ class TasksViewModelTest {
                     rec.path == "/api/plugins/directus-tasks/config" ->
                         HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
                     rec.path == "/api/plugins/directus-tasks/board" ->
-                        HttpStatusCode.OK to boardWithReply
-                    rec.path == "/api/sessions/sess-1/mutation-snapshot" ->
-                        HttpStatusCode.OK to """{"exists":true,"runtime_revision":1,"runtime_generation":1}"""
+                        HttpStatusCode.OK to """
+                            {
+                              "configured": true,
+                              "projects": [{"id":"proj-1","name":"Ops","sort":1}],
+                              "tasks": [
+                                {
+                                  "id":"t1",
+                                  "title":"Check logs",
+                                  "status":"in_progress",
+                                  "priority":"low",
+                                  "context":{
+                                    "id":"ctx-1",
+                                    "task_id":"t1",
+                                    "project_id":"proj-1",
+                                    "impact":"low",
+                                    "urgency":"low",
+                                    "channels":[{"type":"session","id":"sess-1","label":"Session (@ops)","profile":"ops"}]
+                                  },
+                                  "reply_status":{
+                                    "has_unread_reply":true,
+                                    "awaiting_reply":false,
+                                    "last_reply_at":$lastReplyAt,
+                                    "last_reply_channel_id":"sess-1",
+                                    "last_reply_channel_type":"session"
+                                  }
+                                }
+                              ]
+                            }
+                        """.trimIndent()
+                    rec.path == "/api/sessions/sess-1/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-1","messages":[{"role":"assistant","content":"Done."}]}"""
                     rec.path == "/api/sessions/sess-1" && rec.method == HttpMethod.Patch -> {
                         markedSessionRead = true
                         HttpStatusCode.OK to """{}"""
                     }
-                    rec.path == "/api/plugins/directus-tasks/tasks/t1/context" && rec.method == HttpMethod.Put -> {
-                        rec.body?.let { ackBodies += it }
-                        HttpStatusCode.OK to """
-                            {
-                              "task": {
-                                "id":"t1",
-                                "title":"Check logs",
-                                "status":"in_progress",
-                                "priority":"medium",
-                                "context":{"id":"ctx-1","task_id":"t1","project_id":"proj-1","reply_acked_at":"2026-11-22T07:00:00Z"},
-                                "reply_status":{"has_unread_reply":false,"awaiting_reply":false}
-                              }
-                            }
-                        """.trimIndent()
-                    }
                     else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.resume" -> """{"session_id":"rt-1","running":false,"open_requests":[]}"""
+                    else -> """{}"""
                 }
             },
         )
@@ -1566,22 +1560,166 @@ class TasksViewModelTest {
             h.vm.bind(gateway)
             val initial = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
             assertEquals(TaskReplyBadge.UNREAD, initial.replyBadges["t1"])
-            assertEquals(1, initial.attentionSplit.agentReplies.size)
+            assertEquals(1, initial.unreadCount)
+            assertTrue(initial.attentionSplit.isEmpty)
 
-            h.vm.ackTaskReply("t1")
-
-            val cleared = withTimeout(5_000) {
+            h.vm.selectTask("t1")
+            val opened = withTimeout(5_000) {
                 h.vm.state.first { st ->
-                    st.replyBadges["t1"] == TaskReplyBadge.NONE &&
-                        ackBodies.isNotEmpty() &&
-                        st.tasks.firstOrNull { it.id == "t1" }?.replyAckedAt == "2026-11-22T07:00:00Z"
+                    st.selectedTaskId == "t1" && !st.channelLoading && st.replyBadges["t1"] == TaskReplyBadge.NONE
                 }
             }
             dispatcher.scheduler.advanceUntilIdle()
-            assertEquals(0, cleared.attentionSplit.agentReplies.size)
-            assertTrue(ackBodies.any { it.contains("reply_acked_at") })
+            assertEquals(0, opened.unreadCount)
             assertTrue(markedSessionRead)
+
+            // Same last_reply_at stays suppressed even if /board still reports stale has_unread_reply.
+            h.vm.refresh()
+            val staleRefresh = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            assertEquals(TaskReplyBadge.NONE, staleRefresh.replyBadges["t1"])
+
+            // Newer last_reply_at clears the local read watermark and restores the unread indicator.
+            lastReplyAt = 1700000060.0
+            h.vm.selectTask(null)
+            h.vm.refresh()
+            val newReply = withTimeout(5_000) {
+                h.vm.state.first { st -> !st.loading && st.replyBadges["t1"] == TaskReplyBadge.UNREAD }
+            }
+            assertEquals(1, newReply.unreadCount)
         } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun backgroundSessionCompletionMarksTaskUnreadAndSyncTaskContextOnlyNavigates() = runTest(dispatcher) {
+        var sessionMessagesFetchedForExt = false
+        var replacedOnServer = false
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "configured": true,
+                              "projects": [{"id":"proj-1","name":"Ops","sort":1}],
+                              "tasks": [
+                                {
+                                  "id":"t1",
+                                  "title":"Run background job",
+                                  "status":"in_progress",
+                                  "context":{
+                                    "id":"ctx-1",
+                                    "task_id":"t1",
+                                    "project_id":"proj-1",
+                                    "channels":[{"type":"session","id":"sess-1","label":"Session (@default)","managed":true}]
+                                  }
+                                },
+                                {
+                                  "id":"t2",
+                                  "title":"Switch agent task",
+                                  "status":"todo",
+                                  "context":{
+                                    "id":"ctx-2",
+                                    "task_id":"t2",
+                                    "project_id":"proj-1",
+                                    "channels":[{"type":"session","id":"sess-old","label":"Session (@default)","managed":true}]
+                                  },
+                                  "reply_status":{"has_unread_reply":true,"last_reply_at":1700000010.0,"last_reply_channel_id":"sess-old","last_reply_channel_type":"session"}
+                                }
+                              ]
+                            }
+                        """.trimIndent()
+                    rec.path == "/api/sessions/sess-1/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-1","messages":[]}"""
+                    rec.path == "/api/sessions/sess-old/messages" -> {
+                        sessionMessagesFetchedForExt = true
+                        HttpStatusCode.OK to """{"session_id":"sess-old","messages":[]}"""
+                    }
+                    rec.path == "/api/sessions/sess-1" && rec.method == HttpMethod.Patch ->
+                        HttpStatusCode.OK to """{}"""
+                    rec.path == "/api/sessions/sess-old" && rec.method == HttpMethod.Patch ->
+                        HttpStatusCode.OK to """{}"""
+                    rec.path == "/api/sessions/sess-old/mutation-snapshot" ->
+                        HttpStatusCode.OK to """{"exists":true,"runtime_revision":1,"runtime_generation":1}"""
+                    rec.path == "/api/plugins/directus-tasks/tasks/t2/context" && rec.method == HttpMethod.Put -> {
+                        replacedOnServer = true
+                        HttpStatusCode.OK to """
+                            {
+                              "task":{
+                                "id":"t2",
+                                "title":"Switch agent task",
+                                "status":"todo",
+                                "context":{
+                                  "id":"ctx-2",
+                                  "task_id":"t2",
+                                  "project_id":"proj-1",
+                                  "assigned_bots":["ops"],
+                                  "channels":[{"type":"session","id":"sess-new","label":"Session (@ops)","profile":"ops","managed":true}]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[{"name":"default","is_default":true},{"name":"ops"}]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.resume" -> """{"session_id":"rt-bg","running":false,"open_requests":[]}"""
+                    "session.create" -> """{"session_id":"rt-new","stored_session_id":"sess-new"}"""
+                    "prompt.submit" -> """{"ok":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.setVisible(true)
+            h.vm.bind(gateway)
+            val init = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+
+            // Launch turn on t1, then switch back to board overview.
+            h.vm.selectTask("t1")
+            withTimeout(5_000) { h.vm.state.first { it.selectedTaskId == "t1" && !it.channelLoading } }
+            h.vm.sendToActiveChannel(init.tasks.first { it.id == "t1" }, "Run check")
+            withTimeout(5_000) {
+                while (h.socket.calls.none { it.first == "prompt.submit" }) {
+                    kotlinx.coroutines.yield()
+                }
+            }
+            h.vm.selectTask(null)
+
+            // When t1 completes in the background, t1 gets marked locally Unread.
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"rt-bg","type":"message.complete","payload":{}}}""")
+            val marked = withTimeout(5_000) { h.vm.state.first { it.replyBadges["t1"] == TaskReplyBadge.UNREAD } }
+            assertTrue("t1" in marked.localUnreadTaskIds)
+
+            h.vm.toggleUnreadOnly()
+            assertTrue(h.vm.state.value.unreadOnly)
+            h.vm.toggleUnreadOnly()
+            assertFalse(h.vm.state.value.unreadOnly)
+
+            // Fullscreen syncTaskContextOnly selects t2 without loading session messages into TasksViewModel,
+            // clears t2's unread indicator, and emits OpenSession when replacing with another agent.
+            h.vm.setVisible(false)
+            h.vm.syncTaskContextOnly(gateway, "t2", "sess-old")
+            val ext = h.vm.state.value
+            assertEquals("t2", ext.selectedTaskId)
+            assertEquals(TaskReplyBadge.NONE, ext.replyBadges["t2"])
+            assertFalse(sessionMessagesFetchedForExt)
+
+            val navDeferred = async { h.vm.events.first { it is TasksNavEvent.OpenSession && it.sessionId == "sess-new" } }
+            h.vm.replaceWithSessionChannel(ext.selectedTask!!, ext.selectedTask!!.channels.single(), "ops")
+            withTimeout(5_000) { navDeferred.await() }
+            assertTrue(replacedOnServer)
+            assertFalse(sessionMessagesFetchedForExt)
+        } finally {
+            h.vm.clearExternalTaskContext("t2")
+            h.vm.setVisible(false)
             h.connection.stop()
         }
     }
