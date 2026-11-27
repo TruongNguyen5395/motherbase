@@ -31,6 +31,23 @@ data class DispatchSessionEntry(
     val managed: Boolean = false,
 )
 
+/** Cached link between a hosted room and its owning Directus Dispatch task. */
+@Serializable
+data class DispatchRoomEntry(
+    val roomId: String,
+    val taskId: String,
+    val taskTitle: String,
+    val taskStatus: String = DirectusTask.STATUS_TODO,
+)
+
+/** Navigation request to open Dispatch directly on [taskId] (or Coordinator when [DispatchSessionsStore.COORDINATOR_TASK_ID]). */
+data class DispatchJumpTarget(
+    val gateway: GatewayUrl,
+    val taskId: String,
+    val channelId: String? = null,
+    val requestSeq: Long = 0L,
+)
+
 /** Gateway session archive/unarchive changes triggered by Dispatch task transitions. */
 data class SessionLifecycleChange(
     val gateway: GatewayUrl,
@@ -55,8 +72,14 @@ class DispatchSessionsStore(
     private val _byGateway = MutableStateFlow<Map<GatewayUrl, Map<String, DispatchSessionEntry>>>(emptyMap())
     val byGateway: StateFlow<Map<GatewayUrl, Map<String, DispatchSessionEntry>>> = _byGateway.asStateFlow()
 
+    private val _roomsByGateway = MutableStateFlow<Map<GatewayUrl, Map<String, DispatchRoomEntry>>>(emptyMap())
+    val roomsByGateway: StateFlow<Map<GatewayUrl, Map<String, DispatchRoomEntry>>> = _roomsByGateway.asStateFlow()
+
     private val _coordinatorByGateway = MutableStateFlow<Map<GatewayUrl, DispatchCoordinatorConfig>>(emptyMap())
     val coordinatorByGateway: StateFlow<Map<GatewayUrl, DispatchCoordinatorConfig>> = _coordinatorByGateway.asStateFlow()
+
+    private val _pendingJump = MutableStateFlow<DispatchJumpTarget?>(null)
+    val pendingJump: StateFlow<DispatchJumpTarget?> = _pendingJump.asStateFlow()
 
     private val _lifecycleChanges = MutableSharedFlow<SessionLifecycleChange>(extraBufferCapacity = 32)
     val lifecycleChanges: SharedFlow<SessionLifecycleChange> = _lifecycleChanges.asSharedFlow()
@@ -64,8 +87,28 @@ class DispatchSessionsStore(
     fun entriesFor(gateway: GatewayUrl): Flow<Map<String, DispatchSessionEntry>> =
         byGateway.map { it[gateway].orEmpty() }.distinctUntilChanged()
 
+    fun roomsFor(gateway: GatewayUrl): Flow<Map<String, DispatchRoomEntry>> =
+        roomsByGateway.map { it[gateway].orEmpty() }.distinctUntilChanged()
+
     fun coordinatorFor(gateway: GatewayUrl): Flow<DispatchCoordinatorConfig?> =
         coordinatorByGateway.map { it[gateway] }.distinctUntilChanged()
+
+    /** Requests navigation to Dispatch opened directly on [taskId] (or Coordinator). */
+    fun requestOpenTask(gateway: GatewayUrl, taskId: String, channelId: String? = null) {
+        _pendingJump.update { cur ->
+            DispatchJumpTarget(
+                gateway = gateway,
+                taskId = taskId,
+                channelId = channelId,
+                requestSeq = (cur?.requestSeq ?: 0L) + 1L,
+            )
+        }
+    }
+
+    /** Clears [expected] once handled by Dispatch without discarding a newer jump request. */
+    fun consumeJump(expected: DispatchJumpTarget) {
+        _pendingJump.compareAndSet(expected, null)
+    }
 
     /** Hydrates the in-memory index from disk for [gateway] if not loaded yet. */
     suspend fun warm(gateway: GatewayUrl) {
@@ -77,6 +120,17 @@ class DispatchSessionsStore(
             if (cached != null) {
                 val indexed = cached.associateBy { it.sessionId }
                 _byGateway.update { cur ->
+                    if (gateway in cur) cur else cur + (gateway to indexed)
+                }
+            }
+        }
+        if (gateway !in _roomsByGateway.value) {
+            val cachedRooms = store.get(roomCacheKey(gateway))?.let { raw ->
+                runCatching { HermesJson.decodeFromString(ROOM_LIST_SERIALIZER, raw) }.getOrNull()
+            }
+            if (cachedRooms != null) {
+                val indexed = cachedRooms.associateBy { it.roomId }
+                _roomsByGateway.update { cur ->
                     if (gateway in cur) cur else cur + (gateway to indexed)
                 }
             }
@@ -133,42 +187,51 @@ class DispatchSessionsStore(
         pluginMissing[gateway] = false
         lastSyncedAt[gateway] = nowMs()
         val boardTaskIds = tasks.mapTo(HashSet()) { it.id }
-        val nextMap = stateMutex.withLock {
+        val (nextMap, nextRooms) = stateMutex.withLock {
             val previous = _byGateway.value[gateway].orEmpty()
             val merged = LinkedHashMap<String, DispatchSessionEntry>()
-            if (!includeDone) {
-                for ((sid, entry) in previous) {
-                    if (entry.taskId == COORDINATOR_TASK_ID) {
-                        merged[sid] = entry
-                    } else if (entry.taskId !in boardTaskIds && merged.size < MAX_RETAINED_DONE_ENTRIES) {
+            for ((sid, entry) in previous) {
+                when {
+                    entry.taskId == COORDINATOR_TASK_ID -> merged[sid] = entry
+                    !includeDone && entry.taskId !in boardTaskIds && merged.size < MAX_RETAINED_DONE_ENTRIES -> {
                         merged[sid] = entry.copy(taskStatus = DirectusTask.STATUS_DONE)
                     }
                 }
-            } else {
-                for ((sid, entry) in previous) {
-                    if (entry.taskId == COORDINATOR_TASK_ID) {
-                        merged[sid] = entry
+            }
+            val previousRooms = _roomsByGateway.value[gateway].orEmpty()
+            val mergedRooms = LinkedHashMap<String, DispatchRoomEntry>()
+            if (!includeDone) {
+                for ((rid, entry) in previousRooms) {
+                    if (entry.taskId !in boardTaskIds && mergedRooms.size < MAX_RETAINED_DONE_ENTRIES) {
+                        mergedRooms[rid] = entry.copy(taskStatus = DirectusTask.STATUS_DONE)
                     }
                 }
             }
-            upsertTasksInto(merged, tasks)
-            merged.toMap()
+            upsertTasksInto(merged, mergedRooms, tasks)
+            merged.toMap() to mergedRooms.toMap()
         }
         publish(gateway, nextMap)
+        publishRooms(gateway, nextRooms)
     }
 
     /** Applies a single updated [task] (e.g., new channel attached or task reopened/completed). */
     suspend fun syncTask(gateway: GatewayUrl, task: DirectusTask) {
-        val nextMap = stateMutex.withLock {
+        val (nextMap, nextRooms) = stateMutex.withLock {
             val current = _byGateway.value[gateway].orEmpty()
             val updated = LinkedHashMap<String, DispatchSessionEntry>()
             for ((sid, entry) in current) {
                 if (entry.taskId != task.id) updated[sid] = entry
             }
-            upsertTasksInto(updated, listOf(task))
-            updated.toMap()
+            val currentRooms = _roomsByGateway.value[gateway].orEmpty()
+            val updatedRooms = LinkedHashMap<String, DispatchRoomEntry>()
+            for ((rid, entry) in currentRooms) {
+                if (entry.taskId != task.id) updatedRooms[rid] = entry
+            }
+            upsertTasksInto(updated, updatedRooms, listOf(task))
+            updated.toMap() to updatedRooms.toMap()
         }
         publish(gateway, nextMap)
+        publishRooms(gateway, nextRooms)
     }
 
     /** Removes cached Directus entries for [gateway] (e.g., Directus not configured there). */
@@ -177,6 +240,7 @@ class DispatchSessionsStore(
             lastSyncedAt[gateway] = nowMs()
         }
         publish(gateway, emptyMap())
+        publishRooms(gateway, emptyMap())
     }
 
     /**
@@ -229,28 +293,48 @@ class DispatchSessionsStore(
         )
     }
 
+    private fun shouldKeepExistingActive(
+        existingTaskId: String?,
+        existingTaskStatus: String?,
+        incomingTask: DirectusTask,
+    ): Boolean = existingTaskId != null &&
+        existingTaskId != incomingTask.id &&
+        existingTaskStatus != DirectusTask.STATUS_DONE &&
+        incomingTask.status == DirectusTask.STATUS_DONE
+
     private fun upsertTasksInto(
-        target: MutableMap<String, DispatchSessionEntry>,
+        targetSessions: MutableMap<String, DispatchSessionEntry>,
+        targetRooms: MutableMap<String, DispatchRoomEntry>,
         tasks: List<DirectusTask>,
     ) {
-        // Insert done tasks first so active tasks cleanly take ownership if two tasks share a session id.
+        // Insert done tasks first so active tasks cleanly take ownership if two tasks share a channel id.
         val ordered = tasks.sortedBy { if (it.status == DirectusTask.STATUS_DONE) 0 else 1 }
         for (task in ordered) {
             for (ch in task.channels) {
-                if (!ch.isSession) continue
-                val existing = target[ch.id]
-                val existingIsActiveOther = existing != null &&
-                    existing.taskId != task.id &&
-                    existing.taskStatus != DirectusTask.STATUS_DONE
-                if (existingIsActiveOther && task.status == DirectusTask.STATUS_DONE) continue
-                target[ch.id] = DispatchSessionEntry(
-                    sessionId = ch.id,
-                    taskId = task.id,
-                    taskTitle = task.title,
-                    taskStatus = task.status,
-                    profile = ch.profile,
-                    managed = ch.isAutoManagedSession,
-                )
+                when {
+                    ch.isSession -> {
+                        val existing = targetSessions[ch.id]
+                        if (shouldKeepExistingActive(existing?.taskId, existing?.taskStatus, task)) continue
+                        targetSessions[ch.id] = DispatchSessionEntry(
+                            sessionId = ch.id,
+                            taskId = task.id,
+                            taskTitle = task.title,
+                            taskStatus = task.status,
+                            profile = ch.profile,
+                            managed = ch.isAutoManagedSession,
+                        )
+                    }
+                    ch.isRoom -> {
+                        val existing = targetRooms[ch.id]
+                        if (shouldKeepExistingActive(existing?.taskId, existing?.taskStatus, task)) continue
+                        targetRooms[ch.id] = DispatchRoomEntry(
+                            roomId = ch.id,
+                            taskId = task.id,
+                            taskTitle = task.title,
+                            taskStatus = task.status,
+                        )
+                    }
+                }
             }
         }
     }
@@ -264,13 +348,24 @@ class DispatchSessionsStore(
         }
     }
 
+    private suspend fun publishRooms(gateway: GatewayUrl, map: Map<String, DispatchRoomEntry>) {
+        val changed = _roomsByGateway.value[gateway] != map
+        _roomsByGateway.update { cur -> cur + (gateway to map) }
+        if (changed && store != null) {
+            if (map.isEmpty()) store.remove(roomCacheKey(gateway))
+            else store.put(roomCacheKey(gateway), HermesJson.encodeToString(ROOM_LIST_SERIALIZER, map.values.toList()))
+        }
+    }
+
     private fun cacheKey(gateway: GatewayUrl): String = "dispatch.sessions.v1.${gateway.value}"
+    private fun roomCacheKey(gateway: GatewayUrl): String = "dispatch.rooms.v1.${gateway.value}"
     private fun coordinatorCacheKey(gateway: GatewayUrl): String = "dispatch.coordinator.v1.${gateway.value}"
 
     companion object {
         const val COORDINATOR_TASK_ID = "__dispatch_coordinator__"
         const val COORDINATOR_SESSION_TITLE = "Dispatch · Coordinator"
         private val LIST_SERIALIZER = ListSerializer(DispatchSessionEntry.serializer())
+        private val ROOM_LIST_SERIALIZER = ListSerializer(DispatchRoomEntry.serializer())
         private const val SYNC_TTL_MS = 60_000L
         private const val MAX_RETAINED_DONE_ENTRIES = 200
     }

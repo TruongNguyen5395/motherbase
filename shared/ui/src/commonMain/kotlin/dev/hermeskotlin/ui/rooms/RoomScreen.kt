@@ -178,13 +178,23 @@ fun RoomScreen(
     viewModel: RoomsViewModel = koinViewModel(),
     onOpenSidebar: () -> Unit,
     onBack: () -> Unit,
+    onBackToDispatch: (() -> Unit)? = null,
     onOpenFile: (String?, GatewayFile) -> Unit = { _, _ -> },
     /** Off while a page covers the room (Settings, the bot editor, a plugin), so its keys don't type in it unseen. */
     keysEnabled: Boolean = true,
 ) {
     val open by viewModel.opened.collectAsStateWithLifecycle()
     val room = open ?: return
-    RoomView(room, viewModel, LocalBotFaces.current, onOpenSidebar = onOpenSidebar, onBack = onBack, onOpenFile = onOpenFile, keysEnabled = keysEnabled)
+    RoomView(
+        room,
+        viewModel,
+        LocalBotFaces.current,
+        onOpenSidebar = onOpenSidebar,
+        onBack = onBack,
+        onBackToDispatch = onBackToDispatch,
+        onOpenFile = onOpenFile,
+        keysEnabled = keysEnabled,
+    )
 }
 
 /** What an open room can ask for; [RoomsViewModel] does it all, previews nothing. */
@@ -212,6 +222,7 @@ internal fun RoomView(
     faces: BotFaces,
     onOpenSidebar: () -> Unit,
     onBack: () -> Unit,
+    onBackToDispatch: (() -> Unit)? = null,
     onOpenFile: (String?, GatewayFile) -> Unit = { _, _ -> },
     keysEnabled: Boolean = true,
 ) {
@@ -239,6 +250,7 @@ internal fun RoomView(
                 onOpenSidebar = onOpenSidebar,
                 onNewChat = null,
                 onOpenMenu = null,
+                onBackToDispatch = onBackToDispatch,
                 trailing = {
                     var menuOpen by remember { mutableStateOf(false) }
                     val options = stringResource(Res.string.rooms_options)

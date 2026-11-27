@@ -152,4 +152,13 @@
     <string name="tasks_matrix_drag_hint">Arraste a alça entre quadrantes ou toque no selo para precisão 3×3.</string>
     <string name="tasks_matrix_apply">Aplicar</string>
     <string name="tasks_inspector_details">Detalhes</string>
+    <string name="tasks_back_to_dispatch">Voltar ao Dispatch</string>
+    <string name="tasks_pick_agent_short">Escolher agente</string>
+    <string name="tasks_drop_pick_agent">Descartar e escolher novo agente…</string>
+    <string name="tasks_drop_pick_room">Descartar e escolher nova sala…</string>
+    <string name="tasks_remove_channel">Remover canal</string>
+    <string name="tasks_open_channel">Abrir canal</string>
+    <string name="tasks_replace_room_confirm">Trocar sala</string>
+    <string name="tasks_agent_mismatch_notice">Atribuído a %1$s · sessão atual é %2$s</string>
+    <string name="tasks_switch_to_agent">Mudar para %1$s</string>
 </resources>

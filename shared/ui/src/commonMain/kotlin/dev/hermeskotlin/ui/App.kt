@@ -116,6 +116,7 @@ import dev.hermeskotlin.core.inbox.InboxLink
 import dev.hermeskotlin.core.inbox.InboxLinks
 import dev.hermeskotlin.core.inbox.InboxStore
 import dev.hermeskotlin.core.rooms.RoomLinks
+import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import org.koin.compose.koinInject
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -744,7 +745,13 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                         reportChatProfile(owner, chatsProfile, profileRoster?.takeIf { it.launchKnown }?.launch)
                     }
                     if (session.id != openSessionId || (session.profile != null && targetProfile != route.target.profile)) {
-                        app.openSession(session.id, session.displayTitle, readUpTo, profile = targetProfile)
+                        app.openSession(
+                            session.id,
+                            session.displayTitle,
+                            readUpTo,
+                            profile = targetProfile,
+                            fallbackToCurrentProfile = session.profile == null,
+                        )
                     }
                     closeDrawerToChat()
                 },
@@ -817,7 +824,9 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                 },
                 onOpenTaskSession = { sessionId, title, targetProfile ->
                     mainPage.close()
-                    app.openSession(sessionId, title, profile = targetProfile)
+                    val launch = profileRoster?.takeIf { it.launchKnown }?.launch
+                    val resolvedProfile = reportChatProfile(targetProfile ?: launch ?: Bot.DEFAULT, chatsProfile, launch)
+                    app.openSession(sessionId, title, profile = resolvedProfile, fallbackToCurrentProfile = false)
                     closeDrawerToChat()
                 },
                 onCloseSidebar = { if (!sidebar.docked) scope.launch { sidebar.close() } },
@@ -827,6 +836,13 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
         },
     ) {
         CompositionLocalProvider(LocalBotFaces provides faces) {
+            val dispatchStore: DispatchSessionsStore = koinInject()
+            val dispatchRooms by sessions.dispatchRooms.collectAsStateWithLifecycle()
+            val activeRoomEntry = openRoom?.room?.roomId?.let { dispatchRooms[it] }
+            val activeSessionKey = openSessionId ?: route.target.storedSessionId
+            val activeDispatchSession by remember(sessions, activeSessionKey) {
+                sessions.dispatchEntryFlow(activeSessionKey)
+            }.collectAsStateWithLifecycle(null)
             val page = mainPage.content
             when {
                 // A list a desktop window would stretch past reading stays a page's width, in the middle.
@@ -850,6 +866,12 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                     viewModel = rooms,
                     onOpenSidebar = { scope.launch { sidebar.toggle() } },
                     onBack = rooms::close,
+                    onBackToDispatch = activeRoomEntry?.let { entry ->
+                        {
+                            rooms.close()
+                            dispatchStore.requestOpenTask(route.gateway.gatewayUrl, entry.taskId, entry.roomId)
+                        }
+                    },
                     onOpenFile = openRoomFile,
                     keysEnabled = !settingsOpen && pluginUrl == null && editing == null,
                 )
@@ -873,7 +895,14 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                                 menuOpen = true
                             }
                         },
-                        onOpenChat = { id, title -> app.openSession(id, title ?: untitled) },
+                        onOpenChat = { id, title ->
+                            app.openSession(
+                                id,
+                                title ?: untitled,
+                                profile = route.target.profile,
+                                fallbackToCurrentProfile = false,
+                            )
+                        },
                         onSwitchProfile = app::switchProfile,
                         viewModel = chat,
                         // Not while a page or the chat's menu covers it: typing there mustn't land in the composer.
@@ -894,6 +923,11 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                             return next != null
                         },
                         greetingPlaces = greetingPlaces,
+                        onBackToDispatch = activeDispatchSession?.let { entry ->
+                            {
+                                dispatchStore.requestOpenTask(route.gateway.gatewayUrl, entry.taskId, entry.sessionId)
+                            }
+                        },
                         onRailWidthChange = if (isDesktop) { width -> sidebarWidthStore.update { it.copy(railWidth = width.value.roundToInt()) } } else null,
                     )
                 }

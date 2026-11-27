@@ -163,8 +163,10 @@ import dev.hermeskotlin.designsystem.components.ButtonVariant
 import dev.hermeskotlin.designsystem.components.Chip
 import dev.hermeskotlin.designsystem.components.Dialog
 import dev.hermeskotlin.designsystem.components.DropdownMenu
+import dev.hermeskotlin.designsystem.components.DropdownMenuPanelScope
 import dev.hermeskotlin.designsystem.components.IconButton
 import dev.hermeskotlin.designsystem.components.MarkdownText
+import dev.hermeskotlin.designsystem.components.MenuAction
 import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.MinTouchTarget
 import dev.hermeskotlin.designsystem.components.Spinner
@@ -283,6 +285,10 @@ internal data class TasksBoardActions(
     val onAckTaskReply: (taskId: String) -> Unit = {},
     val onCreateSessionChannel: (DirectusTask, profile: String?) -> Unit = { _, _ -> },
     val onCreateRoomChannel: (DirectusTask, members: List<Bot>) -> Unit = { _, _ -> },
+    val onReplaceWithSession: (DirectusTask, oldChannel: TaskChannel, profile: String?) -> Unit = { _, _, _ -> },
+    val onReplaceWithRoom: (DirectusTask, oldChannel: TaskChannel, members: List<Bot>) -> Unit = { _, _, _ -> },
+    val onUnlinkChannel: (DirectusTask, channel: TaskChannel) -> Unit = { _, _ -> },
+    val onSwitchToAssignedAgent: (DirectusTask) -> Unit = {},
     val onSendToChannel: (DirectusTask, text: String) -> Unit = { _, _ -> },
     val onOpenCoordinator: () -> Unit = {},
     val onCloseCoordinator: () -> Unit = {},
@@ -421,8 +427,12 @@ internal fun TasksPage(
                 voiceController.finishDictation()
             } else {
                 val engine = (settingsStore.settings.value ?: AppSettings()).dictationEngine
-                val profile = state.activeChannel?.profile
-                    ?: if (state.coordinatorOpen) state.coordinatorConfig.profile else state.selectedTask?.assignedBots?.firstOrNull()
+                val activeCh = state.activeChannel
+                val profile = when {
+                    state.coordinatorOpen -> state.coordinatorConfig.profile.ifBlank { null }
+                    activeCh != null -> activeCh.profile
+                    else -> state.selectedTask?.assignedBots?.firstOrNull()
+                }
                 val typed = fieldState.text.toString()
                 var shown = typed
                 fun withSpoken(base: String, spoken: String) = if (base.isBlank()) spoken else "${base.trimEnd()} $spoken"
@@ -473,6 +483,10 @@ internal fun TasksPage(
             onAckTaskReply = viewModel::ackTaskReply,
             onCreateSessionChannel = viewModel::openOrCreateSessionChannel,
             onCreateRoomChannel = viewModel::openOrCreateRoomChannel,
+            onReplaceWithSession = viewModel::replaceWithSessionChannel,
+            onReplaceWithRoom = viewModel::replaceWithRoomChannel,
+            onUnlinkChannel = viewModel::unlinkChannel,
+            onSwitchToAssignedAgent = viewModel::switchToAssignedAgent,
             onSendToChannel = viewModel::sendToActiveChannel,
             onOpenCoordinator = { viewModel.openCoordinator(autoCheckinPrompt = false) },
             onCloseCoordinator = viewModel::closeCoordinator,
@@ -565,8 +579,8 @@ internal fun TasksBoardContent(
     var setupDialogOpen by remember { mutableStateOf(false) }
     var newProjectOpen by remember { mutableStateOf(false) }
     var newTaskOpen by remember { mutableStateOf(false) }
-    var pickSessionFor by remember { mutableStateOf<DirectusTask?>(null) }
-    var pickRoomFor by remember { mutableStateOf<DirectusTask?>(null) }
+    var pickSessionFor by remember { mutableStateOf<PickChannelTarget?>(null) }
+    var pickRoomFor by remember { mutableStateOf<PickChannelTarget?>(null) }
     var modelsOpen by remember { mutableStateOf(false) }
     var attachOpen by remember { mutableStateOf(false) }
     val modelPillBounds = remember { mutableStateOf<Rect?>(null) }
@@ -711,8 +725,12 @@ internal fun TasksBoardContent(
                     onAckReply = { actions.onAckTaskReply(selected.id) },
                     onSelectChannel = actions.onSelectChannel,
                     onRefreshChannel = actions.onRefreshChannel,
-                    onOpenPickSession = { pickSessionFor = selected },
-                    onOpenPickRoom = { pickRoomFor = selected },
+                    onOpenPickSession = { pickSessionFor = PickChannelTarget(selected) },
+                    onOpenPickRoom = { pickRoomFor = PickChannelTarget(selected) },
+                    onReplaceWithSession = { ch -> pickSessionFor = PickChannelTarget(selected, replaceChannel = ch) },
+                    onReplaceWithRoom = { ch -> pickRoomFor = PickChannelTarget(selected, replaceChannel = ch) },
+                    onUnlinkChannel = { ch -> actions.onUnlinkChannel(selected, ch) },
+                    onSwitchToAssignedAgent = { actions.onSwitchToAssignedAgent(selected) },
                     onOpenFullscreen = { ch -> actions.onOpenFullscreen(selected, ch) },
                     onPreparePlan = { actions.onPreparePlan(selected) },
                     onApprovePlan = { opt, selectedParams, tweaks ->
@@ -905,23 +923,36 @@ internal fun TasksBoardContent(
         )
     }
 
-    pickSessionFor?.let { task ->
+    pickSessionFor?.let { target ->
         PickSessionBotDialog(
             bots = state.bots,
             onDismiss = { pickSessionFor = null },
             onPick = { profile ->
-                actions.onCreateSessionChannel(task, profile)
+                if (target.replaceChannel != null) {
+                    actions.onReplaceWithSession(target.task, target.replaceChannel, profile)
+                } else {
+                    actions.onCreateSessionChannel(target.task, profile)
+                }
                 pickSessionFor = null
             },
         )
     }
 
-    pickRoomFor?.let { task ->
+    pickRoomFor?.let { target ->
         PickRoomBotsDialog(
             bots = state.bots,
+            confirmLabel = if (target.replaceChannel != null) {
+                stringResource(Res.string.tasks_replace_room_confirm)
+            } else {
+                stringResource(Res.string.tasks_add_room)
+            },
             onDismiss = { pickRoomFor = null },
             onCreate = { members ->
-                actions.onCreateRoomChannel(task, members)
+                if (target.replaceChannel != null) {
+                    actions.onReplaceWithRoom(target.task, target.replaceChannel, members)
+                } else {
+                    actions.onCreateRoomChannel(target.task, members)
+                }
                 pickRoomFor = null
             },
         )
@@ -2624,6 +2655,10 @@ private fun TaskDetailInspector(
     onRefreshChannel: () -> Unit,
     onOpenPickSession: () -> Unit,
     onOpenPickRoom: () -> Unit,
+    onReplaceWithSession: (TaskChannel) -> Unit = {},
+    onReplaceWithRoom: (TaskChannel) -> Unit = {},
+    onUnlinkChannel: (TaskChannel) -> Unit = {},
+    onSwitchToAssignedAgent: () -> Unit = {},
     onOpenFullscreen: (TaskChannel) -> Unit,
     onPreparePlan: () -> Unit,
     onApprovePlan: (ReplyInteraction.Option, Map<String, String>, List<TweakDeltaInput>) -> Unit,
@@ -2810,6 +2845,68 @@ private fun TaskDetailInspector(
             }
         }
 
+        val activeHandler = remember(activeChannel, bots, task.assignedBots) {
+            activeChannel?.let { resolveChannelHandler(it, bots, task.assignedBots) }
+        }
+        val assignedPrimary = task.assignedBots.firstOrNull()?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }
+        val handlerMismatch = activeChannel != null &&
+            !activeChannel.isRoom &&
+            assignedPrimary != null &&
+            activeHandler?.effectiveProfile?.equals(assignedPrimary, ignoreCase = true) == false
+        if (handlerMismatch) {
+            val bannerShape = RoundedCornerShape(Theme[radii][radiusMedium])
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
+                    .clip(bannerShape)
+                    .background(Theme[colors][warningSoft].compositeOver(Theme[colors][surface]))
+                    .border(1.dp, Theme[colors][warning].copy(alpha = 0.45f), bannerShape)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UnstyledIcon(Lucide.TriangleAlert, contentDescription = null, tint = Theme[colors][warning], modifier = Modifier.size(13.dp))
+                    Text(
+                        stringResource(
+                            Res.string.tasks_agent_mismatch_notice,
+                            "@$assignedPrimary",
+                            "@${activeHandler?.effectiveProfile.orEmpty()}",
+                        ),
+                        style = Theme[typography][caption],
+                        color = Theme[colors][textColor],
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Row(
+                    Modifier
+                        .testTag("inspector_switch_assigned_agent")
+                        .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                        .background(Theme[colors][surface])
+                        .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(Theme[radii][radiusSmall]))
+                        .clickable(enabled = !busy, role = Role.Button, onClick = onSwitchToAssignedAgent)
+                        .handCursor(enabled = !busy)
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UnstyledIcon(Lucide.RefreshCw, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(11.dp))
+                    Text(
+                        stringResource(Res.string.tasks_switch_to_agent, "@$assignedPrimary"),
+                        style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
+                        color = Theme[colors][accentText],
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+
         AnimatedVisibility(
             visible = detailsExpanded,
             enter = expandVertically() + fadeIn(),
@@ -2860,11 +2957,16 @@ private fun TaskDetailInspector(
 
                 TaskChannelsSection(
                     channels = task.channels,
+                    bots = bots,
+                    assignedBots = task.assignedBots,
                     activeIdx = activeChannelIdx,
                     busy = busy,
                     onSelectChannel = onSelectChannel,
                     onOpenPickSession = onOpenPickSession,
                     onOpenPickRoom = onOpenPickRoom,
+                    onReplaceWithSession = onReplaceWithSession,
+                    onReplaceWithRoom = onReplaceWithRoom,
+                    onUnlinkChannel = onUnlinkChannel,
                 )
 
                 if (calendarPluginAvailable || timeBlocks.isNotEmpty() || task.estimatedMinutes != null) {
@@ -2897,6 +2999,23 @@ private fun TaskDetailInspector(
                 error = channelError,
                 turnRunning = sendingToChannel || channelTurnRunning,
                 turnStatus = channelTurnStatus,
+                channelHeaderChip = {
+                    TaskChannelHandlerBadge(
+                        channels = task.channels,
+                        activeIdx = activeChannelIdx,
+                        activeChannel = activeChannel,
+                        bots = bots,
+                        botAvatars = botAvatars,
+                        assignedBots = task.assignedBots,
+                        busy = busy,
+                        onSelectChannel = onSelectChannel,
+                        onOpenPickSession = onOpenPickSession,
+                        onOpenPickRoom = onOpenPickRoom,
+                        onReplaceWithSession = onReplaceWithSession,
+                        onReplaceWithRoom = onReplaceWithRoom,
+                        onUnlinkChannel = onUnlinkChannel,
+                    )
+                },
                 onRefresh = onRefreshChannel,
                 onOpenFullscreen = activeChannel?.let { ch -> { onOpenFullscreen(ch) } },
                 onSelectInteraction = onSendToChannel,
@@ -3157,12 +3276,18 @@ private fun ActionPill(
 @Composable
 private fun TaskChannelsSection(
     channels: List<TaskChannel>,
+    bots: List<Bot>,
+    assignedBots: List<String>,
     activeIdx: Int,
     busy: Boolean,
     onSelectChannel: (Int) -> Unit,
     onOpenPickSession: () -> Unit,
     onOpenPickRoom: () -> Unit,
+    onReplaceWithSession: (TaskChannel) -> Unit,
+    onReplaceWithRoom: (TaskChannel) -> Unit,
+    onUnlinkChannel: (TaskChannel) -> Unit,
 ) {
+    val menuHint = stringResource(Res.string.tasks_drop_pick_agent)
     FlowRow(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -3170,17 +3295,51 @@ private fun TaskChannelsSection(
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         channels.forEachIndexed { idx, ch ->
-            val baseLabel = ch.label.ifBlank { if (ch.isRoom) "Room" else "Session" }
-            val displayLabel = if (ch.isRoom && !baseLabel.startsWith("Room", ignoreCase = true)) {
-                "Room · $baseLabel"
-            } else {
-                baseLabel
+            val info = remember(ch, bots, assignedBots) { resolveChannelHandler(ch, bots, assignedBots) }
+            val isActive = idx == activeIdx
+            var menuOpen by remember(ch.id) { mutableStateOf(false) }
+            DropdownMenu(
+                expanded = menuOpen,
+                onExpandedChange = { menuOpen = it },
+                items = {
+                    if (!isActive) {
+                        MenuAction(
+                            text = stringResource(Res.string.tasks_open_channel),
+                            icon = if (ch.isRoom) Lucide.Users else Lucide.MessageSquare,
+                            onClick = {
+                                menuOpen = false
+                                onSelectChannel(idx)
+                            },
+                        )
+                    }
+                    ChannelDropMenuActions(
+                        onReplaceWithSession = {
+                            menuOpen = false
+                            onReplaceWithSession(ch)
+                        },
+                        onReplaceWithRoom = {
+                            menuOpen = false
+                            onReplaceWithRoom(ch)
+                        },
+                        onUnlink = {
+                            menuOpen = false
+                            onUnlinkChannel(ch)
+                        },
+                    )
+                },
+            ) {
+                Chip(
+                    text = info.fullChipLabel,
+                    selected = isActive,
+                    onClick = {
+                        if (!busy) {
+                            if (channels.size == 1 || isActive) menuOpen = true else onSelectChannel(idx)
+                        }
+                    },
+                    onLongClick = { if (!busy) menuOpen = true },
+                    onLongClickLabel = menuHint,
+                )
             }
-            Chip(
-                text = displayLabel,
-                selected = idx == activeIdx,
-                onClick = { onSelectChannel(idx) },
-            )
         }
         ActionPill(
             icon = Lucide.MessageSquare,
@@ -3196,6 +3355,243 @@ private fun TaskChannelsSection(
             enabled = !busy,
             onClick = onOpenPickRoom,
         )
+    }
+}
+
+private data class PickChannelTarget(
+    val task: DirectusTask,
+    val replaceChannel: TaskChannel? = null,
+)
+
+private data class ChannelHandlerInfo(
+    val shortLabel: String,
+    val fullChipLabel: String,
+    val bot: Bot?,
+    val effectiveProfile: String?,
+)
+
+private fun resolveChannelHandler(
+    channel: TaskChannel,
+    bots: List<Bot>,
+    assignedBots: List<String> = emptyList(),
+): ChannelHandlerInfo {
+    if (channel.isRoom) {
+        val raw = channel.label.trim()
+        val roomMembersText = when {
+            raw.startsWith("Room (", ignoreCase = true) && raw.endsWith(")") ->
+                raw.removePrefix("Room (").removePrefix("room (").removeSuffix(")")
+            raw.isNotBlank() -> raw
+            assignedBots.isNotEmpty() -> assignedBots.joinToString(", ") { "@${it.removePrefix("@")}" }
+            else -> ""
+        }
+        val full = when {
+            raw.startsWith("Room", ignoreCase = true) -> raw
+            roomMembersText.isNotBlank() -> "Room · $roomMembersText"
+            else -> "Room"
+        }
+        val short = if (roomMembersText.isNotBlank() && !raw.startsWith("Room", ignoreCase = true)) {
+            "Room · $roomMembersText"
+        } else {
+            full
+        }
+        return ChannelHandlerInfo(
+            shortLabel = short,
+            fullChipLabel = full,
+            bot = null,
+            effectiveProfile = null,
+        )
+    }
+    val defaultBot = bots.firstOrNull { it.isDefault }
+    val explicitProfile = channel.profile?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }
+    val effectiveProfile = explicitProfile ?: defaultBot?.name ?: Bot.DEFAULT
+    val matchedBot = explicitProfile?.let { p ->
+        bots.firstOrNull { it.name.equals(p, ignoreCase = true) }
+    } ?: defaultBot
+    val botLabel = matchedBot?.label?.trim()?.takeIf { it.isNotBlank() }
+    val displayName = when {
+        botLabel != null && !botLabel.equals(effectiveProfile, ignoreCase = true) -> "$botLabel (@$effectiveProfile)"
+        else -> "@$effectiveProfile"
+    }
+    return ChannelHandlerInfo(
+        shortLabel = displayName,
+        fullChipLabel = displayName,
+        bot = matchedBot,
+        effectiveProfile = effectiveProfile,
+    )
+}
+
+@Composable
+private fun DropdownMenuPanelScope.ChannelDropMenuActions(
+    onReplaceWithSession: () -> Unit,
+    onReplaceWithRoom: () -> Unit,
+    onUnlink: () -> Unit,
+) {
+    MenuAction(
+        text = stringResource(Res.string.tasks_drop_pick_agent),
+        icon = Lucide.Bot,
+        onClick = onReplaceWithSession,
+    )
+    MenuAction(
+        text = stringResource(Res.string.tasks_drop_pick_room),
+        icon = Lucide.Users,
+        onClick = onReplaceWithRoom,
+    )
+    MenuAction(
+        text = stringResource(Res.string.tasks_remove_channel),
+        icon = Lucide.Trash2,
+        onClick = onUnlink,
+    )
+}
+
+@Composable
+private fun TaskChannelHandlerBadge(
+    channels: List<TaskChannel>,
+    activeIdx: Int,
+    activeChannel: TaskChannel?,
+    bots: List<Bot>,
+    botAvatars: Map<String, ByteArray>,
+    assignedBots: List<String>,
+    busy: Boolean,
+    onSelectChannel: (Int) -> Unit,
+    onOpenPickSession: () -> Unit,
+    onOpenPickRoom: () -> Unit,
+    onReplaceWithSession: (TaskChannel) -> Unit,
+    onReplaceWithRoom: (TaskChannel) -> Unit,
+    onUnlinkChannel: (TaskChannel) -> Unit,
+) {
+    var menuOpen by remember(activeChannel?.id, channels.size) { mutableStateOf(false) }
+    val activeInfo = remember(activeChannel, bots, assignedBots) {
+        activeChannel?.let { resolveChannelHandler(it, bots, assignedBots) }
+    }
+    val unassignedHandler = remember(activeChannel, assignedBots, bots) {
+        if (activeChannel != null) null
+        else assignedBots.firstOrNull()?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }?.let { prof ->
+            val bot = bots.firstOrNull { it.name.equals(prof, ignoreCase = true) }
+            val label = bot?.label?.trim()?.takeIf { it.isNotBlank() && !it.equals(prof, ignoreCase = true) }
+            val text = if (label != null) "$label (@$prof)" else "@$prof"
+            bot to text
+        }
+    }
+    val badgeShape = RoundedCornerShape(Theme[radii][radiusFull])
+    val pillText = activeInfo?.shortLabel
+        ?: unassignedHandler?.second
+        ?: stringResource(Res.string.tasks_pick_agent_short)
+    val badgeBot = activeInfo?.bot ?: unassignedHandler?.first
+
+    DropdownMenu(
+        expanded = menuOpen,
+        onExpandedChange = { menuOpen = it },
+        items = {
+            if (activeChannel == null) {
+                MenuAction(
+                    text = stringResource(Res.string.tasks_pick_bot_title),
+                    icon = Lucide.Bot,
+                    onClick = {
+                        menuOpen = false
+                        onOpenPickSession()
+                    },
+                )
+                MenuAction(
+                    text = stringResource(Res.string.tasks_add_room),
+                    icon = Lucide.Users,
+                    onClick = {
+                        menuOpen = false
+                        onOpenPickRoom()
+                    },
+                )
+            } else {
+                if (channels.size > 1) {
+                    channels.forEachIndexed { idx, ch ->
+                        val info = resolveChannelHandler(ch, bots, assignedBots)
+                        MenuChoice(
+                            text = info.fullChipLabel,
+                            icon = if (ch.isRoom) Lucide.Users else Lucide.Bot,
+                            selected = idx == activeIdx,
+                            onClick = {
+                                menuOpen = false
+                                onSelectChannel(idx)
+                            },
+                        )
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                            .height(1.dp)
+                            .background(Theme[colors][stroke]),
+                    )
+                }
+                ChannelDropMenuActions(
+                    onReplaceWithSession = {
+                        menuOpen = false
+                        onReplaceWithSession(activeChannel)
+                    },
+                    onReplaceWithRoom = {
+                        menuOpen = false
+                        onReplaceWithRoom(activeChannel)
+                    },
+                    onUnlink = {
+                        menuOpen = false
+                        onUnlinkChannel(activeChannel)
+                    },
+                )
+            }
+        },
+    ) {
+        Row(
+            Modifier
+                .testTag("task_channel_handler_chip")
+                .clip(badgeShape)
+                .background(Theme[colors][surface])
+                .border(1.dp, Theme[colors][strokeStrong], badgeShape)
+                .clickable(enabled = !busy, role = Role.Button) { menuOpen = true }
+                .handCursor(enabled = !busy)
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            when {
+                activeChannel?.isRoom == true -> UnstyledIcon(
+                    Lucide.Users,
+                    contentDescription = null,
+                    tint = Theme[colors][accentText],
+                    modifier = Modifier.size(13.dp),
+                )
+                badgeBot != null -> BotAvatar(
+                    bot = badgeBot,
+                    picture = botAvatars[badgeBot.name],
+                    size = 15.dp,
+                )
+                else -> UnstyledIcon(
+                    Lucide.Bot,
+                    contentDescription = null,
+                    tint = Theme[colors][accentText],
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+            Text(
+                pillText,
+                style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
+                color = Theme[colors][textColor],
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (channels.size > 1) {
+                Text(
+                    "+${channels.size - 1}",
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textTertiary],
+                    maxLines = 1,
+                )
+            }
+            UnstyledIcon(
+                Lucide.ChevronDown,
+                contentDescription = null,
+                tint = Theme[colors][textTertiary],
+                modifier = Modifier.size(11.dp),
+            )
+        }
     }
 }
 
@@ -3311,6 +3707,7 @@ private fun TaskChannelLog(
     error: String?,
     turnRunning: Boolean,
     turnStatus: String?,
+    channelHeaderChip: (@Composable () -> Unit)? = null,
     onRefresh: () -> Unit,
     onOpenFullscreen: (() -> Unit)?,
     onSelectInteraction: ((String) -> Unit)? = null,
@@ -3335,15 +3732,22 @@ private fun TaskChannelLog(
             Modifier
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 stringResource(Res.string.tasks_chat_log).uppercase(),
                 style = Theme[typography][eyebrow],
                 color = Theme[colors][textTertiary],
-                modifier = Modifier.weight(1f),
+                maxLines = 1,
             )
+            if (channelHeaderChip != null) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    channelHeaderChip()
+                }
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             if (activeChannel != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
@@ -4803,6 +5207,10 @@ private fun PickSessionBotDialog(
     onPick: (profile: String?) -> Unit,
 ) {
     val visibleBots = remember(bots) { bots.filterNot { it.meta.hidden } }
+    val defaultBot = remember(visibleBots) { visibleBots.firstOrNull { it.isDefault } }
+    val nonDefaultBots = remember(visibleBots, defaultBot) {
+        if (defaultBot != null) visibleBots.filterNot { it.name == defaultBot.name } else visibleBots
+    }
     Dialog(
         visible = true,
         onDismissRequest = onDismiss,
@@ -4812,12 +5220,20 @@ private fun PickSessionBotDialog(
         },
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            BotPickRow(
-                label = stringResource(Res.string.tasks_default_bot),
-                sub = null,
-                onClick = { onPick(null) },
-            )
-            visibleBots.forEach { bot ->
+            if (defaultBot != null) {
+                BotPickRow(
+                    label = "${defaultBot.label} (${stringResource(Res.string.tasks_default_bot)})",
+                    sub = "@${defaultBot.name}",
+                    onClick = { onPick(defaultBot.name) },
+                )
+            } else {
+                BotPickRow(
+                    label = stringResource(Res.string.tasks_default_bot),
+                    sub = null,
+                    onClick = { onPick(null) },
+                )
+            }
+            nonDefaultBots.forEach { bot ->
                 BotPickRow(
                     label = bot.label,
                     sub = "@${bot.name}",
@@ -4854,6 +5270,7 @@ private fun BotPickRow(label: String, sub: String?, onClick: () -> Unit) {
 @Composable
 private fun PickRoomBotsDialog(
     bots: List<Bot>,
+    confirmLabel: String = stringResource(Res.string.tasks_add_room),
     onDismiss: () -> Unit,
     onCreate: (List<Bot>) -> Unit,
 ) {
@@ -4867,7 +5284,7 @@ private fun PickRoomBotsDialog(
         actions = {
             Button(stringResource(Res.string.common_cancel), onClick = onDismiss, variant = ButtonVariant.Ghost)
             Button(
-                stringResource(Res.string.tasks_add_room),
+                confirmLabel,
                 onClick = { onCreate(selected.toList()) },
                 enabled = selected.size >= 2,
             )

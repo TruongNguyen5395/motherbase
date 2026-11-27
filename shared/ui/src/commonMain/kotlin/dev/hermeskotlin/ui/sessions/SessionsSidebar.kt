@@ -539,6 +539,7 @@ fun SessionsSidebar(
     val threads by viewModel.threads.collectAsStateWithLifecycle()
     val dispatchSessions by viewModel.dispatchSessions.collectAsStateWithLifecycle()
     val dispatchCoordinator by viewModel.dispatchCoordinator.collectAsStateWithLifecycle()
+    val dispatchJump by viewModel.dispatchJump.collectAsStateWithLifecycle()
     var autoRoutedDispatchForGateway by remember { mutableStateOf<String?>(null) }
     var threadActions by remember { mutableStateOf<ThreadRow?>(null) }
     var renameThread by remember { mutableStateOf<ChatThread?>(null) }
@@ -568,6 +569,16 @@ fun SessionsSidebar(
         insightsOpen = false
     }
     val pageOpen = scheduledOpen || inboxOpen || tasksOpen || calendarOpen || routinesOf != null || capabilitiesOpen || configOpen || pluginsOpen || insightsOpen
+
+    LaunchedEffect(dispatchJump, activeGatewayUrl) {
+        val jump = dispatchJump ?: return@LaunchedEffect
+        if (jump.gateway.value != activeGatewayUrl) return@LaunchedEffect
+        if (searchOpen) closeSearch()
+        if (!tasksOpen) {
+            closePages()
+            tasksOpen = true
+        }
+    }
 
     LaunchedEffect(activeGatewayUrl, dispatchCoordinator, isConnected) {
         val coord = dispatchCoordinator ?: return@LaunchedEffect

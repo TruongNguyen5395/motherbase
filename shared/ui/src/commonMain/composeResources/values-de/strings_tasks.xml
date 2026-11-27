@@ -152,4 +152,13 @@
     <string name="tasks_matrix_drag_hint">Griff ziehen zum Verschieben oder Abzeichen für 3×3-Feinauswahl tippen.</string>
     <string name="tasks_matrix_apply">Übernehmen</string>
     <string name="tasks_inspector_details">Details</string>
+    <string name="tasks_back_to_dispatch">Zurück zu Dispatch</string>
+    <string name="tasks_pick_agent_short">Agent wählen</string>
+    <string name="tasks_drop_pick_agent">Verwerfen &amp; neuen Agent wählen…</string>
+    <string name="tasks_drop_pick_room">Verwerfen &amp; neuen Raum wählen…</string>
+    <string name="tasks_remove_channel">Kanal entfernen</string>
+    <string name="tasks_open_channel">Kanal öffnen</string>
+    <string name="tasks_replace_room_confirm">Raum wechseln</string>
+    <string name="tasks_agent_mismatch_notice">Zugewiesen an %1$s · aktive Sitzung ist %2$s</string>
+    <string name="tasks_switch_to_agent">Zu %1$s wechseln</string>
 </resources>

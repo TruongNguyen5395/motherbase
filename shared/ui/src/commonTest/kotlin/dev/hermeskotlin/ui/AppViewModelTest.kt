@@ -1030,4 +1030,25 @@ class AppViewModelTest {
         val work = (app.route.first { it is Route.Chat && it.target.profile == "work" } as Route.Chat).target
         assertNull(work.storedSessionId)
     }
+
+    @Test
+    fun openSessionPreservesExplicitLaunchProfileWhenFallbackDisabled() = runTest {
+        gateways.save(home)
+        signedIn(home)
+        val app = viewModel()
+        app.awaitChat(home)
+
+        app.switchProfile("work", fresh = true)
+        app.route.first { it is Route.Chat && it.target.profile == "work" }
+
+        // Default fallback keeps active sidebar profile when profile == null.
+        app.openSession("sess-side", "Sidebar chat", profile = null)
+        val withFallback = (app.route.first { it is Route.Chat && it.target.storedSessionId == "sess-side" } as Route.Chat).target
+        assertEquals("work", withFallback.profile)
+
+        // Explicit launch-profile opening preserves null instead of adopting "work".
+        app.openSession("sess-dispatch", "Dispatch task", profile = null, fallbackToCurrentProfile = false)
+        val pinnedLaunch = (app.route.first { it is Route.Chat && it.target.storedSessionId == "sess-dispatch" } as Route.Chat).target
+        assertNull(pinnedLaunch.profile)
+    }
 }

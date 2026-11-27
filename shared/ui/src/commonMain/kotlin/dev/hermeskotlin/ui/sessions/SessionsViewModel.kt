@@ -32,6 +32,8 @@ import dev.hermeskotlin.core.sessions.SessionSummary
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
+import dev.hermeskotlin.core.tasks.DispatchJumpTarget
+import dev.hermeskotlin.core.tasks.DispatchRoomEntry
 import dev.hermeskotlin.core.tasks.DispatchSessionEntry
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.threads.ChatThread
@@ -195,6 +197,41 @@ class SessionsViewModel(
             dispatchStore?.entriesFor(url) ?: flowOf(emptyMap())
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** Active/recent Directus Dispatch hosted rooms keyed by room id for the bound gateway. */
+    val dispatchRooms: StateFlow<Map<String, DispatchRoomEntry>> = bound
+        .flatMapLatest { scope ->
+            val url = scope?.first ?: return@flatMapLatest flowOf(emptyMap())
+            dispatchStore?.roomsFor(url) ?: flowOf(emptyMap())
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** Pending request from another screen (chat/room) to jump back to Dispatch on a specific task. */
+    val dispatchJump: StateFlow<DispatchJumpTarget?> =
+        dispatchStore?.pendingJump ?: MutableStateFlow(null)
+
+    /** Resolves the Dispatch session entry owning [sessionId] (checking compression lineage if known). */
+    fun dispatchEntryForSession(sessionId: String?): DispatchSessionEntry? =
+        resolveDispatchEntry(sessionId, dispatchSessions.value, _state.value.sessions)
+
+    /** Observes the Dispatch session entry owning [sessionId], emitting only when that match changes. */
+    fun dispatchEntryFlow(sessionId: String?): kotlinx.coroutines.flow.Flow<DispatchSessionEntry?> {
+        if (sessionId == null) return flowOf(null)
+        return combine(dispatchSessions, _state.map { it.sessions }.distinctUntilChanged()) { entries, listed ->
+            resolveDispatchEntry(sessionId, entries, listed)
+        }.distinctUntilChanged()
+    }
+
+    private fun resolveDispatchEntry(
+        sessionId: String?,
+        entries: Map<String, DispatchSessionEntry>,
+        listed: List<SessionSummary>,
+    ): DispatchSessionEntry? {
+        val sid = sessionId ?: return null
+        entries[sid]?.let { return it }
+        val summary = listed.firstOrNull { s -> s.id == sid || (s.lineageIds?.contains(sid) == true) } ?: return null
+        return entries[summary.id] ?: summary.lineageIds?.firstNotNullOfOrNull { entries[it] }
+    }
 
     /** Synced Dispatch Coordinator settings for the bound gateway (including check-in schedule and auto-open flag). */
     val dispatchCoordinator: StateFlow<DispatchCoordinatorConfig?> = bound

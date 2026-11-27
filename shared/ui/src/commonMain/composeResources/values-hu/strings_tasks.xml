@@ -152,4 +152,13 @@
     <string name="tasks_matrix_drag_hint">Húzd a fogantyút a negyedek között, vagy koppints a jelvényre a 3×3 rácshoz.</string>
     <string name="tasks_matrix_apply">Alkalmaz</string>
     <string name="tasks_inspector_details">Részletek</string>
+    <string name="tasks_back_to_dispatch">Vissza a Dispatch-hez</string>
+    <string name="tasks_pick_agent_short">Ügynök választása</string>
+    <string name="tasks_drop_pick_agent">Elvetés és új ügynök választása…</string>
+    <string name="tasks_drop_pick_room">Elvetés és új szoba választása…</string>
+    <string name="tasks_remove_channel">Csatorna eltávolítása</string>
+    <string name="tasks_open_channel">Csatorna megnyitása</string>
+    <string name="tasks_replace_room_confirm">Szoba váltása</string>
+    <string name="tasks_agent_mismatch_notice">Kijelölt: %1$s · aktív munkamenet: %2$s</string>
+    <string name="tasks_switch_to_agent">Váltás erre: %1$s</string>
 </resources>

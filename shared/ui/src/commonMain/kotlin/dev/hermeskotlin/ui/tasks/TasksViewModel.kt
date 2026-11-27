@@ -61,6 +61,7 @@ import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorUpdate
+import dev.hermeskotlin.core.tasks.DispatchJumpTarget
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.tasks.MatrixLevel
 import dev.hermeskotlin.core.tasks.TaskChannel
@@ -260,9 +261,12 @@ class TasksViewModel(
     private var turnPollJob: Job? = null
     private var modelsLoadJob: Job? = null
     private var roomSeenJob: Job? = null
+    private var refreshJob: Job? = null
+    private var fetchingBoard: Boolean = false
     private var pageVisible: Boolean = false
     private var lastAutoTriggeredSlot: String? = null
     private var dismissedCheckinSlot: String? = null
+    private var pendingExternalOpen: DispatchJumpTarget? = null
 
     private val proposalCoordinator = ScheduleProposalCoordinator(
         calendarApi = calendarApi,
@@ -313,16 +317,31 @@ class TasksViewModel(
         viewModelScope.launch {
             proposalCoordinator.pendingConflict.collect { c -> _state.update { it.copy(pendingProposalConflict = c) } }
         }
+        if (dispatchStore != null) {
+            viewModelScope.launch {
+                dispatchStore.pendingJump.collect { jump ->
+                    if (jump != null && boundGateway?.gatewayUrl == jump.gateway) {
+                        handleExternalJump(jump)
+                    }
+                }
+            }
+        }
     }
 
     override fun onCleared() {
+        refreshJob?.cancel()
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
         roomSeenJob?.cancel()
     }
 
     fun bind(gateway: SavedGateway) {
-        if (boundGateway == gateway && _state.value.config != null) return
+        val pendingForGateway = dispatchStore?.pendingJump?.value?.takeIf { it.gateway == gateway.gatewayUrl }
+        if (boundGateway == gateway && _state.value.config != null) {
+            if (pendingForGateway != null) handleExternalJump(pendingForGateway)
+            return
+        }
+        refreshJob?.cancel()
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
         roomSeenJob?.cancel()
@@ -330,6 +349,8 @@ class TasksViewModel(
         activeRuntimeChannelId = null
         lastAutoTriggeredSlot = null
         dismissedCheckinSlot = null
+        pendingExternalOpen = null
+        fetchingBoard = false
         boundGateway = gateway
         proposalCoordinator.clear()
         _state.update {
@@ -353,7 +374,11 @@ class TasksViewModel(
                 }
             }
         }
-        refresh()
+        if (pendingForGateway != null) {
+            handleExternalJump(pendingForGateway)
+        } else {
+            refresh()
+        }
     }
 
     fun setVisible(visible: Boolean) {
@@ -367,7 +392,8 @@ class TasksViewModel(
 
     fun refresh() {
         val gateway = boundGateway ?: return
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null, pluginMissing = false) }
             when (val cfgResult = directusApi.getConfig(gateway.gatewayUrl)) {
                 is ApiResult.SessionExpired -> {
@@ -414,7 +440,12 @@ class TasksViewModel(
 
     private suspend fun loadBoardAndMetadata(gateway: SavedGateway) {
         val includeDone = _state.value.includeDone
-        val boardResult = directusApi.fetchBoard(gateway.gatewayUrl, includeDone = includeDone)
+        fetchingBoard = true
+        val boardResult = try {
+            directusApi.fetchBoard(gateway.gatewayUrl, includeDone = includeDone)
+        } finally {
+            fetchingBoard = false
+        }
         if (boundGateway != gateway) return
         when (boardResult) {
             is ApiResult.SessionExpired -> _state.update { it.copy(loading = false, sessionExpired = true) }
@@ -423,14 +454,35 @@ class TasksViewModel(
             is ApiResult.InvalidCredentials, ApiResult.RateLimited -> _state.update { it.copy(loading = false, sessionExpired = true) }
             is ApiResult.Success -> {
                 val board = boardResult.value
+                val pending = pendingExternalOpen?.takeIf { it.gateway == gateway.gatewayUrl }
+                val pendingTask = pending?.let { p -> board.tasks.firstOrNull { it.id == p.taskId } }
+                if (pending != null && pendingTask == null) {
+                    if (!includeDone) {
+                        _state.update { it.copy(includeDone = true) }
+                        loadBoardAndMetadata(gateway)
+                        return
+                    } else {
+                        pendingExternalOpen = null
+                    }
+                } else if (pendingTask != null) {
+                    pendingExternalOpen = null
+                }
+
                 val today = currentLocalEpochDay()
                 _state.update { cur ->
                     val mergedConfig = board.coordinator?.let { coord ->
                         cur.config?.copy(coordinator = coord) ?: DirectusConfigStatus(configured = board.configured, coordinator = coord)
                     } ?: cur.config
-                    val keptSelected = cur.selectedTaskId?.takeIf { sid -> board.tasks.any { it.id == sid } }
+                    val keptSelected = when {
+                        pendingTask != null -> pendingTask.id
+                        else -> cur.selectedTaskId?.takeIf { sid -> board.tasks.any { it.id == sid } }
+                    }
                     val selectedObj = keptSelected?.let { sid -> board.tasks.firstOrNull { it.id == sid } }
-                    val safeChannelIdx = if (selectedObj != null && cur.activeChannelIdx < selectedObj.channels.size) cur.activeChannelIdx else 0
+                    val safeChannelIdx = when {
+                        pendingTask != null -> preferredChannelIndex(pendingTask, pending.channelId)
+                        selectedObj != null && cur.activeChannelIdx < selectedObj.channels.size -> cur.activeChannelIdx
+                        else -> 0
+                    }
                     val keptFocused = cur.focusedProjectId?.takeIf { fid ->
                         fid == UNASSIGNED_PROJECT_BUCKET_ID || board.projects.any { it.id == fid && !it.archived }
                     }
@@ -446,7 +498,8 @@ class TasksViewModel(
                         tasks = board.tasks,
                         todayEpochDay = today,
                         focusedProjectId = keptFocused,
-                        selectedTaskId = if (cur.coordinatorOpen) null else keptSelected,
+                        selectedTaskId = if (cur.coordinatorOpen && pendingTask == null) null else keptSelected,
+                        coordinatorOpen = if (pendingTask != null) false else cur.coordinatorOpen,
                         activeChannelIdx = safeChannelIdx,
                         localReadTaskIds = keptLocalRead,
                         localUnreadTaskIds = emptySet(),
@@ -616,18 +669,14 @@ class TasksViewModel(
         }
     }
 
-    fun selectTask(taskId: String?) {
+    fun selectTask(taskId: String?, preferredChannelId: String? = null) {
+        pendingExternalOpen = null
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
         val targetTask = taskId?.let { id -> _state.value.tasks.firstOrNull { it.id == id } }
-        val replyChannelId = targetTask?.replyStatus?.lastReplyChannelId
-        val preferredChannelIdx = if (targetTask != null && replyChannelId != null) {
-            targetTask.channels.indexOfFirst { it.id == replyChannelId }.takeIf { it >= 0 } ?: 0
-        } else {
-            0
-        }
+        val preferredChannelIdx = targetTask?.let { preferredChannelIndex(it, preferredChannelId) } ?: 0
         _state.update {
             it.copy(
                 selectedTaskId = taskId,
@@ -647,6 +696,58 @@ class TasksViewModel(
         val task = _state.value.selectedTask ?: return
         viewModelScope.launch { loadChannelLog(gateway, task, preferredChannelIdx) }
         if (task.channels.isEmpty()) loadModels(withPrices = false)
+    }
+
+    /** Opens Dispatch directly on [taskId] (or Coordinator), enabling `includeDone` automatically if needed. */
+    fun openExternalTask(taskId: String, channelId: String? = null) {
+        val gateway = boundGateway ?: return
+        if (taskId == DispatchSessionsStore.COORDINATOR_TASK_ID) {
+            pendingExternalOpen = null
+            openCoordinator()
+            if (_state.value.config == null && refreshJob?.isActive != true) {
+                refresh()
+            }
+            return
+        }
+        val loaded = _state.value.tasks.firstOrNull { it.id == taskId }
+        if (loaded != null) {
+            selectTask(loaded.id, preferredChannelId = channelId)
+            return
+        }
+        val knownDone = dispatchStore?.let { store ->
+            store.byGateway.value[gateway.gatewayUrl]?.values?.any {
+                it.taskId == taskId && it.taskStatus == DirectusTask.STATUS_DONE
+            } == true || store.roomsByGateway.value[gateway.gatewayUrl]?.values?.any {
+                it.taskId == taskId && it.taskStatus == DirectusTask.STATUS_DONE
+            } == true
+        } == true
+        pendingExternalOpen = DispatchJumpTarget(gateway.gatewayUrl, taskId, channelId)
+        val turnedOnDone = knownDone && !_state.value.includeDone
+        _state.update { cur ->
+            cur.copy(
+                coordinatorOpen = false,
+                includeDone = cur.includeDone || knownDone,
+            )
+        }
+        if (turnedOnDone || (!fetchingBoard && refreshJob?.isActive != true) || (!fetchingBoard && !_state.value.loading)) {
+            refresh()
+        }
+    }
+
+    private fun handleExternalJump(jump: DispatchJumpTarget) {
+        dispatchStore?.consumeJump(jump)
+        openExternalTask(jump.taskId, jump.channelId)
+    }
+
+    private fun preferredChannelIndex(task: DirectusTask, explicitChannelId: String?): Int {
+        if (explicitChannelId != null) {
+            task.channels.indexOfFirst { it.id == explicitChannelId }.takeIf { it >= 0 }?.let { return it }
+        }
+        val replyChannelId = task.replyStatus?.lastReplyChannelId
+        if (replyChannelId != null) {
+            task.channels.indexOfFirst { it.id == replyChannelId }.takeIf { it >= 0 }?.let { return it }
+        }
+        return 0
     }
 
     fun openCoordinator(autoCheckinPrompt: Boolean = false) {
@@ -1091,9 +1192,11 @@ class TasksViewModel(
         _state.update { it.copy(modelPicker = it.modelPicker.copy(loading = true, error = null)) }
         modelsLoadJob = viewModelScope.launch {
             try {
+                val activeCh = _state.value.activeChannel
                 val profile = when {
                     _state.value.coordinatorOpen -> _state.value.coordinatorConfig.profile.ifBlank { null }
-                    else -> _state.value.activeChannel?.profile ?: _state.value.selectedTask?.assignedBots?.firstOrNull()
+                    activeCh != null -> activeCh.profile
+                    else -> _state.value.selectedTask?.assignedBots?.firstOrNull()
                 }
                 val runtimeId = activeRuntimeSessionId
                 val catalog = api.options(runtimeId, profile)
@@ -1600,14 +1703,11 @@ class TasksViewModel(
         viewModelScope.launch {
             markBusy(task.id, true)
             try {
-                val roomId = "task-${task.id}"
-                val roster = members.take(6).map { bot ->
-                    RoomMemberInput(memberId = bot.name, profile = bot.name, handle = bot.name, displayName = bot.label)
-                }
-                val room = roomsApi.create(roomId = roomId, name = task.title.take(64), members = roster)
+                val excludedIds = task.channels.filter { it.isRoom }.mapTo(HashSet()) { it.id }
+                val room = createTaskRoomWithFallback(task, members, excludedIds)
                 val label = "Room (${members.joinToString(", ") { "@${it.name}" }})"
                 val channel = TaskChannel(type = TaskChannel.TYPE_ROOM, id = room.roomId, label = label)
-                val mergedChannels = (task.channels.filterNot { it.id == channel.id } + channel)
+                val mergedChannels = task.channels.filterNot { it.id == channel.id } + channel
                 val bots = (task.assignedBots + members.map { it.name }).distinct()
                 val res = directusApi.upsertContext(
                     gateway.gatewayUrl,
@@ -1615,15 +1715,175 @@ class TasksViewModel(
                     UpsertContextRequest(channels = mergedChannels, assignedBots = bots),
                 )
                 if (res is ApiResult.Success && boundGateway == gateway) {
-                    replaceTask(res.value)
-                    val idx = res.value.channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0)
-                    _state.update { it.copy(activeChannelIdx = idx) }
-                    loadChannelLog(gateway, res.value, idx)
+                    finalizeChannelMutation(
+                        gateway = gateway,
+                        previousTask = task,
+                        updatedTask = res.value,
+                        selectChannelId = channel.id,
+                        removedChannels = emptyList(),
+                    )
+                } else if (res is ApiResult.Failed) {
+                    _state.update { it.copy(actionFeedback = res.message) }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(actionFeedback = e.message ?: "Could not create room") }
+            } finally {
+                markBusy(task.id, false)
+            }
+        }
+    }
+
+    /** Drops [oldChannel] from [task], creates a new single-agent session for [profile], and updates `assigned_bots`. */
+    fun replaceWithSessionChannel(task: DirectusTask, oldChannel: TaskChannel, profile: String?) {
+        val gateway = boundGateway ?: return
+        viewModelScope.launch {
+            markBusy(task.id, true)
+            try {
+                val created = createSessionRecord(gateway, task, profile) ?: return@launch
+                val remaining = task.channels.filterNot { it.id == oldChannel.id }
+                val nextChannels = remaining + created.channel
+                val newBot = created.channel.profile ?: defaultBotName()
+                val remainingSessionBots = remaining.filter { it.isSession }.map { effectiveChannelProfile(it) }
+                val nextBots = (listOf(newBot) + remainingSessionBots).distinct()
+                val res = directusApi.upsertContext(
+                    gateway.gatewayUrl,
+                    task.id,
+                    UpsertContextRequest(channels = nextChannels, assignedBots = nextBots),
+                )
+                if (res is ApiResult.Success && boundGateway == gateway) {
+                    activeRuntimeSessionId = created.runtimeId ?: created.channel.id
+                    activeRuntimeChannelId = created.channel.id
+                    created.info?.let { info ->
+                        _state.update { it.copy(channelChatState = it.channelChatState.withChannelInfo(info)) }
+                    }
+                    dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf(created.channel.id))
+                    finalizeChannelMutation(
+                        gateway = gateway,
+                        previousTask = task,
+                        updatedTask = res.value,
+                        selectChannelId = created.channel.id,
+                        removedChannels = listOf(oldChannel),
+                    )
+                } else if (res is ApiResult.Failed) {
+                    _state.update { it.copy(actionFeedback = res.message) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(actionFeedback = e.message ?: "Could not switch agent") }
+            } finally {
+                markBusy(task.id, false)
+            }
+        }
+    }
+
+    /** Drops [oldChannel] from [task], creates a new hosted room for [members], and updates `assigned_bots`. */
+    fun replaceWithRoomChannel(task: DirectusTask, oldChannel: TaskChannel, members: List<Bot>) {
+        val gateway = boundGateway ?: return
+        if (members.size < 2) return
+        viewModelScope.launch {
+            markBusy(task.id, true)
+            try {
+                val excludedIds = task.channels.filter { it.isRoom }.mapTo(HashSet()) { it.id }
+                val room = createTaskRoomWithFallback(task, members, excludedIds)
+                val label = "Room (${members.joinToString(", ") { "@${it.name}" }})"
+                val channel = TaskChannel(type = TaskChannel.TYPE_ROOM, id = room.roomId, label = label)
+                val remaining = task.channels.filterNot { it.id == oldChannel.id || it.id == channel.id }
+                val nextChannels = remaining + channel
+                val remainingSessionBots = remaining.filter { it.isSession }.map { effectiveChannelProfile(it) }
+                val nextBots = (members.map { it.name } + remainingSessionBots).distinct()
+                val res = directusApi.upsertContext(
+                    gateway.gatewayUrl,
+                    task.id,
+                    UpsertContextRequest(channels = nextChannels, assignedBots = nextBots),
+                )
+                if (res is ApiResult.Success && boundGateway == gateway) {
+                    finalizeChannelMutation(
+                        gateway = gateway,
+                        previousTask = task,
+                        updatedTask = res.value,
+                        selectChannelId = channel.id,
+                        removedChannels = listOf(oldChannel),
+                    )
+                } else if (res is ApiResult.Failed) {
+                    _state.update { it.copy(actionFeedback = res.message) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(actionFeedback = e.message ?: "Could not switch room") }
+            } finally {
+                markBusy(task.id, false)
+            }
+        }
+    }
+
+    /** Removes [channel] from [task], archives it if auto-managed and unshared, and syncs `assigned_bots`. */
+    fun unlinkChannel(task: DirectusTask, channel: TaskChannel) {
+        val gateway = boundGateway ?: return
+        viewModelScope.launch {
+            markBusy(task.id, true)
+            try {
+                val remaining = task.channels.filterNot { it.id == channel.id }
+                val nextBots = when {
+                    remaining.isEmpty() -> emptyList()
+                    remaining.none { it.isRoom } -> remaining.filter { it.isSession }.map { effectiveChannelProfile(it) }.distinct()
+                    else -> {
+                        val droppedBot = if (channel.isSession) effectiveChannelProfile(channel) else null
+                        val base = if (droppedBot != null) task.assignedBots.filterNot { it.equals(droppedBot, ignoreCase = true) } else task.assignedBots
+                        (base + remaining.filter { it.isSession }.map { effectiveChannelProfile(it) }).distinct()
+                    }
+                }
+                val res = directusApi.upsertContext(
+                    gateway.gatewayUrl,
+                    task.id,
+                    UpsertContextRequest(channels = remaining, assignedBots = nextBots),
+                )
+                if (res is ApiResult.Success && boundGateway == gateway) {
+                    val prevActiveId = _state.value.activeChannel?.id
+                    val nextSelectId = if (prevActiveId != null && prevActiveId != channel.id && remaining.any { it.id == prevActiveId }) {
+                        prevActiveId
+                    } else {
+                        remaining.firstOrNull()?.id
+                    }
+                    finalizeChannelMutation(
+                        gateway = gateway,
+                        previousTask = task,
+                        updatedTask = res.value,
+                        selectChannelId = nextSelectId,
+                        removedChannels = listOf(channel),
+                    )
+                } else if (res is ApiResult.Failed) {
+                    _state.update { it.copy(actionFeedback = res.message) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(actionFeedback = e.message ?: "Could not remove channel") }
+            } finally {
+                markBusy(task.id, false)
+            }
+        }
+    }
+
+    /** Switches [task]'s active session to match `assignedBots.firstOrNull()`, creating/reusing one while keeping history. */
+    fun switchToAssignedAgent(task: DirectusTask) {
+        val gateway = boundGateway ?: return
+        val targetBot = task.assignedBots.firstOrNull()?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() } ?: return
+        viewModelScope.launch {
+            markBusy(task.id, true)
+            try {
+                val resolved = ensureAgentSessionChannel(gateway, task, targetBot) ?: return@launch
+                if (boundGateway != gateway) return@launch
+                val idx = resolved.first.channels.indexOfFirst { it.id == resolved.second.id }.coerceAtLeast(0)
+                _state.update { it.copy(activeChannelIdx = idx) }
+                loadChannelLog(gateway, resolved.first, idx)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(actionFeedback = e.message ?: "Could not switch to @$targetBot") }
             } finally {
                 markBusy(task.id, false)
             }
@@ -1798,8 +2058,10 @@ class TasksViewModel(
             ?.takeIf { it in setOf(DirectusTask.STATUS_TODO, DirectusTask.STATUS_IN_PROGRESS, DirectusTask.STATUS_BLOCKED, DirectusTask.STATUS_DONE) }
             ?: if (task.status == DirectusTask.STATUS_TODO) DirectusTask.STATUS_IN_PROGRESS else null
 
-        val chosenBot = selectedParams["bot"]?.removePrefix("@")?.takeIf { it.isNotBlank() && ' ' !in it }
-        val nextBots = if (chosenBot != null) (task.assignedBots + chosenBot).distinct() else task.assignedBots
+        val chosenBot = resolveBotName(
+            selectedParams["bot"] ?: selectedParams["agent"] ?: selectedParams["owner"],
+        )
+        val nextBots = if (chosenBot != null) (listOf(chosenBot) + task.assignedBots).distinct() else task.assignedBots
 
         // Optimistic UI update (< 0.2s) before network round-trip.
         val optimistic = task.copy(
@@ -1815,8 +2077,14 @@ class TasksViewModel(
             markBusy(task.id, true)
             var optimisticKey: String? = null
             try {
-                val active = _state.value.activeChannel?.takeIf { task.channels.any { ch -> ch.id == it.id } }
-                    ?: createSessionChannel(gateway, optimistic, chosenBot ?: nextBots.firstOrNull())?.second
+                val currentActive = _state.value.activeChannel?.takeIf { task.channels.any { ch -> ch.id == it.id } }
+                val targetBot = chosenBot ?: nextBots.firstOrNull()?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }
+                val active = when {
+                    currentActive == null -> createSessionChannel(gateway, optimistic, targetBot)?.second
+                    !currentActive.isRoom && targetBot != null && !effectiveChannelProfile(currentActive).equals(targetBot, ignoreCase = true) ->
+                        ensureAgentSessionChannel(gateway, optimistic, targetBot)?.second ?: currentActive
+                    else -> currentActive
+                }
 
                 val approveRes = directusApi.approveTask(
                     gateway.gatewayUrl,
@@ -1925,22 +2193,74 @@ class TasksViewModel(
         _state.update { it.copy(sessionExpired = false) }
     }
 
-    private suspend fun createSessionChannel(
+    private data class CreatedSessionRecord(
+        val runtimeId: String?,
+        val info: JsonObject?,
+        val channel: TaskChannel,
+    )
+
+    private fun defaultBotName(): String =
+        _state.value.bots.firstOrNull { it.isDefault }?.name ?: Bot.DEFAULT
+
+    private fun effectiveChannelProfile(channel: TaskChannel): String =
+        channel.profile ?: defaultBotName()
+
+    private fun resolveBotName(raw: String?): String? {
+        val clean = raw?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() } ?: return null
+        val bots = _state.value.bots
+        bots.firstOrNull { it.name.equals(clean, ignoreCase = true) }?.let { return it.name }
+        bots.firstOrNull { it.label.equals(clean, ignoreCase = true) }?.let { return it.name }
+        val parenHandle = clean.substringAfterLast("(@", "").substringBefore(")", "").trim()
+        if (parenHandle.isNotEmpty()) {
+            bots.firstOrNull { it.name.equals(parenHandle, ignoreCase = true) }?.let { return it.name }
+            if (' ' !in parenHandle) return parenHandle
+        }
+        return clean.takeIf { ' ' !in it }
+    }
+
+    private suspend fun createTaskRoomWithFallback(
+        task: DirectusTask,
+        members: List<Bot>,
+        excludedChannelIds: Set<String> = emptySet(),
+    ): Room {
+        val roster = members.take(6).map { bot ->
+            RoomMemberInput(memberId = bot.name, profile = bot.name, handle = bot.name, displayName = bot.label)
+        }
+        val baseId = "task-${task.id}"
+        val fallbackId = "$baseId-${Uuid.random().toString().take(8)}"
+        if (baseId !in excludedChannelIds) {
+            try {
+                return roomsApi.create(roomId = baseId, name = task.title.take(64), members = roster)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Existing active/disbanded room id conflicts; retry with a unique suffix.
+            }
+        }
+        return roomsApi.create(roomId = fallbackId, name = task.title.take(64), members = roster)
+    }
+
+    private suspend fun createSessionRecord(
         gateway: SavedGateway,
         task: DirectusTask,
         profile: String?,
-    ): Pair<DirectusTask, TaskChannel>? {
+    ): CreatedSessionRecord? {
         val client = (connection.state.value as? ConnectionState.Connected)?.client ?: run {
             _state.update { it.copy(actionFeedback = "Not connected to gateway.") }
             return null
         }
+        val cleanProfile = profile?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }
+        val resolvedProfile = cleanProfile ?: _state.value.bots.firstOrNull { it.isDefault }?.name
         val project = task.projectId?.let { pid -> _state.value.projects.firstOrNull { it.id == pid } }
         val cwd = project?.workspaceCwd?.takeIf { it.isNotBlank() }
-        val picks = _state.value.channelChatState
+        val currentCh = _state.value.activeChannel
+        val sameProfilePicks = currentCh == null ||
+            (!currentCh.isRoom && (cleanProfile == null || effectiveChannelProfile(currentCh).equals(cleanProfile, ignoreCase = true)))
+        val picks = if (sameProfilePicks) _state.value.channelChatState else ChatState()
         val result = client.request(
             "session.create",
             buildJsonObject {
-                profile?.let { put("profile", it) }
+                cleanProfile?.let { put("profile", it) }
                 put("source", "desktop")
                 put("cols", 80)
                 cwd?.let { put("cwd", it) }
@@ -1955,16 +2275,99 @@ class TasksViewModel(
         val runtimeId = (result?.get("session_id") as? JsonPrimitive)?.contentOrNull
         val storedId = (result?.get("stored_session_id") as? JsonPrimitive)?.contentOrNull ?: runtimeId ?: return null
         val info = result?.get("info") as? JsonObject
-        val botName = profile ?: "Hermes"
-        val channel = TaskChannel(
-            type = TaskChannel.TYPE_SESSION,
-            id = storedId,
-            label = "Session (@$botName)",
-            profile = profile,
-            managed = true,
+        val channelLabel = if (resolvedProfile != null) {
+            val botLabel = _state.value.bots.firstOrNull { it.name.equals(resolvedProfile, ignoreCase = true) }
+                ?.label?.takeIf { it.isNotBlank() }
+            val display = if (botLabel != null && !botLabel.equals(resolvedProfile, ignoreCase = true)) {
+                "$botLabel (@$resolvedProfile)"
+            } else {
+                "@$resolvedProfile"
+            }
+            "Session ($display)"
+        } else {
+            "Session (@Hermes)"
+        }
+        return CreatedSessionRecord(
+            runtimeId = runtimeId,
+            info = info,
+            channel = TaskChannel(
+                type = TaskChannel.TYPE_SESSION,
+                id = storedId,
+                label = channelLabel,
+                profile = resolvedProfile,
+                managed = true,
+            ),
         )
+    }
+
+    private suspend fun ensureAgentSessionChannel(
+        gateway: SavedGateway,
+        task: DirectusTask,
+        targetBot: String,
+    ): Pair<DirectusTask, TaskChannel>? {
+        val existing = task.channels.firstOrNull { ch ->
+            ch.isSession && effectiveChannelProfile(ch).equals(targetBot, ignoreCase = true)
+        }
+        if (existing != null) return task to existing
+        return createSessionChannel(gateway, task, targetBot)
+    }
+
+    private suspend fun finalizeChannelMutation(
+        gateway: SavedGateway,
+        previousTask: DirectusTask,
+        updatedTask: DirectusTask,
+        selectChannelId: String?,
+        removedChannels: List<TaskChannel>,
+    ) {
+        if (removedChannels.isNotEmpty()) {
+            archiveUnsharedManagedSessions(
+                gateway = gateway,
+                channels = removedChannels,
+                archived = true,
+                excludeTaskId = updatedTask.id,
+            )
+        }
+        replaceTask(updatedTask)
+        dispatchStore?.syncTask(gateway.gatewayUrl, updatedTask)
+        if (_state.value.selectedTaskId == updatedTask.id) {
+            turnPollJob?.cancel()
+            activeRuntimeSessionId = null
+            activeRuntimeChannelId = null
+            val nextIdx = if (selectChannelId != null) {
+                updatedTask.channels.indexOfFirst { it.id == selectChannelId }.coerceAtLeast(0)
+            } else {
+                0
+            }
+            _state.update { cur ->
+                cur.copy(
+                    activeChannelIdx = nextIdx,
+                    channelMessages = emptyList(),
+                    channelAttachments = emptyList(),
+                    channelChatState = if (updatedTask.channels.isEmpty()) ChatState() else cur.channelChatState,
+                    channelError = null,
+                    channelTurnRunning = false,
+                    channelTurnStatus = null,
+                    channelInputRequests = emptyList(),
+                )
+            }
+            if (updatedTask.channels.isNotEmpty()) {
+                loadChannelLog(gateway, updatedTask, nextIdx)
+            } else {
+                loadModels(withPrices = false)
+            }
+        }
+    }
+
+    private suspend fun createSessionChannel(
+        gateway: SavedGateway,
+        task: DirectusTask,
+        profile: String?,
+    ): Pair<DirectusTask, TaskChannel>? {
+        val created = createSessionRecord(gateway, task, profile) ?: return null
+        val channel = created.channel
         val mergedChannels = task.channels + channel
-        val nextBots = if (profile != null) (task.assignedBots + profile).distinct() else task.assignedBots
+        val profileForBots = channel.profile ?: profile
+        val nextBots = if (profileForBots != null) (task.assignedBots + profileForBots).distinct() else task.assignedBots
         val res = directusApi.upsertContext(
             gateway.gatewayUrl,
             task.id,
@@ -1977,14 +2380,14 @@ class TasksViewModel(
                 context = (task.context ?: TaskContext(taskId = task.id)).copy(channels = mergedChannels, assignedBots = nextBots),
             )
         }
-        activeRuntimeSessionId = runtimeId ?: storedId
-        activeRuntimeChannelId = storedId
-        if (info != null) {
-            _state.update { it.copy(channelChatState = it.channelChatState.withChannelInfo(info)) }
+        activeRuntimeSessionId = created.runtimeId ?: channel.id
+        activeRuntimeChannelId = channel.id
+        if (created.info != null) {
+            _state.update { it.copy(channelChatState = it.channelChatState.withChannelInfo(created.info)) }
         }
         replaceTask(updated)
         dispatchStore?.syncTask(gateway.gatewayUrl, updated)
-        dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf(storedId))
+        dispatchStore?.notifyLifecycleChange(gateway.gatewayUrl, unarchivedIds = setOf(channel.id))
         return updated to channel
     }
 
@@ -2260,26 +2663,50 @@ class TasksViewModel(
             return
         }
 
+        val firstError = archiveUnsharedManagedSessions(
+            gateway = gateway,
+            channels = managedChannels,
+            archived = movedToDone,
+            excludeTaskId = updatedTask.id,
+        )
+        store?.syncTask(gateway.gatewayUrl, updatedTask)
+
+        if (firstError != null && boundGateway == gateway) {
+            _state.update { it.copy(actionFeedback = firstError) }
+        }
+    }
+
+    private fun sharedActiveSessionIds(gateway: SavedGateway, excludeTaskId: String): Set<String> {
         val activeInBoard = _state.value.tasks
-            .filter { it.id != updatedTask.id && it.status != DirectusTask.STATUS_DONE }
+            .filter { it.id != excludeTaskId && it.status != DirectusTask.STATUS_DONE }
             .flatMap { it.channels }
             .filter { it.isSession }
             .mapTo(HashSet()) { it.id }
-        val activeInStore = store?.byGateway?.value?.get(gateway.gatewayUrl)?.values
-            ?.filter { it.taskId != updatedTask.id && it.taskStatus != DirectusTask.STATUS_DONE }
+        val activeInStore = dispatchStore?.byGateway?.value?.get(gateway.gatewayUrl)?.values
+            ?.filter { it.taskId != excludeTaskId && it.taskStatus != DirectusTask.STATUS_DONE }
             ?.mapTo(HashSet()) { it.sessionId }
             .orEmpty()
-        val sharedActiveIds = activeInBoard + activeInStore
+        return activeInBoard + activeInStore
+    }
 
+    private suspend fun archiveUnsharedManagedSessions(
+        gateway: SavedGateway,
+        channels: List<TaskChannel>,
+        archived: Boolean,
+        excludeTaskId: String,
+    ): String? {
+        val managed = channels.distinctBy { it.id }.filter { it.isAutoManagedSession }
+        if (managed.isEmpty()) return null
+        val sharedActiveIds = sharedActiveSessionIds(gateway, excludeTaskId)
         val changedIds = LinkedHashSet<String>()
         var firstError: String? = null
-        for (ch in managedChannels) {
+        for (ch in managed) {
             if (ch.id in sharedActiveIds) continue
-            when (val res = sessionsApi.setArchived(gateway.gatewayUrl, ch.id, archived = movedToDone, profile = ch.profile)) {
+            when (val res = sessionsApi.setArchived(gateway.gatewayUrl, ch.id, archived = archived, profile = ch.profile)) {
                 is ApiResult.Success -> changedIds += ch.id
                 is ApiResult.Failed -> {
                     if (res.status == 404) {
-                        if (movedToDone) changedIds += ch.id
+                        if (archived) changedIds += ch.id
                     } else if (firstError == null) {
                         firstError = res.message
                     }
@@ -2287,16 +2714,12 @@ class TasksViewModel(
                 else -> if (firstError == null) firstError = res.errorMessage
             }
         }
-        store?.syncTask(gateway.gatewayUrl, updatedTask)
-        store?.notifyLifecycleChange(
+        dispatchStore?.notifyLifecycleChange(
             gateway = gateway.gatewayUrl,
-            archivedIds = if (movedToDone) changedIds else emptySet(),
-            unarchivedIds = if (movedToDone) emptySet() else changedIds,
+            archivedIds = if (archived) changedIds else emptySet(),
+            unarchivedIds = if (archived) emptySet() else changedIds,
         )
-
-        if (firstError != null && boundGateway == gateway) {
-            _state.update { it.copy(actionFeedback = firstError) }
-        }
+        return firstError
     }
 
     private suspend fun setSessionConfig(

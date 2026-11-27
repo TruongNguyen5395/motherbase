@@ -152,4 +152,13 @@
     <string name="tasks_matrix_drag_hint">拖动把手在象限间移动，或点击徽章进行 3×3 精细调整。</string>
     <string name="tasks_matrix_apply">应用</string>
     <string name="tasks_inspector_details">详情</string>
+    <string name="tasks_back_to_dispatch">返回 Dispatch</string>
+    <string name="tasks_pick_agent_short">选择代理</string>
+    <string name="tasks_drop_pick_agent">移除并重选代理…</string>
+    <string name="tasks_drop_pick_room">移除并重选群聊…</string>
+    <string name="tasks_remove_channel">移除频道</string>
+    <string name="tasks_open_channel">打开频道</string>
+    <string name="tasks_replace_room_confirm">切换群聊</string>
+    <string name="tasks_agent_mismatch_notice">已指派 %1$s · 当前会话为 %2$s</string>
+    <string name="tasks_switch_to_agent">切换至 %1$s</string>
 </resources>

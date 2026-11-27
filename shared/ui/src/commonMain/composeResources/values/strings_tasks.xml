@@ -152,4 +152,13 @@
     <string name="tasks_matrix_drag_hint">Drag grip to move between quadrants, or tap badge for 3×3 precision.</string>
     <string name="tasks_matrix_apply">Apply</string>
     <string name="tasks_inspector_details">Details</string>
+    <string name="tasks_back_to_dispatch">Back to Dispatch</string>
+    <string name="tasks_pick_agent_short">Pick agent</string>
+    <string name="tasks_drop_pick_agent">Drop &amp; pick new agent…</string>
+    <string name="tasks_drop_pick_room">Drop &amp; pick new room…</string>
+    <string name="tasks_remove_channel">Remove channel</string>
+    <string name="tasks_open_channel">Open channel</string>
+    <string name="tasks_replace_room_confirm">Switch room</string>
+    <string name="tasks_agent_mismatch_notice">Assigned to %1$s · live session is %2$s</string>
+    <string name="tasks_switch_to_agent">Switch to %1$s</string>
 </resources>

@@ -152,4 +152,13 @@
     <string name="tasks_matrix_drag_hint">Glissez la poignée entre les quadrants ou touchez le badge pour la grille 3×3.</string>
     <string name="tasks_matrix_apply">Appliquer</string>
     <string name="tasks_inspector_details">Détails</string>
+    <string name="tasks_back_to_dispatch">Retour à Dispatch</string>
+    <string name="tasks_pick_agent_short">Choisir un agent</string>
+    <string name="tasks_drop_pick_agent">Retirer et choisir un agent…</string>
+    <string name="tasks_drop_pick_room">Retirer et choisir un salon…</string>
+    <string name="tasks_remove_channel">Retirer le canal</string>
+    <string name="tasks_open_channel">Ouvrir le canal</string>
+    <string name="tasks_replace_room_confirm">Changer de salon</string>
+    <string name="tasks_agent_mismatch_notice">Assigné à %1$s · session active : %2$s</string>
+    <string name="tasks_switch_to_agent">Passer à %1$s</string>
 </resources>

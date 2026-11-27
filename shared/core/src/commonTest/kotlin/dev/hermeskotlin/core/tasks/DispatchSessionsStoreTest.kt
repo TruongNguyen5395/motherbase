@@ -181,4 +181,43 @@ class DispatchSessionsStoreTest {
         reader.warm(gateway)
         assertEquals("coord-sess-100", reader.coordinatorByGateway.value[gateway]?.sessionId)
     }
+
+    @Test
+    fun syncBoardIndexesHostedRoomsAndJumpTargetUsesMonotonicCompareAndSet() = runTest {
+        val kv = InMemoryKeyValueStore()
+        val store = DispatchSessionsStore(kv) { 1_000L }
+        val task = DirectusTask(
+            id = "t-room",
+            title = "Cross-agent review",
+            status = DirectusTask.STATUS_IN_PROGRESS,
+            context = TaskContext(
+                taskId = "t-room",
+                channels = listOf(
+                    TaskChannel(TaskChannel.TYPE_ROOM, "task-t-room", "Room (@ops, @dev)"),
+                    TaskChannel(TaskChannel.TYPE_SESSION, "sess-r1", "Session (@ops)", profile = "ops", managed = true),
+                ),
+            ),
+        )
+
+        store.syncBoard(gateway, listOf(task), includeDone = false)
+        assertEquals("t-room", store.roomsByGateway.value[gateway]?.get("task-t-room")?.taskId)
+        assertEquals("t-room", store.byGateway.value[gateway]?.get("sess-r1")?.taskId)
+
+        // Warm hydrates hosted rooms from persistent store.
+        val reloaded = DispatchSessionsStore(kv) { 2_000L }
+        reloaded.warm(gateway)
+        assertEquals("Cross-agent review", reloaded.roomsByGateway.value[gateway]?.get("task-t-room")?.taskTitle)
+
+        // Request jump, bump with newer jump, verify stale consume cannot erase newer target.
+        store.requestOpenTask(gateway, "t-room", "task-t-room")
+        val firstJump = store.pendingJump.value!!
+        store.requestOpenTask(gateway, "t-room", "task-t-room")
+        val secondJump = store.pendingJump.value!!
+        assertTrue(secondJump.requestSeq > firstJump.requestSeq)
+
+        store.consumeJump(firstJump)
+        assertEquals(secondJump, store.pendingJump.value)
+        store.consumeJump(secondJump)
+        assertEquals(null, store.pendingJump.value)
+    }
 }

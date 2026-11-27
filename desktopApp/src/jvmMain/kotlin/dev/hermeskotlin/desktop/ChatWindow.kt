@@ -35,6 +35,7 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.chat.ChatHost
+import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.designsystem.background
 import dev.hermeskotlin.designsystem.colors
 import dev.hermeskotlin.ui.HeraldTheme
@@ -190,6 +191,11 @@ fun ChatWindow(
                     val zoom = LocalAppSettings.current.zoom / 100f
                     CompositionLocalProvider(LocalDensity provides Density(text.density * zoom, text.fontScale)) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
+                            val dispatchStore = koinInject<DispatchSessionsStore>()
+                            val dispatchEntries by remember(dispatchStore, shown.gateway.gatewayUrl) {
+                                dispatchStore.entriesFor(shown.gateway.gatewayUrl)
+                            }.collectAsState(emptyMap())
+                            val dispatchEntry = (storedId ?: shown.storedSessionId)?.let { dispatchEntries[it] }
                             ProvideReplySpeakerFor(shown) {
                                 ChatScreen(
                                     target = shown,
@@ -199,6 +205,12 @@ fun ChatWindow(
                                     onOpenChat = { id, title -> onShown(ChatTarget(shown.gateway, id, title, profile = shown.profile)) },
                                     onSwitchProfile = {},
                                     viewModel = chat,
+                                    onBackToDispatch = dispatchEntry?.let { entry ->
+                                        {
+                                            dispatchStore.requestOpenTask(shown.gateway.gatewayUrl, entry.taskId, entry.sessionId)
+                                            onShowMain()
+                                        }
+                                    },
                                     onRailWidthChange = { width -> koin.get<SettingsStore>().update { it.copy(railWidth = width.value.roundToInt()) } },
                                 )
                             }

@@ -380,11 +380,22 @@ class AppViewModel(
         access.retainOnly(gateways.all().gateways.map { it.gatewayUrl.host })
     }
 
-    /** Opens a stored chat; [readUpTo] is how far it had been read, when it has new messages since. */
-    fun openSession(sessionId: String, title: String, readUpTo: Double? = null, profile: String? = null) {
+    /**
+     * Opens a stored chat; [readUpTo] is how far it had been read, when it has new messages since.
+     * When [fallbackToCurrentProfile] is true (default), a `null` [profile] falls back to [currentProfile];
+     * pass false when the target explicitly belongs to the gateway launch profile or a caller-chosen profile.
+     */
+    fun openSession(
+        sessionId: String,
+        title: String,
+        readUpTo: Double? = null,
+        profile: String? = null,
+        fallbackToCurrentProfile: Boolean = true,
+    ) {
         cancelPendingCall()
         val gateway = signedInGateway() ?: return
-        _route.value = Route.Chat(ChatTarget(gateway, sessionId, title, profile = profile ?: currentProfile(), readUpTo = readUpTo))
+        val effectiveProfile = if (fallbackToCurrentProfile) profile ?: currentProfile() else profile
+        _route.value = Route.Chat(ChatTarget(gateway, sessionId, title, profile = effectiveProfile, readUpTo = readUpTo))
     }
 
     /**

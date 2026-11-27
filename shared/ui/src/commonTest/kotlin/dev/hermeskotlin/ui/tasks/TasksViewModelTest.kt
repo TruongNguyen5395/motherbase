@@ -23,6 +23,7 @@ import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.tasks.MatrixLevel
+import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.ui.components.localMoment
@@ -1665,6 +1666,317 @@ class TasksViewModelTest {
             assertEquals("Run cleanup (Keep: 14 days)", submitText)
             assertTrue(settled.channelTurnRunning)
             assertEquals("Run cleanup (Keep: 14 days)", settled.channelMessages.last().text)
+        } finally {
+            h.vm.selectTask(null)
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun openExternalTaskAutoEnablesIncludeDoneWhenTargetTaskIsCompleted() = runTest(dispatcher) {
+        var boardCalls = 0
+        val doneBoardJson = """
+            {
+              "configured": true,
+              "projects": [{"id":"proj-1","name":"Ops","archived":false}],
+              "tasks": [
+                {
+                  "id":"t-done",
+                  "title":"Completed delivery",
+                  "status":"done",
+                  "priority":"medium",
+                  "project_id":"proj-1",
+                  "context":{
+                    "id":"ctx-done",
+                    "task_id":"t-done",
+                    "project_id":"proj-1",
+                    "agent_state":"idle",
+                    "assigned_bots":["ops"],
+                    "channels":[{"type":"session","id":"sess-done","label":"Session (@ops)","profile":"ops","managed":true}]
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" -> {
+                        boardCalls += 1
+                        // Calls 1 (bind) and 2 (openExternalTask retry check with include_done=false) omit the done task;
+                        // call 3 happens after TasksViewModel auto-enables includeDone=true.
+                        if (boardCalls <= 2) HttpStatusCode.OK to boardJson
+                        else HttpStatusCode.OK to doneBoardJson
+                    }
+                    "/api/sessions/sess-done/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-done","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.resume" -> """{"session_id":"rt-done","stored_session_id":"sess-done","running":false,"open_requests":[]}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            assertFalse(h.vm.state.value.includeDone)
+
+            h.vm.openExternalTask("t-done", "sess-done")
+            val settled = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.includeDone && st.selectedTaskId == "t-done" && !st.loading
+                }
+            }
+            assertEquals("sess-done", settled.activeChannel?.id)
+        } finally {
+            h.vm.selectTask(null)
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun approveStagedPlanSwitchesSessionWhenSelectedAgentDiffersAndPreservesHistory() = runTest(dispatcher) {
+        val mixedBoardJson = """
+            {
+              "configured": true,
+              "projects": [{"id":"proj-1","name":"Ops","archived":false}],
+              "tasks": [
+                {
+                  "id":"t-mix",
+                  "title":"Deliver website",
+                  "status":"in_progress",
+                  "priority":"high",
+                  "project_id":"proj-1",
+                  "context":{
+                    "id":"ctx-mix",
+                    "task_id":"t-mix",
+                    "project_id":"proj-1",
+                    "agent_state":"needs_you",
+                    "assigned_bots":["coder"],
+                    "channels":[{"type":"session","id":"sess-default","label":"Session (@Hermes)","managed":true}],
+                    "staged_plan":{
+                      "summary":"Send final invoice.",
+                      "params":[{"key":"owner","label":"Owner","options":["@coder","@default"],"default":"@coder"}],
+                      "options":[{"label":"Proceed","value":"Send it"}]
+                    }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val upsertProfiles = mutableListOf<String?>()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to mixedBoardJson
+                    "/api/plugins/directus-tasks/tasks/t-mix/context" -> {
+                        HttpStatusCode.OK to """
+                            {
+                              "task":{
+                                "id":"t-mix",
+                                "title":"Deliver website",
+                                "status":"in_progress",
+                                "project_id":"proj-1",
+                                "context":{
+                                  "id":"ctx-mix",
+                                  "task_id":"t-mix",
+                                  "project_id":"proj-1",
+                                  "agent_state":"needs_you",
+                                  "assigned_bots":["default","coder"],
+                                  "channels":[
+                                    {"type":"session","id":"sess-default","label":"Session (@Hermes)","managed":true},
+                                    {"type":"session","id":"sess-coder","label":"Session (@coder)","profile":"coder","managed":true}
+                                  ]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    "/api/plugins/directus-tasks/tasks/t-mix/approve" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "task":{
+                                "id":"t-mix",
+                                "title":"Deliver website",
+                                "status":"in_progress",
+                                "project_id":"proj-1",
+                                "context":{
+                                  "id":"ctx-mix",
+                                  "task_id":"t-mix",
+                                  "project_id":"proj-1",
+                                  "agent_state":"running",
+                                  "assigned_bots":["coder"],
+                                  "channels":[
+                                    {"type":"session","id":"sess-default","label":"Session (@Hermes)","managed":true},
+                                    {"type":"session","id":"sess-coder","label":"Session (@coder)","profile":"coder","managed":true}
+                                  ]
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    "/api/sessions/sess-default/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-default","messages":[]}"""
+                    "/api/sessions/sess-coder/messages" ->
+                        HttpStatusCode.OK to """{"session_id":"sess-coder","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, params ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[{"name":"default","label":"Ops Lead","is_default":true},{"name":"coder","label":"Coder"}]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.create" -> {
+                        upsertProfiles += params["profile"]?.jsonPrimitive?.content
+                        """{"session_id":"rt-coder","stored_session_id":"sess-coder"}"""
+                    }
+                    "session.resume" -> """{"session_id":"rt-default","stored_session_id":"sess-default","running":false,"open_requests":[]}"""
+                    "prompt.submit" -> """{"accepted":true}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() && it.bots.isNotEmpty() } }
+            h.vm.selectTask("t-mix")
+            withTimeout(5_000) { h.vm.state.first { it.selectedTaskId == "t-mix" && !it.channelLoading } }
+
+            val task = h.vm.state.value.selectedTask!!
+            h.vm.approveStagedPlan(
+                task = task,
+                option = ReplyInteraction.Option(label = "Proceed", value = "Send it"),
+                selectedParams = mapOf("owner" to "@coder"),
+                tweaks = emptyList(),
+            )
+
+            val settled = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.activeChannel?.id == "sess-coder" && "t-mix" !in st.busyTaskIds
+                }
+            }
+            assertEquals(listOf("coder"), upsertProfiles)
+            assertEquals(2, settled.selectedTask?.channels?.size)
+            assertEquals("sess-default", settled.selectedTask?.channels?.get(0)?.id)
+            assertEquals("sess-coder", settled.selectedTask?.channels?.get(1)?.id)
+        } finally {
+            h.vm.selectTask(null)
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun replaceAndUnlinkChannelUpdateContextArchiveDroppedSessionAndSyncStore() = runTest(dispatcher) {
+        val archivedPaths = mutableListOf<String>()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "configured": true,
+                              "projects": [{"id":"proj-1","name":"Ops","archived":false}],
+                              "tasks": [
+                                {
+                                  "id":"t-rep",
+                                  "title":"Switch agent test",
+                                  "status":"in_progress",
+                                  "project_id":"proj-1",
+                                  "context":{
+                                    "id":"ctx-rep",
+                                    "task_id":"t-rep",
+                                    "project_id":"proj-1",
+                                    "agent_state":"idle",
+                                    "assigned_bots":["default"],
+                                    "channels":[{"type":"session","id":"sess-old","label":"Session (@Hermes)","managed":true}]
+                                  }
+                                }
+                              ]
+                            }
+                        """.trimIndent()
+                    rec.path == "/api/plugins/directus-tasks/tasks/t-rep/context" -> {
+                        val hasOld = rec.body?.contains("sess-old") == true
+                        val hasNew = rec.body?.contains("sess-new") == true
+                        val channelsJson = when {
+                            hasNew -> """[{"type":"session","id":"sess-new","label":"Session (@ops)","profile":"ops","managed":true}]"""
+                            !hasOld -> "[]"
+                            else -> """[{"type":"session","id":"sess-old","label":"Session (@Hermes)","managed":true}]"""
+                        }
+                        val botsJson = if (hasNew) """["ops"]""" else "[]"
+                        HttpStatusCode.OK to """
+                            {
+                              "task":{
+                                "id":"t-rep",
+                                "title":"Switch agent test",
+                                "status":"in_progress",
+                                "project_id":"proj-1",
+                                "context":{
+                                  "id":"ctx-rep",
+                                  "task_id":"t-rep",
+                                  "project_id":"proj-1",
+                                  "agent_state":"idle",
+                                  "assigned_bots":$botsJson,
+                                  "channels":$channelsJson
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    rec.path.startsWith("/api/sessions/") && rec.path.endsWith("/archive") -> {
+                        archivedPaths += rec.path
+                        HttpStatusCode.OK to "{}"
+                    }
+                    rec.path.startsWith("/api/sessions/") && rec.path.endsWith("/messages") ->
+                        HttpStatusCode.OK to """{"session_id":"x","messages":[]}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+            rpcAnswer = { method, _ ->
+                when (method) {
+                    "profiles.list" -> """{"profiles":[{"name":"default","label":"Ops Lead","is_default":true},{"name":"ops","label":"Ops"}]}"""
+                    "projects.tree", "projects.list" -> """{"projects":[]}"""
+                    "session.create" -> """{"session_id":"rt-new","stored_session_id":"sess-new"}"""
+                    "session.resume" -> """{"session_id":"rt-res","stored_session_id":"sess-old","running":false,"open_requests":[]}"""
+                    else -> """{}"""
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            h.vm.selectTask("t-rep")
+            withTimeout(5_000) { h.vm.state.first { it.selectedTaskId == "t-rep" && !it.channelLoading } }
+
+            val initial = h.vm.state.value.selectedTask!!
+            h.vm.replaceWithSessionChannel(initial, initial.channels.single(), "ops")
+
+            val afterReplace = withTimeout(5_000) {
+                h.vm.state.first { st -> st.activeChannel?.id == "sess-new" && "t-rep" !in st.busyTaskIds }
+            }
+            assertEquals(listOf("ops"), afterReplace.selectedTask?.assignedBots)
+            assertTrue(archivedPaths.any { "sess-old" in it })
+            assertEquals(null, h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-old"))
+            assertEquals("t-rep", h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-new")?.taskId)
+
+            h.vm.unlinkChannel(afterReplace.selectedTask!!, afterReplace.activeChannel!!)
+            val afterUnlink = withTimeout(5_000) {
+                h.vm.state.first { st -> st.selectedTask?.channels?.isEmpty() == true && "t-rep" !in st.busyTaskIds }
+            }
+            assertNull(afterUnlink.activeChannel)
+            assertTrue(archivedPaths.any { "sess-new" in it })
+            assertEquals(null, h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-new"))
         } finally {
             h.vm.selectTask(null)
             h.connection.stop()

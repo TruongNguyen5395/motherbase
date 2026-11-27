@@ -443,6 +443,8 @@ fun ChatScreen(
     onNextChat: (() -> Boolean)? = null,
     /** The projects, profiles and gateways an empty new chat can start in instead, from its greeting. */
     greetingPlaces: GreetingPlaces? = null,
+    /** Jumps back to Dispatch with this session's owning task open; shown only for Dispatch-linked sessions. */
+    onBackToDispatch: (() -> Unit)? = null,
     /** Persists a dragged desktop right-rail width when non-null. */
     onRailWidthChange: ((Dp) -> Unit)? = null,
 ) {
@@ -708,6 +710,7 @@ fun ChatScreen(
         onOpenSidebar = onOpenSidebar,
         // Already on an untouched new chat: nothing to start over from.
         onNewChat = onNewChat.takeIf { target.storedSessionId != null || state.messages.isNotEmpty() },
+        onBackToDispatch = onBackToDispatch,
         onOpenMenu = onOpenMenu,
         onOpenModels = { modelsOpen = true },
         // A desktop has no camera, and its file dialog picks photos as well: + goes straight to it.
@@ -995,6 +998,7 @@ internal fun ChatView(
     rightRailState: RightRailState = rememberRightRailState(),
     railWidth: Dp = DEFAULT_RAIL_WIDTH,
     onRailWidthChange: ((Dp) -> Unit)? = null,
+    onBackToDispatch: (() -> Unit)? = null,
     railOpen: Boolean = false,
     onToggleRail: (() -> Unit)? = null,
     screenOpen: Boolean = false,
@@ -1051,6 +1055,7 @@ internal fun ChatView(
                     onOpenSidebar = onOpenSidebar,
                     onNewChat = onNewChat,
                     onOpenMenu = onOpenMenu,
+                    onBackToDispatch = onBackToDispatch,
                     sessionsBadge = sessionsBadge,
                     onNextChat = onNextChat,
                     railOpen = railOpen,
@@ -1786,6 +1791,8 @@ internal fun TopBar(
     onOpenMenu: ((Rect?) -> Unit)?,
     /** In place of New chat and the menu, e.g. a room's own buttons. */
     trailing: (@Composable () -> Unit)? = null,
+    /** Jumps back to Dispatch with this session/room's owning task open. */
+    onBackToDispatch: (() -> Unit)? = null,
     /** What the Sessions button says about the other chats. */
     sessionsBadge: SessionsBadge = SessionsBadge(),
     /** A long press on Sessions: the next chat needing the user. */
@@ -1831,7 +1838,11 @@ internal fun TopBar(
                     .border(1.dp, Theme[colors][stroke], shape)
             },
             horizontalArrangement = Arrangement.spacedBy(if (isDesktop) 2.dp else 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (onBackToDispatch != null) {
+                BackToDispatchButton(onBackToDispatch)
+            }
             if (trailing != null) {
                 trailing()
             } else {
@@ -1929,6 +1940,53 @@ internal fun BarButton(
     }
     // With a mouse, the icon's name shows on a rest over it.
     if (isDesktop) Tooltip(if (keys != null) "$contentDescription (${keysLabel(keys)})" else contentDescription) { button() } else button()
+}
+
+@Composable
+private fun BackToDispatchButton(onClick: () -> Unit) {
+    val label = stringResource(Res.string.tasks_back_to_dispatch)
+    val shortLabel = stringResource(Res.string.tasks_title)
+    if (isDesktop) {
+        val shape = RoundedCornerShape(8.dp)
+        Tooltip(label) {
+            UnstyledButton(
+                onClick = onClick,
+                modifier = Modifier
+                    .height(32.dp)
+                    .handCursor()
+                    .clip(shape)
+                    .background(Theme[colors][accentSoft], shape)
+                    .border(1.dp, Theme[colors][accentText].copy(alpha = 0.28f), shape)
+                    .padding(horizontal = 9.dp),
+                indication = rememberHoverIndication(Theme[colors][accentText]),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    UnstyledIcon(
+                        Lucide.ListTodo,
+                        contentDescription = label,
+                        tint = Theme[colors][accentText],
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Text(
+                        shortLabel,
+                        style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
+                        color = Theme[colors][accentText],
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    } else {
+        BarButton(
+            icon = Lucide.ListTodo,
+            contentDescription = label,
+            onClick = onClick,
+            tint = Theme[colors][accentText],
+        )
+    }
 }
 
 /**
