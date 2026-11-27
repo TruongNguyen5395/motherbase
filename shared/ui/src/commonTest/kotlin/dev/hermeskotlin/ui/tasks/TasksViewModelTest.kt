@@ -1865,7 +1865,7 @@ class TasksViewModelTest {
                     st.activeChannel?.id == "sess-coder" && "t-mix" !in st.busyTaskIds
                 }
             }
-            assertEquals(listOf("coder"), upsertProfiles)
+            assertEquals<List<String?>>(listOf("coder"), upsertProfiles)
             assertEquals(2, settled.selectedTask?.channels?.size)
             assertEquals("sess-default", settled.selectedTask?.channels?.get(0)?.id)
             assertEquals("sess-coder", settled.selectedTask?.channels?.get(1)?.id)
@@ -1967,7 +1967,7 @@ class TasksViewModelTest {
             }
             assertEquals(listOf("ops"), afterReplace.selectedTask?.assignedBots)
             assertTrue(archivedPaths.any { "sess-old" in it })
-            assertEquals(null, h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-old"))
+            assertNull(h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-old"))
             assertEquals("t-rep", h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-new")?.taskId)
 
             h.vm.unlinkChannel(afterReplace.selectedTask!!, afterReplace.activeChannel!!)
@@ -1976,7 +1976,7 @@ class TasksViewModelTest {
             }
             assertNull(afterUnlink.activeChannel)
             assertTrue(archivedPaths.any { "sess-new" in it })
-            assertEquals(null, h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-new"))
+            assertNull(h.dispatchStore.byGateway.value[gateway.gatewayUrl]?.get("sess-new"))
         } finally {
             h.vm.selectTask(null)
             h.connection.stop()
