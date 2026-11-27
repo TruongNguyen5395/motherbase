@@ -558,6 +558,8 @@ internal object PageSamples {
                 context = TaskContext(
                     taskId = "task-1",
                     projectId = "proj-homelab",
+                    impact = "high",
+                    urgency = "high",
                     assignedBots = listOf("ops", "reviewer"),
                     channels = listOf(
                         TaskChannel(type = TaskChannel.TYPE_ROOM, id = "task-task-1", label = "Room (@ops, @reviewer)"),

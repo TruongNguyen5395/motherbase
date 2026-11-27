@@ -273,7 +273,7 @@ class TasksPageUiTest {
             }
         }
         waitForIdle()
-        onNodeWithText("Needs attention (0) · No unread replies or high-impact urgent tasks").assertIsDisplayed()
+        onNodeWithText("Needs attention (0) · No high-impact or urgent tasks").assertIsDisplayed()
     }
 
     @Test
@@ -850,8 +850,8 @@ class TasksPageUiTest {
         onNodeWithText("High impact & urgent (1)").assertIsDisplayed()
         kotlin.test.assertEquals(0, onAllNodesWithText("Agent replies (1)").fetchSemanticsNodes().size)
         kotlin.test.assertEquals(0, onAllNodesWithText("Awaiting reply").fetchSemanticsNodes().size)
-        onNodeWithTag("task_indicator_t-reply").assertIsDisplayed()
-        onNodeWithTag("project_unread_p1").assertIsDisplayed()
+        onNodeWithTag("task_indicator_t-reply", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithTag("project_unread_p1", useUnmergedTree = true).assertIsDisplayed()
         onNodeWithTag("task_pill_ack_t-reply").assertDoesNotExist()
 
         // Toolbar "Unread" filter chip narrows the board to unread tasks only, then restores all tasks on second click.

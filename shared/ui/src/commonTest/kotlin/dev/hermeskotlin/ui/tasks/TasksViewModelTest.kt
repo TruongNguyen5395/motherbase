@@ -197,6 +197,8 @@ class TasksViewModelTest {
                 "id":"ctx-1",
                 "task_id":"t1",
                 "project_id":"proj-1",
+                "impact":"high",
+                "urgency":"high",
                 "assigned_bots":["ops"],
                 "agent_state":"needs_you",
                 "channels":[
@@ -1540,6 +1542,8 @@ class TasksViewModelTest {
                         """.trimIndent()
                     rec.path == "/api/sessions/sess-1/messages" ->
                         HttpStatusCode.OK to """{"session_id":"sess-1","messages":[{"role":"assistant","content":"Done."}]}"""
+                    rec.path == "/api/sessions/sess-1/mutation-snapshot" ->
+                        HttpStatusCode.OK to """{"exists":true,"runtime_revision":1,"runtime_generation":1}"""
                     rec.path == "/api/sessions/sess-1" && rec.method == HttpMethod.Patch -> {
                         markedSessionRead = true
                         HttpStatusCode.OK to """{}"""
@@ -1569,7 +1573,11 @@ class TasksViewModelTest {
                     st.selectedTaskId == "t1" && !st.channelLoading && st.replyBadges["t1"] == TaskReplyBadge.NONE
                 }
             }
-            dispatcher.scheduler.advanceUntilIdle()
+            withTimeout(5_000) {
+                while (!markedSessionRead) {
+                    kotlinx.coroutines.yield()
+                }
+            }
             assertEquals(0, opened.unreadCount)
             assertTrue(markedSessionRead)
 
