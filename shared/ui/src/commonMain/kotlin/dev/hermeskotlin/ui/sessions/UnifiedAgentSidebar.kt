@@ -128,6 +128,8 @@ import dev.hermeskotlin.ui.isDesktop
 import dev.hermeskotlin.ui.resources.*
 import dev.hermeskotlin.ui.rooms.RoomAsk
 import dev.hermeskotlin.ui.rooms.RoomAskDialogs
+import dev.hermeskotlin.ui.rooms.RoomFaces
+import dev.hermeskotlin.ui.rooms.roomMembers
 import org.jetbrains.compose.resources.stringResource
 
 /** Default number of Recent sessions shown inside an expanded agent before expanding all. */
@@ -1452,8 +1454,8 @@ private fun ActiveAttentionRow(
     ) {
         when {
             bot != null -> BotAvatar(bot, avatars[bot.name]?.takeIf { dev.hermeskotlin.core.bots.showsPicture(bot, it) }, size = 24.dp)
-            item is ActiveAttentionItem.RoomAttention -> dev.hermeskotlin.ui.rooms.RoomFaces(item.room.members, roomFaces, size = 24.dp, max = 2, ring = rowBg)
-            item is ActiveAttentionItem.DesktopRoomNeedsYou -> dev.hermeskotlin.ui.rooms.RoomFaces(item.room.roomMembers(), roomFaces, size = 24.dp, max = 2, ring = rowBg)
+            item is ActiveAttentionItem.RoomAttention -> RoomFaces(item.room.members, roomFaces, size = 24.dp, max = 2, ring = rowBg)
+            item is ActiveAttentionItem.DesktopRoomNeedsYou -> RoomFaces(item.room.roomMembers(), roomFaces, size = 24.dp, max = 2, ring = rowBg)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
