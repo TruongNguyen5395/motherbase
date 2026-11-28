@@ -383,7 +383,7 @@ fun BotsRoster(
 
 /** A section's small capitals, with its action (a +) at the other end. */
 @Composable
-private fun SectionHeader(title: String, top: Dp, action: @Composable () -> Unit) {
+internal fun SectionHeader(title: String, top: Dp, action: @Composable () -> Unit = {}) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = MinTouchTarget).padding(start = 6.dp, top = top),
         verticalAlignment = Alignment.CenterVertically,
@@ -402,7 +402,7 @@ private fun SectionHeader(title: String, top: Dp, action: @Composable () -> Unit
 }
 
 @Composable
-private fun DeleteBotDialog(bot: Bot?, onDismiss: () -> Unit, onConfirm: (Bot) -> Unit) {
+internal fun DeleteBotDialog(bot: Bot?, onDismiss: () -> Unit, onConfirm: (Bot) -> Unit) {
     var shown by remember { mutableStateOf(bot) }
     if (bot != null) shown = bot
     val b = shown ?: return
@@ -419,7 +419,86 @@ private fun DeleteBotDialog(bot: Bot?, onDismiss: () -> Unit, onConfirm: (Bot) -
 }
 
 /** How a bot stands, for its card's dot and second line. */
-private enum class BotTone { Active, Attention, Idle }
+internal enum class BotTone { Active, Attention, Idle }
+
+/** Resolved status text and style for a bot row/card. */
+internal data class BotStatusLine(val tone: BotTone, val text: String, val italic: Boolean)
+
+@Composable
+internal fun resolveBotStatusLine(
+    bot: Bot,
+    thinking: Boolean,
+    working: Boolean,
+    trouble: BotTrouble?,
+    failingRoutine: CronJob?,
+    waiting: Waiting?,
+): BotStatusLine {
+    val tone = when {
+        waiting != null || trouble != null || failingRoutine != null -> BotTone.Attention
+        working || thinking -> BotTone.Active
+        else -> BotTone.Idle
+    }
+    val preview = bot.rosterPreview()
+    val (line, italic) = when {
+        // Held up on the user beats everything: nothing moves until they answer.
+        waiting != null -> waiting.label to false
+        thinking -> stringResource(Res.string.bots_thinking) to false
+        working -> stringResource(Res.string.bots_working) to false
+        // What's wrong outranks the last line: a phone has no hover to say it.
+        trouble != null -> trouble.problem.hint to false
+        failingRoutine != null -> stringResource(Res.string.bots_routine_failed, failingRoutine.displayName) to false
+        preview?.fromBot != null -> "${preview.fromBot}: ${preview.text}" to true
+        preview != null -> preview.text to false
+        else -> (bot.description?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.bots_say_hello)) to false
+    }
+    return BotStatusLine(tone, line, italic)
+}
+
+/** Shared context/action menu items for a [Bot], used by both [BotCard] and the unified agent sidebar. */
+@Composable
+internal fun rememberBotMenuItems(
+    bot: Bot,
+    hidden: Boolean,
+    trouble: BotTrouble?,
+    screenState: ProfileScreenState?,
+    showScreenAction: Boolean,
+    actions: BotActions,
+    onStartOver: () -> Unit,
+    onDelete: () -> Unit,
+    extraItems: List<RowMenuItem> = emptyList(),
+): () -> List<RowMenuItem> {
+    val pinned = bot.meta.pinned
+    // Only a conversation that isn't the Bot Chat is worth opening as "recent".
+    val recent = bot.lastSession?.id?.takeIf { it != bot.canonicalSession?.id && it != bot.canonicalSession?.openId }
+    val checkAgain = stringResource(Res.string.common_check_again)
+    val pinLabel = stringResource(if (pinned) Res.string.bots_unpin else Res.string.bots_pin)
+    val hideLabel = stringResource(if (hidden) Res.string.bots_unhide else Res.string.bots_hide)
+    val openRecent = stringResource(Res.string.bots_open_recent)
+    val newChat = stringResource(Res.string.bots_new_chat_with, bot.label)
+    val routines = stringResource(Res.string.bots_routines)
+    val startFresh = stringResource(Res.string.bots_start_fresh)
+    val edit = stringResource(Res.string.bots_edit)
+    val openScreenLabel = stringResource(Res.string.screen_open)
+    val duplicate = stringResource(Res.string.bots_duplicate)
+    val delete = stringResource(Res.string.bots_delete)
+    return {
+        listOfNotNull(
+            RowMenuItem(checkAgain, Lucide.RefreshCw) { actions.checkAgain(bot) }.takeIf { trouble != null },
+            RowMenuItem(openScreenLabel, Lucide.Monitor) { actions.openScreen(bot) }.takeIf { showScreenAction && screenState?.unavailable != true },
+            RowMenuItem(newChat, Lucide.MessageSquarePlus) { actions.newChat(bot) },
+            RowMenuItem(openRecent, Lucide.History) { actions.openRecent(bot) }.takeIf { recent != null },
+            RowMenuItem(routines, Lucide.CalendarClock) { actions.routines(bot) },
+            RowMenuItem(startFresh, Lucide.RotateCcw, run = onStartOver).takeIf { bot.canonicalSession != null },
+        ) + extraItems + listOfNotNull(
+            RowMenuItem(pinLabel, if (pinned) Lucide.PinOff else Lucide.Pin) { actions.setPinned(bot, !pinned) },
+            RowMenuItem(hideLabel, if (hidden) Lucide.Eye else Lucide.EyeOff) { actions.setHidden(bot, !hidden) },
+            RowMenuItem(edit, Lucide.Pencil) { actions.edit(bot) },
+            RowMenuItem(duplicate, Lucide.Copy) { actions.duplicate(bot) },
+            // The gateway keeps its primary profile.
+            RowMenuItem(delete, Lucide.Trash2, destructive = true, run = onDelete).takeIf { bot.name != Bot.DEFAULT },
+        )
+    }
+}
 
 /**
  * One bot as a ringed card: its face with a dot for how it stands (the accent while it works, the warning
@@ -452,55 +531,12 @@ private fun BotCard(
     val haptics = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     val pinned = bot.meta.pinned
-    // Only a conversation that isn't the Bot Chat is worth opening as "recent".
-    val recent = bot.lastSession?.id?.takeIf { it != bot.canonicalSession?.id && it != bot.canonicalSession?.openId }
-    val tone = when {
-        waiting != null || trouble != null || failingRoutine != null -> BotTone.Attention
-        working || thinking -> BotTone.Active
-        else -> BotTone.Idle
-    }
-    val preview = bot.rosterPreview()
-    val (line, italic) = when {
-        // Held up on the user beats everything: nothing moves until they answer.
-        waiting != null -> waiting.label to false
-        thinking -> stringResource(Res.string.bots_thinking) to false
-        working -> stringResource(Res.string.bots_working) to false
-        // What's wrong outranks the last line: a phone has no hover to say it.
-        trouble != null -> trouble.problem.hint to false
-        failingRoutine != null -> stringResource(Res.string.bots_routine_failed, failingRoutine.displayName) to false
-        preview?.fromBot != null -> "${preview.fromBot}: ${preview.text}" to true
-        preview != null -> preview.text to false
-        else -> (bot.description?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.bots_say_hello)) to false
-    }
+    val status = resolveBotStatusLine(bot, thinking, working, trouble, failingRoutine, waiting)
+    val tone = status.tone
+    val line = status.text
+    val italic = status.italic
     var contextMenuOpen by remember { mutableStateOf(false) }
-    // Said here, where the language is known: the menu's own lambda isn't composed.
-    val checkAgain = stringResource(Res.string.common_check_again)
-    val pinLabel = stringResource(if (pinned) Res.string.bots_unpin else Res.string.bots_pin)
-    val hideLabel = stringResource(if (hidden) Res.string.bots_unhide else Res.string.bots_hide)
-    val openRecent = stringResource(Res.string.bots_open_recent)
-    val newChat = stringResource(Res.string.bots_new_chat_with, bot.label)
-    val routines = stringResource(Res.string.bots_routines)
-    val startFresh = stringResource(Res.string.bots_start_fresh)
-    val edit = stringResource(Res.string.bots_edit)
-    val openScreenLabel = stringResource(Res.string.screen_open)
-    val duplicate = stringResource(Res.string.bots_duplicate)
-    val delete = stringResource(Res.string.bots_delete)
-    val menuItems = {
-        listOfNotNull(
-            RowMenuItem(checkAgain, Lucide.RefreshCw) { actions.checkAgain(bot) }.takeIf { trouble != null },
-            RowMenuItem(openScreenLabel, Lucide.Monitor) { actions.openScreen(bot) }.takeIf { showScreenAction && screenState?.unavailable != true },
-            RowMenuItem(pinLabel, if (pinned) Lucide.PinOff else Lucide.Pin) { actions.setPinned(bot, !pinned) },
-            RowMenuItem(hideLabel, if (hidden) Lucide.Eye else Lucide.EyeOff) { actions.setHidden(bot, !hidden) },
-            RowMenuItem(openRecent, Lucide.History) { actions.openRecent(bot) }.takeIf { recent != null },
-            RowMenuItem(newChat, Lucide.MessageSquarePlus) { actions.newChat(bot) },
-            RowMenuItem(routines, Lucide.CalendarClock) { actions.routines(bot) },
-            RowMenuItem(startFresh, Lucide.RotateCcw, run = onStartOver).takeIf { bot.canonicalSession != null },
-            RowMenuItem(edit, Lucide.Pencil) { actions.edit(bot) },
-            RowMenuItem(duplicate, Lucide.Copy) { actions.duplicate(bot) },
-            // The gateway keeps its primary profile.
-            RowMenuItem(delete, Lucide.Trash2, destructive = true, run = onDelete).takeIf { bot.name != Bot.DEFAULT },
-        )
-    }
+    val menuItems = rememberBotMenuItems(bot, hidden, trouble, screenState, showScreenAction, actions, onStartOver, onDelete)
     DropdownMenu(
         expanded = menuOpen,
         onExpandedChange = { menuOpen = it },
@@ -597,7 +633,7 @@ private fun BotCard(
  * something; the accent alone for lines the user hasn't read; else a faint dot. The card says it in words.
  */
 @Composable
-private fun StatusDot(tone: BotTone, unread: Boolean) {
+internal fun StatusDot(tone: BotTone, unread: Boolean) {
     val (dot, ring) = when {
         tone == BotTone.Attention -> Theme[colors][warning] to Theme[colors][warningSoft]
         tone == BotTone.Active -> Theme[colors][accent] to Theme[colors][accentSoft]
@@ -618,7 +654,7 @@ private fun StatusDot(tone: BotTone, unread: Boolean) {
 
 /** One bot needing the user, as a warning card: its face, what it needs, and a pill saying what tapping does. */
 @Composable
-private fun NeedsYouCard(item: NeedsYou, picture: ByteArray?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun NeedsYouCard(item: NeedsYou, picture: ByteArray?, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
     val answer = item is NeedsYou.Answer
     Row(
@@ -689,7 +725,15 @@ internal fun StartOverDialog(bot: Bot?, onDismiss: () -> Unit, onConfirm: (Bot) 
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RoomRow(room: Room, faces: BotFaces, unread: Boolean, onClick: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
+internal fun RoomRow(
+    room: Room,
+    faces: BotFaces,
+    unread: Boolean,
+    onClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    taskTitle: String? = null,
+) {
     val haptics = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     var contextMenuOpen by remember { mutableStateOf(false) }
@@ -707,6 +751,7 @@ private fun RoomRow(room: Room, faces: BotFaces, unread: Boolean, onClick: () ->
             room,
             faces,
             unread,
+            taskTitle,
             Modifier.handCursor().combinedClickable(
                 onClick = onClick,
                 onClickLabel = stringResource(Res.string.rooms_open_named, room.name),
@@ -732,9 +777,10 @@ private fun RoomRow(room: Room, faces: BotFaces, unread: Boolean, onClick: () ->
 }
 
 @Composable
-private fun RoomRowContent(room: Room, faces: BotFaces, unread: Boolean, clicks: Modifier) {
+private fun RoomRowContent(room: Room, faces: BotFaces, unread: Boolean, taskTitle: String?, clicks: Modifier) {
     // New lines since the user last looked: bold and a dot, as a bot's card shows them.
-    val subtitle = if (room.members.isEmpty()) stringResource(Res.string.rooms_no_members) else roomSubtitle(room)
+    val base = if (room.members.isEmpty()) stringResource(Res.string.rooms_no_members) else roomSubtitle(room)
+    val subtitle = if (!taskTitle.isNullOrBlank()) "$taskTitle · $base" else base
     RoomRowLayout(room.members, room.name, subtitle, room.updatedAt, faces, marked = unread, clicks = clicks)
 }
 
@@ -800,7 +846,7 @@ private fun roomSubtitle(room: Room): String = room.members.joinToString(", ") {
  * line asks for the user (`@user`), Desktop's own needs-you rule.
  */
 @Composable
-private fun DesktopRoomRow(room: DesktopRoom, faces: BotFaces, onClick: () -> Unit) {
+internal fun DesktopRoomRow(room: DesktopRoom, faces: BotFaces, onClick: () -> Unit) {
     val members = remember(room.members) { room.roomMembers() }
     val subtitle = remember(room, faces) { room.rowSubtitle(faces) }
     RoomRowLayout(

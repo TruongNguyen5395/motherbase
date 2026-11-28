@@ -105,6 +105,16 @@ class ThreadsRepository(
         }
     }
 
+    /** Reads threads for [name] without changing the bound scope; returns empty on error or offline. */
+    suspend fun peekThreads(name: String): List<ChatThread> =
+        try {
+            api.threads(name)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+
     /** [thread]'s chat as last listed: the row it names, or the newest row of that chat's lineage. */
     fun chatOf(thread: ChatThread): SessionSummary? = chatOf(thread, _rows.value)
 

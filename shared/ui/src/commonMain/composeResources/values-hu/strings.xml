@@ -345,4 +345,8 @@
     <string name="bots_screen_auto_open_label">Képernyő automatikus megnyitása</string>
     <string name="bots_screen_auto_open_hint">Megnyitja a képernyőt böngésző vagy asztali eszközök használatakor.</string>
     <string name="bots_screen_card_title">Képernyő</string>
+    <string name="settings_sidebar_active_overview">Aktív &amp; figyelmet kérő</string>
+    <string name="settings_sidebar_active_overview_detail">Minden ügynök futó és jóváhagyásra váró feladatainak rögzítése az oldalsáv tetején.</string>
+    <string name="settings_sidebar_multi_expand">Több ügynök kinyitása</string>
+    <string name="settings_sidebar_multi_expand_detail">Több ügynök nyitva tartása egyszerre. Kikapcsolva az új megnyitása bezárja a többit.</string>
 </resources>

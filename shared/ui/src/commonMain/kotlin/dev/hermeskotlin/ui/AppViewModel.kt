@@ -402,10 +402,18 @@ class AppViewModel(
      * A new chat in the picked profile; [draft] fills its composer (shared from another app, a shortcut).
      * [cwd] is the folder it runs in, when it starts in a project.
      */
-    fun newChat(draft: ComposeDraft? = null, cwd: String? = null, picked: Boolean = cwd != null) {
+    fun newChat(draft: ComposeDraft? = null, cwd: String? = null, picked: Boolean = cwd != null) =
+        newChatInProfile(currentProfile(), draft = draft, cwd = cwd, picked = picked)
+
+    /** Starts a new chat in [profile] (null: the launch profile) without changing the active chats profile. */
+    fun newChatInProfile(
+        profile: String?,
+        draft: ComposeDraft? = null,
+        cwd: String? = null,
+        picked: Boolean = cwd != null,
+    ) {
         cancelPendingCall()
         val gateway = signedInGateway() ?: return
-        val profile = currentProfile()
         // [picked]: started in a project on purpose (the list's, Home included). The next new chat starts there too.
         if (picked) rememberProject(gateway, profile, cwd)
         if (!picked && settings.settings.value == null) {

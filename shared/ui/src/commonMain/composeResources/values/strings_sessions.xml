@@ -505,4 +505,14 @@
     <string name="sessions_config_refresh_failed">Couldn’t refresh</string>
     <string name="sessions_config_save_failed">Couldn’t save %1$s</string>
     <string name="sessions_config_yaml_saved">Saved config.yaml</string>
+    <string name="sessions_agents_section">Agents</string>
+    <string name="sessions_agent_coordinator">Coordinator</string>
+    <string name="sessions_agent_direct_chat">Direct chat</string>
+    <string name="sessions_active_overview">Active &amp; needs you</string>
+    <string name="sessions_section_recent">Recent</string>
+    <string name="sessions_show_all_count">Show all (%1$d)</string>
+    <string name="sessions_show_fewer">Show fewer</string>
+    <string name="sessions_expand_agent">Expand %1$s</string>
+    <string name="sessions_collapse_agent">Collapse %1$s</string>
+    <string name="sessions_agent_scoped_title">%1$s · %2$s</string>
 </resources>

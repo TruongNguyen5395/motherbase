@@ -345,4 +345,8 @@
     <string name="bots_screen_auto_open_label">Ouvrir l’écran automatiquement</string>
     <string name="bots_screen_auto_open_hint">Ouvrir l’écran lorsque ce bot utilise le navigateur ou le bureau.</string>
     <string name="bots_screen_card_title">Écran</string>
+    <string name="settings_sidebar_active_overview">Actifs &amp; attention</string>
+    <string name="settings_sidebar_active_overview_detail">Épingler en haut les tâches en cours ou en attente de tous les agents.</string>
+    <string name="settings_sidebar_multi_expand">Déplier plusieurs agents</string>
+    <string name="settings_sidebar_multi_expand_detail">Garder plusieurs agents ouverts en même temps. Désactivé, en ouvrir un ferme les autres.</string>
 </resources>

@@ -345,4 +345,8 @@
     <string name="bots_screen_auto_open_label">Abrir tela automaticamente</string>
     <string name="bots_screen_auto_open_hint">Abre a tela quando este bot usa navegador ou ferramentas gráficas.</string>
     <string name="bots_screen_card_title">Tela</string>
+    <string name="settings_sidebar_active_overview">Ativos &amp; atenção</string>
+    <string name="settings_sidebar_active_overview_detail">Fixar tarefas em execução ou pendentes de todos os agentes no topo da barra lateral.</string>
+    <string name="settings_sidebar_multi_expand">Expandir vários agentes</string>
+    <string name="settings_sidebar_multi_expand_detail">Manter vários agentes abertos ao mesmo tempo. Desativado, abrir um fecha os outros.</string>
 </resources>

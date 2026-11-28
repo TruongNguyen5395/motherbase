@@ -480,4 +480,14 @@
     <string name="sessions_config_refresh_failed">Nem sikerült frissíteni</string>
     <string name="sessions_config_save_failed">Nem sikerült menteni: %1$s</string>
     <string name="sessions_config_yaml_saved">config.yaml mentve</string>
+    <string name="sessions_agents_section">Ügynökök</string>
+    <string name="sessions_agent_coordinator">Koordinátor</string>
+    <string name="sessions_agent_direct_chat">Közvetlen chat</string>
+    <string name="sessions_active_overview">Aktív &amp; figyelmet kérő</string>
+    <string name="sessions_section_recent">Legutóbbi</string>
+    <string name="sessions_show_all_count">Összes mutatása (%1$d)</string>
+    <string name="sessions_show_fewer">Kevesebb mutatása</string>
+    <string name="sessions_expand_agent">%1$s kinyitása</string>
+    <string name="sessions_collapse_agent">%1$s összecsukása</string>
+    <string name="sessions_agent_scoped_title">%1$s · %2$s</string>
 </resources>

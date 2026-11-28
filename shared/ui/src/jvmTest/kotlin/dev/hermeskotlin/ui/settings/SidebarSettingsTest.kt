@@ -11,7 +11,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.runComposeUiTest
 import com.composeunstyled.theme.ColorScheme
-import dev.hermeskotlin.core.bots.SidebarMode
 import dev.hermeskotlin.core.settings.AppSettings
 import dev.hermeskotlin.designsystem.HermesTheme
 import kotlin.test.Test
@@ -31,18 +30,18 @@ class SidebarSettingsTest {
             }
         }
         onNodeWithText("Inbox").performScrollTo().assertIsOn()
-        onNodeWithText("Insights").performScrollTo().assertIsOn().performClick()
-        assertEquals(listOf("Insights"), settings.sidebarNavHidden)
-        onNodeWithText("Insights").assertIsOff()
+        onNodeWithText("Dispatch").performScrollTo().assertIsOn().performClick()
+        assertEquals(listOf("Tasks"), settings.sidebarNavHidden)
+        onNodeWithText("Dispatch").assertIsOff()
 
         // The whole section off: the pages go from the page too, and what was hidden is kept.
         onNodeWithText("Show page buttons").performClick()
         assertFalse(settings.sidebarNav)
-        onNodeWithText("Archived").assertDoesNotExist()
+        onNodeWithText("Scheduled").assertDoesNotExist()
         onNodeWithText("Show page buttons").performClick()
         assertTrue(settings.sidebarNav)
-        onNodeWithText("Insights").performScrollTo().assertIsOff()
-        onNodeWithText("Archived").performScrollTo().assertIsOn()
+        onNodeWithText("Dispatch").performScrollTo().assertIsOff()
+        onNodeWithText("Scheduled").performScrollTo().assertIsOn()
     }
 
     @Test
@@ -57,20 +56,17 @@ class SidebarSettingsTest {
     }
 
     @Test
-    fun withoutTheSwitchSettingsPickTheView() = runComposeUiTest {
+    fun unifiedSidebarSettingsToggleActiveOverviewAndMultiExpand() = runComposeUiTest {
         var settings by mutableStateOf(AppSettings())
         setContent {
             HermesTheme(ColorScheme.Light) {
                 SettingsView(settings, GatewayInfo(), "https://fixture.example", { change -> settings = change(settings) }, {}, {}, {})
             }
         }
-        // With the switch, there's no view to pick here.
-        onNodeWithText("Sidebar shows").assertDoesNotExist()
-        onNodeWithText("Chats and Bots switch").performScrollTo().assertIsOn().performClick()
-        assertFalse(settings.sidebarModeSwitch)
-        onNodeWithText("Sidebar shows").performScrollTo().assertExists()
-        onNodeWithText("Bots").performScrollTo().performClick()
-        assertEquals(SidebarMode.Bots, settings.sidebarView)
+        onNodeWithText("Active & needs you").performScrollTo().assertIsOn().performClick()
+        assertFalse(settings.showActiveOverview)
+        onNodeWithText("Expand multiple agents").performScrollTo().assertIsOff().performClick()
+        assertTrue(settings.multiExpandAgents)
         // The pages row says how many show.
         onNodeWithText("Sidebar pages").performScrollTo().assertExists()
         onNodeWithText("All shown.").performScrollTo().assertExists()

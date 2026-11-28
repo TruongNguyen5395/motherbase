@@ -345,4 +345,8 @@
     <string name="bots_screen_auto_open_label">Bildschirm automatisch öffnen</string>
     <string name="bots_screen_auto_open_hint">Bot-Bildschirm öffnen, wenn dieser Bot Browser- oder Computer-Tools nutzt.</string>
     <string name="bots_screen_card_title">Bildschirm</string>
+    <string name="settings_sidebar_active_overview">Aktiv &amp; Aufmerksamkeit</string>
+    <string name="settings_sidebar_active_overview_detail">Laufende und wartende Aufgaben aller Agenten oben in der Seitenleiste anheften.</string>
+    <string name="settings_sidebar_multi_expand">Mehrere Agenten ausklappen</string>
+    <string name="settings_sidebar_multi_expand_detail">Mehrere Agenten gleichzeitig geöffnet lassen. Aus: Ein neuer schließt andere.</string>
 </resources>

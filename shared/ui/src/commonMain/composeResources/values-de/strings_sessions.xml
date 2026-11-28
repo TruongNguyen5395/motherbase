@@ -480,4 +480,14 @@
     <string name="sessions_config_refresh_failed">Konnte nicht aktualisiert werden</string>
     <string name="sessions_config_save_failed">%1$s konnte nicht gespeichert werden</string>
     <string name="sessions_config_yaml_saved">config.yaml gespeichert</string>
+    <string name="sessions_agents_section">Agenten</string>
+    <string name="sessions_agent_coordinator">Koordinator</string>
+    <string name="sessions_agent_direct_chat">Direktchat</string>
+    <string name="sessions_active_overview">Aktiv &amp; Aufmerksamkeit</string>
+    <string name="sessions_section_recent">Neueste</string>
+    <string name="sessions_show_all_count">Alle anzeigen (%1$d)</string>
+    <string name="sessions_show_fewer">Weniger anzeigen</string>
+    <string name="sessions_expand_agent">%1$s ausklappen</string>
+    <string name="sessions_collapse_agent">%1$s einklappen</string>
+    <string name="sessions_agent_scoped_title">%1$s · %2$s</string>
 </resources>

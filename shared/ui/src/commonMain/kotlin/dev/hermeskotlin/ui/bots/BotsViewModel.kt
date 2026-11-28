@@ -165,11 +165,11 @@ class BotsViewModel(
 
 
     init {
-        // While the roster shows, or a Desktop room's copy read from it: read it now, then on every change
-        // the gateway reports, and slowly besides.
+        // While the sidebar shows (or a Desktop room's copy read from it): read the agent roster now, then on
+        // every change the gateway reports, and slowly besides.
         viewModelScope.launch {
-            combine(gateway, visible, _mode, desktopRoomOpen, connection.state) { url, shown, mode, desktop, conn ->
-                url != null && (shown && mode == SidebarMode.Bots || desktop) && conn is ConnectionState.Connected
+            combine(gateway, visible, desktopRoomOpen, connection.state) { url, shown, desktop, conn ->
+                url != null && (shown || desktop) && conn is ConnectionState.Connected
             }.distinctUntilChanged().collectLatest { live ->
                 while (live) {
                     refreshNow()
@@ -179,7 +179,7 @@ class BotsViewModel(
         }
         viewModelScope.launch {
             connection.events
-                .filter { it.type == "sessions.changed" && (visible.value && _mode.value == SidebarMode.Bots || desktopRoomOpen.value) }
+                .filter { it.type == "sessions.changed" && (visible.value || desktopRoomOpen.value) }
                 .debounce(EVENT_DEBOUNCE_MS)
                 .collect { refreshNow() }
         }

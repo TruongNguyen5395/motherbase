@@ -284,8 +284,7 @@ fun HeraldPreview(scene: PreviewScene, dark: Boolean = true, accent: String = DE
                         userLabel = ChatSamples.USER,
                         statuses = ChatSamples.sessionStatuses,
                         projects = ChatSamples.projects,
-                        profiles = ChatSamples.profiles,
-                        profileMenuOpen = true,
+                        gatewayMenuOpen = true,
                     )
                 }
                 PreviewScene.Renamed -> OpenSidebar {

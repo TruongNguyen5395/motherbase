@@ -5,7 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.composeunstyled.theme.ColorScheme
-import dev.hermeskotlin.core.profiles.Profile
 import dev.hermeskotlin.designsystem.HermesTheme
 import org.junit.Rule
 import org.junit.Test
@@ -20,7 +19,6 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import com.composeunstyled.Text
 import dev.hermeskotlin.ui.bots.BotsRoster
@@ -36,11 +34,14 @@ class SidebarHeaderTest {
     @get:Rule
     val rules: TestRule = RuleChain.outerRule(RegisterHostActivity()).around(composeRule)
 
-    private var picked: Profile? = null
     private var accountOpened = 0
-    private var menuOpened = 0
+    private var gatewaysOpened = 0
 
-    private fun show(profiles: List<Profile>, active: String? = profiles.firstOrNull()?.name, gateway: String = "homelab", scheme: ColorScheme = ColorScheme.Light) {
+    private fun show(
+        gateway: String = "homelab",
+        scheme: ColorScheme = ColorScheme.Light,
+        withGatewayMenu: Boolean = true,
+    ) {
         composeRule.setContent {
             HermesTheme(scheme) {
                 MainHeader(
@@ -49,46 +50,28 @@ class SidebarHeaderTest {
                     onAccount = { accountOpened++ },
                     onSettings = {},
                     onSearch = {},
-                    profiles = profiles,
-                    activeProfile = active,
-                    onProfile = { picked = it },
-                    onOpenMenu = { menuOpened++ },
+                    onOpenGateways = if (withGatewayMenu) ({ gatewaysOpened++ }) else null,
                 )
             }
         }
         settle()
     }
 
-    private val three = listOf(Profile("default", isDefault = true), Profile("research", displayName = "Research"), Profile("writing", displayName = "Writing"))
-
     @Test
-    fun withProfilesTheHeaderOpensThemAndAPickSwitches() {
-        show(three)
-        composeRule.onNodeWithText("· default").assertIsDisplayed()
+    fun theHeaderOpensGatewayAndAccountMenuWithoutProfileSwitcher() {
+        show()
+        composeRule.onNodeWithText("homelab").assertIsDisplayed()
         composeRule.onNodeWithText("MotherBase").performClick()
         settle()
-        assertEquals(1, menuOpened)
         assertEquals(0, accountOpened)
-        composeRule.onNodeWithText("Writing").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Switch gateway").assertIsDisplayed().performClick()
         settle()
-        assertEquals("writing", picked?.name)
-        // The pick closes the menu.
-        composeRule.onNodeWithText("Research").assertDoesNotExist()
-    }
-
-    @Test
-    fun theActiveProfileIsNotPickedAgain() {
-        show(three, active = "research", scheme = ColorScheme.Dark)
-        composeRule.onNodeWithText("MotherBase").performClick()
-        settle()
-        composeRule.onAllNodesWithText("Research").filterToOne(hasClickAction()).performClick()
-        settle()
-        assertNull(picked)
+        assertEquals(1, gatewaysOpened)
     }
 
     @Test
     fun theMenuReachesTheAccountSheet() {
-        show(three)
+        show(scheme = ColorScheme.Dark)
         composeRule.onNodeWithText("MotherBase").performClick()
         settle()
         composeRule.onNodeWithText("Account and gateways").performClick()
@@ -96,20 +79,19 @@ class SidebarHeaderTest {
     }
 
     @Test
-    fun withOneProfileTheHeaderOpensTheAccountSheet() {
-        show(listOf(Profile("default", isDefault = true)))
-        composeRule.onNodeWithText("· default").assertDoesNotExist()
+    fun withoutGatewaySwitcherTheHeaderOpensAccountDirectly() {
+        show(withGatewayMenu = false)
         composeRule.onNodeWithText("MotherBase").performClick()
         settle()
         assertEquals(1, accountOpened)
-        assertEquals(0, menuOpened)
+        assertEquals(0, gatewaysOpened)
     }
 
     @Test
-    fun aLongProfileNameLeavesTheGatewayInSight() {
-        show(listOf(Profile("default", isDefault = true), Profile("long", displayName = "A research assistant for the whole household")), active = "long")
-        composeRule.onNodeWithText("homelab").assertIsDisplayed()
-        composeRule.onNodeWithText("· A research assistant for the whole household").assertIsDisplayed()
+    fun aLongGatewayNameRendersCleanly() {
+        show(gateway = "a-very-long-homelab-gateway-hostname-for-testing")
+        composeRule.onNodeWithText("MotherBase").assertIsDisplayed()
+        composeRule.onNodeWithText("a-very-long-homelab-gateway-hostname-for-testing").assertIsDisplayed()
     }
 
     @Test

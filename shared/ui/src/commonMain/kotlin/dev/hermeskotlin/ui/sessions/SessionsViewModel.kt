@@ -144,6 +144,14 @@ data class RowStatus(val waiting: Waiting? = null, val unread: Boolean = false, 
     val needsAttention: Boolean get() = waiting != null || unread
 }
 
+/** Cached session & thread slice for an expanded agent branch when multi-expand is used. */
+data class AgentBranchState(
+    val sessions: List<SessionSummary> = emptyList(),
+    val threads: List<ChatThread> = emptyList(),
+    val loading: Boolean = true,
+    val error: String? = null,
+)
+
 /** The gateway and profile a list is of; null [profile] is the gateway's launch profile. */
 data class ListBinding(val gateway: SavedGateway, val profile: String?)
 
@@ -341,6 +349,24 @@ class SessionsViewModel(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MS), emptyMap())
 
+    /** Gateway-wide waiting requests by stored session id, active while the sidebar shows. */
+    val liveWaiting: StateFlow<Map<String, Waiting>> = visible.flatMapLatest { shown ->
+        if (!shown) emptyFlow() else waiting
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MS), emptyMap())
+
+    /** Gateway-wide running turn flags by stored session id, active while the sidebar shows. */
+    val liveRunning: StateFlow<Map<String, Boolean>> = visible.flatMapLatest { shown ->
+        if (!shown) emptyFlow() else running
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MS), emptyMap())
+
+    private val _agentBranches = MutableStateFlow<Map<String, AgentBranchState>>(emptyMap())
+
+    /** Cached recent session & thread slices keyed by profile name, for multi-expand and instant agent switching. */
+    val agentBranches: StateFlow<Map<String, AgentBranchState>> = _agentBranches.asStateFlow()
+
+    private val branchJobs = HashMap<String, Job>()
+    private var extraExpandedAgents: Set<String> = emptySet()
+
     private val _binding = MutableStateFlow<ListBinding?>(null)
 
     /** The gateway and profile whose chats are listed ([bind]); null until bound. */
@@ -378,6 +404,80 @@ class SessionsViewModel(
         observeSearch()
         markCaughtUpSeen()
         observeDispatchChanges()
+        syncBoundBranch()
+    }
+
+    private fun syncBoundBranch() {
+        viewModelScope.launch {
+            combine(_binding, _state, threads, _roster) { binding, state, threads, roster ->
+                if (binding == null || state.filter != SessionListFilter.Recent) return@combine null
+                val key = binding.profile ?: roster?.launch ?: "default"
+                key to AgentBranchState(
+                    sessions = state.sessions,
+                    threads = threads,
+                    loading = state.loading,
+                    error = state.error,
+                )
+            }.collect { pair ->
+                val (key, branch) = pair ?: return@collect
+                _agentBranches.update { it + (key to branch) }
+            }
+        }
+    }
+
+    /**
+     * Loads recent sessions & threads for extra expanded agents (multi-expand mode) without switching
+     * the currently bound profile. Idempotent for agents already cached unless [force] is true.
+     */
+    fun ensureAgentsLoaded(agentNames: Set<String>, force: Boolean = false) {
+        val url = gateway?.gatewayUrl ?: return
+        val launch = _roster.value?.launch
+        val boundKey = profile ?: launch ?: "default"
+        extraExpandedAgents = agentNames.filterNot { it == boundKey }.toSet()
+        for (name in extraExpandedAgents) {
+            if (!force && name in _agentBranches.value && _agentBranches.value[name]?.loading == false) continue
+            if (branchJobs[name]?.isActive == true && !force) continue
+            branchJobs[name]?.cancel()
+            val profileParam = name.takeIf { it != launch }
+            if (name !in _agentBranches.value) {
+                _agentBranches.update { it + (name to AgentBranchState(loading = true)) }
+            }
+            branchJobs[name] = viewModelScope.launch {
+                val saved = cache?.savedList(url, profileParam, SessionListFilter.Recent)
+                if (saved != null && _agentBranches.value[name]?.sessions.isNullOrEmpty()) {
+                    _agentBranches.update { cur ->
+                        cur + (name to (cur[name] ?: AgentBranchState()).copy(sessions = saved.sessions, loading = false))
+                    }
+                }
+                val result = api.list(url, limit = SessionsApi.PAGE_SIZE, filter = SessionListFilter.Recent, profile = profileParam)
+                val branchThreads = if (connection.state.value is ConnectionState.Connected) {
+                    threadsRepo.peekThreads(name)
+                } else {
+                    _agentBranches.value[name]?.threads.orEmpty()
+                }
+                if (gateway?.gatewayUrl != url) return@launch
+                if (result is ApiResult.Success) {
+                    cache?.saveList(url, profileParam, SessionListFilter.Recent, result.value.sessions)
+                    _agentBranches.update { cur ->
+                        cur + (name to AgentBranchState(
+                            sessions = result.value.sessions,
+                            threads = branchThreads,
+                            loading = false,
+                            error = null,
+                        ))
+                    }
+                } else {
+                    _agentBranches.update { cur ->
+                        val prev = cur[name] ?: AgentBranchState()
+                        cur + (name to prev.copy(
+                            threads = branchThreads.ifEmpty { prev.threads },
+                            loading = false,
+                            error = result.errorMessage.takeIf { prev.sessions.isEmpty() },
+                        ))
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -421,6 +521,10 @@ class SessionsViewModel(
         if (newGateway) {
             _user.value = null
             _roster.value = null
+            branchJobs.values.forEach { it.cancel() }
+            branchJobs.clear()
+            extraExpandedAgents = emptySet()
+            _agentBranches.value = emptyMap()
             viewModelScope.launch {
                 (auth.me(gateway.gatewayUrl) as? ApiResult.Success)?.let { _user.value = it.value }
             }
@@ -957,7 +1061,10 @@ class SessionsViewModel(
             connection.events
                 .filter { it.type in REFRESH_EVENTS }
                 .debounce(400)
-                .collect { load(refresh = false) }
+                .collect {
+                    load(refresh = false)
+                    if (extraExpandedAgents.isNotEmpty()) ensureAgentsLoaded(extraExpandedAgents, force = true)
+                }
         }
         // Projects come over the socket, which may connect after the list (REST) has loaded.
         viewModelScope.launch {
@@ -1045,6 +1152,11 @@ class SessionsViewModel(
                                 searchResults = cur.searchResults?.filterNot { it.id in archivedIds },
                                 projectSessions = cur.projectSessions?.filterNot { it.id in archivedIds },
                             )
+                        }
+                        _agentBranches.update { map ->
+                            map.mapValues { (_, branch) ->
+                                branch.copy(sessions = branch.sessions.filterNot { it.id in archivedIds })
+                            }
                         }
                         cache?.saveList(currentUrl, profile, SessionListFilter.Recent, _state.value.sessions)
                     }

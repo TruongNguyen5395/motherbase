@@ -8,29 +8,24 @@ import kotlin.test.assertEquals
 
 class NavPagesTest {
 
-    private val phonePages = listOf(
+    private val gatewayPages = listOf(
         SidebarPage.Inbox,
         SidebarPage.Tasks,
         SidebarPage.Calendar,
         SidebarPage.Scheduled,
-        SidebarPage.Insights,
-        SidebarPage.Capabilities,
-        SidebarPage.Plugins,
-        SidebarPage.Config,
-        SidebarPage.Archived,
     )
 
     @Test
-    fun byDefaultEveryPageHasItsButtonAsBefore() {
-        assertEquals(phonePages, shownNavPages(AppSettings(), desktop = false))
+    fun byDefaultEveryGatewayPageHasItsButton() {
+        assertEquals(gatewayPages, shownNavPages(AppSettings(), desktop = false))
         // Before the settings are read, the sidebar doesn't flash without them.
-        assertEquals(phonePages, shownNavPages(null, desktop = false))
+        assertEquals(gatewayPages, shownNavPages(null, desktop = false))
     }
 
     @Test
     fun aDesktopIncludesInboxToo() {
-        assertEquals(phonePages, shownNavPages(AppSettings(), desktop = true))
-        assertEquals(phonePages, navPages(desktop = true))
+        assertEquals(gatewayPages, shownNavPages(AppSettings(), desktop = true))
+        assertEquals(gatewayPages, navPages(desktop = true))
     }
 
     @Test
@@ -43,9 +38,9 @@ class NavPagesTest {
     fun hiddenPagesGoAndTheRestKeepTheirOrder() {
         val settings = AppSettings()
             .withSidebarPage(SidebarPage.Inbox.name, shown = false)
-            .withSidebarPage(SidebarPage.Config.name, shown = false)
+            .withSidebarPage(SidebarPage.Calendar.name, shown = false)
         assertEquals(
-            listOf(SidebarPage.Tasks, SidebarPage.Calendar, SidebarPage.Scheduled, SidebarPage.Insights, SidebarPage.Capabilities, SidebarPage.Plugins, SidebarPage.Archived),
+            listOf(SidebarPage.Tasks, SidebarPage.Scheduled),
             shownNavPages(settings, desktop = false),
         )
         // Back on, the section has them as they were left.
@@ -55,6 +50,6 @@ class NavPagesTest {
     @Test
     fun aNameThisVersionDoesNotKnowChangesNothing() {
         // A page an older or newer version hid, under a name this one has no page for.
-        assertEquals(phonePages, shownNavPages(AppSettings(sidebarNavHidden = listOf("Gallery")), desktop = false))
+        assertEquals(gatewayPages, shownNavPages(AppSettings(sidebarNavHidden = listOf("Gallery")), desktop = false))
     }
 }

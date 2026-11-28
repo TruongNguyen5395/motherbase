@@ -239,18 +239,28 @@ class SettingsStoreTest {
         disk.put("settings.v1", """{"theme":"Dark","projectsAsDropdown":true}""")
         val first = SettingsStore(disk, backgroundScope)
         val old = first.settings.filterNotNull().first()
-        assertTrue(old.sidebarModeSwitch)
-        assertEquals(SidebarMode.Chats, old.sidebarView)
         assertTrue(old.sidebarNav)
+        assertTrue(old.showActiveOverview)
+        assertFalse(old.multiExpandAgents)
         assertEquals(emptyList(), old.sidebarNavHidden)
         assertTrue(old.projectsAsDropdown)
 
-        first.update { it.copy(sidebarModeSwitch = false, sidebarView = SidebarMode.Bots, sidebarNav = false).withSidebarPage("Insights", shown = false) }
+        first.update {
+            it.copy(
+                sidebarModeSwitch = false,
+                sidebarView = SidebarMode.Bots,
+                showActiveOverview = false,
+                multiExpandAgents = true,
+                sidebarNav = false,
+            ).withSidebarPage("Insights", shown = false)
+        }
         advanceUntilIdle()
 
         val restored = SettingsStore(disk, backgroundScope).settings.filterNotNull().first()
         assertFalse(restored.sidebarModeSwitch)
         assertEquals(SidebarMode.Bots, restored.sidebarView)
+        assertFalse(restored.showActiveOverview)
+        assertTrue(restored.multiExpandAgents)
         assertFalse(restored.sidebarNav)
         assertEquals(listOf("Insights"), restored.sidebarNavHidden)
         assertEquals(ThemeMode.Dark, restored.theme)

@@ -764,6 +764,10 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
                     app.newChat(cwd = project?.path?.takeIf { !project.isNoProject }, picked = project != null)
                     closeDrawerToChat()
                 },
+                onNewChatInProfile = { project, targetProfile ->
+                    app.newChatInProfile(targetProfile, cwd = project?.path?.takeIf { !project.isNoProject }, picked = project != null)
+                    closeDrawerToChat()
+                },
                 onDeleted = { if (it.id == openSessionId) app.newChat() },
                 onSessionExpired = app::onSessionExpired,
                 onSignOut = app::signOut,
@@ -1027,7 +1031,7 @@ private fun Home(route: Route.Chat, app: AppViewModel, onOpenGateways: () -> Uni
         items = if (!paletteOpen) emptyList() else paletteItems(
             chats = listedChats,
             bots = roster.all,
-            modeSwitch = settings.sidebarModeSwitch,
+            modeSwitch = false,
             commands = HomeCommands(
                 newChat = {
                     app.newChat()

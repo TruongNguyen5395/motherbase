@@ -218,10 +218,6 @@ import dev.hermeskotlin.core.gateway.CheckStage
 import dev.hermeskotlin.core.gateway.StageResult
 import dev.hermeskotlin.ui.connect.ConnectionChecklist
 import dev.hermeskotlin.ui.sessions.SubpageHeader
-import dev.hermeskotlin.ui.sessions.navIcon
-import dev.hermeskotlin.ui.sessions.navLabel
-import dev.hermeskotlin.ui.SidebarPage
-import dev.hermeskotlin.core.bots.SidebarMode
 import com.composables.icons.lucide.LayoutList
 import dev.hermeskotlin.ui.update.UpdateBanner
 import org.koin.compose.viewmodel.koinViewModel
@@ -565,26 +561,18 @@ internal fun SettingsView(
                     )
                     Divider()
                     SwitchRow(
-                        title = stringResource(Res.string.settings_sidebar_switch),
-                        detail = stringResource(Res.string.settings_sidebar_switch_detail),
-                        checked = settings.sidebarModeSwitch,
-                        onCheckedChange = { on -> onUpdate { it.copy(sidebarModeSwitch = on) } },
+                        title = stringResource(Res.string.settings_sidebar_active_overview),
+                        detail = stringResource(Res.string.settings_sidebar_active_overview_detail),
+                        checked = settings.showActiveOverview,
+                        onCheckedChange = { on -> onUpdate { it.copy(showActiveOverview = on) } },
                     )
-                    // Without the switch, which side the sidebar shows is picked here.
-                    if (!settings.sidebarModeSwitch) {
-                        Divider()
-                        Field(stringResource(Res.string.settings_sidebar_view), detail = stringResource(Res.string.settings_sidebar_view_detail)) {
-                            // The control takes its labels as a plain lambda, so the words are resolved first.
-                            val viewLabels = SidebarMode.entries.associateWith { stringResource(navLabel(it.page)) }
-                            SegmentedControl(
-                                options = SidebarMode.entries,
-                                selected = settings.sidebarView,
-                                onSelect = { view -> onUpdate { it.copy(sidebarView = view) } },
-                                optionLabel = { viewLabels.getValue(it) },
-                                optionIcon = { navIcon(it.page) },
-                            )
-                        }
-                    }
+                    Divider()
+                    SwitchRow(
+                        title = stringResource(Res.string.settings_sidebar_multi_expand),
+                        detail = stringResource(Res.string.settings_sidebar_multi_expand_detail),
+                        checked = settings.multiExpandAgents,
+                        onCheckedChange = { on -> onUpdate { it.copy(multiExpandAgents = on) } },
+                    )
                     Divider()
                     NavRow(
                         title = stringResource(Res.string.settings_sidebar_pages),
@@ -984,13 +972,6 @@ internal fun SettingsView(
 
 /** The MotherBase community server; the invite never expires. */
 private const val DISCORD_INVITE = "https://discord.gg/wCtyvQ3KcM"
-
-/** The sidebar page each side of the Chats / Bots switch is, for its name and icon. */
-private val SidebarMode.page: SidebarPage
-    get() = when (this) {
-        SidebarMode.Chats -> SidebarPage.Chats
-        SidebarMode.Bots -> SidebarPage.Bots
-    }
 
 /** The Phone tools row's line: off, or how many tools the agent may use. */
 @Composable

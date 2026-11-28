@@ -196,6 +196,10 @@ data class AppSettings(
     val sidebarModeSwitch: Boolean = true,
     /** What the sidebar shows while [sidebarModeSwitch] is off; with the switch, the side last picked on each gateway shows. */
     val sidebarView: SidebarMode = SidebarMode.Chats,
+    /** Pins active running & attention-needed tasks/bots across all agents at the top of the unified sidebar. */
+    val showActiveOverview: Boolean = true,
+    /** Keeps multiple agents expanded simultaneously in the unified sidebar; off, opening one collapses the others. */
+    val multiExpandAgents: Boolean = false,
     /** The sidebar's pages (Inbox, Scheduled, Archived and the rest) as buttons above the chats. Off, none of them. */
     val sidebarNav: Boolean = true,
     /**

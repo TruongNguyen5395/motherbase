@@ -460,4 +460,14 @@
     <string name="sessions_config_refresh_failed">无法刷新</string>
     <string name="sessions_config_save_failed">无法保存 %1$s</string>
     <string name="sessions_config_yaml_saved">已保存 config.yaml</string>
+    <string name="sessions_agents_section">智能体</string>
+    <string name="sessions_agent_coordinator">协调者</string>
+    <string name="sessions_agent_direct_chat">直接对话</string>
+    <string name="sessions_active_overview">进行中与待处理</string>
+    <string name="sessions_section_recent">最近对话</string>
+    <string name="sessions_show_all_count">显示全部 (%1$d)</string>
+    <string name="sessions_show_fewer">收起部分</string>
+    <string name="sessions_expand_agent">展开 %1$s</string>
+    <string name="sessions_collapse_agent">收起 %1$s</string>
+    <string name="sessions_agent_scoped_title">%1$s · %2$s</string>
 </resources>

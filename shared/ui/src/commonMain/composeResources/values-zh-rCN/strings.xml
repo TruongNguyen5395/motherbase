@@ -343,4 +343,8 @@
     <string name="bots_screen_auto_open_label">自动打开屏幕</string>
     <string name="bots_screen_auto_open_hint">当此机器人运行浏览器或桌面工具时自动打开屏幕。</string>
     <string name="bots_screen_card_title">屏幕</string>
+    <string name="settings_sidebar_active_overview">进行中与待处理</string>
+    <string name="settings_sidebar_active_overview_detail">在侧边栏顶部置顶显示所有智能体的运行中和待确认任务。</string>
+    <string name="settings_sidebar_multi_expand">同时展开多个智能体</string>
+    <string name="settings_sidebar_multi_expand_detail">允许同时展开多个智能体。关闭时，展开一个会自动收起其余智能体。</string>
 </resources>

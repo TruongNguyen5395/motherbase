@@ -480,4 +480,14 @@
     <string name="sessions_config_refresh_failed">Não foi possível atualizar</string>
     <string name="sessions_config_save_failed">Não foi possível salvar %1$s</string>
     <string name="sessions_config_yaml_saved">config.yaml salvo</string>
+    <string name="sessions_agents_section">Agentes</string>
+    <string name="sessions_agent_coordinator">Coordenador</string>
+    <string name="sessions_agent_direct_chat">Chat direto</string>
+    <string name="sessions_active_overview">Ativos &amp; atenção</string>
+    <string name="sessions_section_recent">Recentes</string>
+    <string name="sessions_show_all_count">Mostrar tudo (%1$d)</string>
+    <string name="sessions_show_fewer">Mostrar menos</string>
+    <string name="sessions_expand_agent">Expandir %1$s</string>
+    <string name="sessions_collapse_agent">Recolher %1$s</string>
+    <string name="sessions_agent_scoped_title">%1$s · %2$s</string>
 </resources>

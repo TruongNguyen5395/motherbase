@@ -345,4 +345,8 @@
     <string name="bots_screen_auto_open_label">Auto-open Screen</string>
     <string name="bots_screen_auto_open_hint">Open Bot Screen when this bot runs browser or computer tools.</string>
     <string name="bots_screen_card_title">Screen</string>
+    <string name="settings_sidebar_active_overview">Active &amp; needs you</string>
+    <string name="settings_sidebar_active_overview_detail">Pin running and attention-needed tasks across all agents at the top of the sidebar.</string>
+    <string name="settings_sidebar_multi_expand">Expand multiple agents</string>
+    <string name="settings_sidebar_multi_expand_detail">Keep multiple agents open at once. Off, opening one closes the others.</string>
 </resources>

@@ -35,7 +35,6 @@ import com.composeunstyled.AnchorAlignment
 import dev.hermeskotlin.designsystem.components.DropdownMenu
 import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.MenuAction
-import dev.hermeskotlin.designsystem.components.MenuSeparator
 import com.composables.icons.lucide.CircleUserRound
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -131,7 +130,6 @@ import dev.hermeskotlin.core.settings.AppSettings
 import androidx.compose.ui.unit.Dp
 import dev.hermeskotlin.core.settings.SettingsStore
 import dev.hermeskotlin.core.settings.showsSidebarPage
-import dev.hermeskotlin.core.settings.sidebarMode
 import org.koin.compose.koinInject
 import dev.hermeskotlin.designsystem.components.LocalOpenModals
 import androidx.compose.runtime.mutableIntStateOf
@@ -216,12 +214,9 @@ import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.designsystem.rememberHoverIndication
 import androidx.compose.foundation.LocalIndication
 import dev.hermeskotlin.core.bots.Bot
-import dev.hermeskotlin.core.bots.SidebarMode
 import dev.hermeskotlin.core.calendar.CalendarAgentStore
 import dev.hermeskotlin.core.connection.ConnectionState
-import dev.hermeskotlin.designsystem.components.SegmentedControl
 import dev.hermeskotlin.ui.bots.BotActions
-import dev.hermeskotlin.ui.bots.BotsRoster
 import dev.hermeskotlin.ui.bots.BotsUiState
 import dev.hermeskotlin.core.display.ProfileScreenState
 import dev.hermeskotlin.ui.bots.NeedsYou
@@ -377,12 +372,13 @@ fun SessionsSidebar(
     onToggleSidebar: (() -> Unit)? = null,
     /** Where the pages show beside the docked sidebar; null keeps them in the sidebar. */
     mainPage: MainPageSlot? = null,
+    /** Starts a new chat in a specific agent profile when invoked from the unified agent sidebar. */
+    onNewChatInProfile: (project: Project?, profile: String?) -> Unit = { project, _ -> onNewChat(project) },
     viewModel: SessionsViewModel = koinViewModel(),
     bots: BotsViewModel = koinViewModel(),
     rooms: RoomsViewModel = koinViewModel(),
 ) {
     val state = viewModel.state.collectAsStateWithLifecycle().value
-    val pickedMode by bots.mode.collectAsStateWithLifecycle()
     val botsState by bots.state.collectAsStateWithLifecycle()
     val avatars by bots.avatars.collectAsStateWithLifecycle()
     val troubles by bots.troubles.collectAsStateWithLifecycle()
@@ -403,31 +399,77 @@ fun SessionsSidebar(
     val user by viewModel.user.collectAsStateWithLifecycle()
     val roster by viewModel.roster.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
+    val liveWaiting by viewModel.liveWaiting.collectAsStateWithLifecycle()
+    val liveRunning by viewModel.liveRunning.collectAsStateWithLifecycle()
+    val agentBranches by viewModel.agentBranches.collectAsStateWithLifecycle()
     val attentionFilter by viewModel.attentionFilter.collectAsStateWithLifecycle()
     val drafts by viewModel.draftChats.collectAsStateWithLifecycle()
+    val dispatchSessions by viewModel.dispatchSessions.collectAsStateWithLifecycle()
+    val dispatchRooms by viewModel.dispatchRooms.collectAsStateWithLifecycle()
+    val dispatchCoordinator by viewModel.dispatchCoordinator.collectAsStateWithLifecycle()
+    val dispatchJump by viewModel.dispatchJump.collectAsStateWithLifecycle()
+    val calendarAgent by viewModel.calendarAgent.collectAsStateWithLifecycle()
+    val calendarJump by viewModel.calendarJump.collectAsStateWithLifecycle()
     val settingsStore = koinInject<SettingsStore>()
     val settings = settingsStore.settings.collectAsStateWithLifecycle().value
     val pinnedCollapsed = settings?.pinnedCollapsed ?: false
     val threadsCollapsed = settings?.threadsCollapsed ?: false
     val dispatchCollapsed = settings?.dispatchCollapsed ?: false
     val projectsAsDropdown = settings?.projectsAsDropdown ?: false
-    // Without its switch, the sidebar shows the view picked in Settings, whatever was last picked on this gateway.
-    val modeSwitch = settings?.sidebarModeSwitch ?: true
-    val mode = settings?.sidebarMode(pickedMode) ?: pickedMode
-    // The bots' side is read from the gateway only while it shows, so the view model shows it too; not kept as
-    // the gateway's pick, which stays for when the switch is back.
-    LaunchedEffect(modeSwitch, mode, pickedMode) {
-        if (!modeSwitch && pickedMode != mode) bots.setMode(mode, remember = false)
-    }
-    // The switch back: the side last picked with it, not the one Settings held the sidebar on.
-    // With the switch every pick is remembered, so this changes nothing then; it's done whenever the switch shows,
-    // not only on a change seen here, which a sidebar drawn afresh with the switch back would miss.
-    LaunchedEffect(modeSwitch) {
-        if (modeSwitch) bots.showRemembered()
-    }
-    /** A side picked by the switch, or for search or a page; without the switch the view stays where Settings put it. */
-    val pickMode: (SidebarMode) -> Unit = { if (modeSwitch) bots.setMode(it) }
+    val showActiveOverview = settings?.showActiveOverview ?: true
+    val multiExpandAgents = settings?.multiExpandAgents ?: false
     val navPages = remember(settings?.sidebarNav, settings?.sidebarNavHidden) { shownNavPages(settings, isDesktop) }
+
+    val launchProfile = roster?.takeIf { it.launchKnown }?.launch
+    val coordinatorProfile = dispatchCoordinator?.profile?.takeIf { it.isNotBlank() } ?: launchProfile ?: Bot.DEFAULT
+    val effectiveBots = remember(botsState, roster) {
+        if (botsState.all.isNotEmpty() || roster?.profiles.isNullOrEmpty()) {
+            botsState
+        } else {
+            val synthesized = roster!!.profiles.map { p ->
+                Bot(
+                    name = p.name,
+                    isDefault = p.isDefault,
+                    displayName = p.displayName,
+                    description = p.description,
+                    model = p.model,
+                    provider = p.provider,
+                )
+            }
+            botsState.copy(bots = synthesized, loading = false, error = null, unsupported = false)
+        }
+    }
+
+    var userPickedAgent by remember(gateway.gatewayUrl) { mutableStateOf<String?>(null) }
+    var expandedAgents by remember(gateway.gatewayUrl) { mutableStateOf<Set<String>>(emptySet()) }
+    var initializedExpanded by remember(gateway.gatewayUrl) { mutableStateOf(false) }
+    var pageProfileOverride by remember(gateway.gatewayUrl) { mutableStateOf<String?>(null) }
+    var pageAgentLabel by remember(gateway.gatewayUrl) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(effectiveBots.all, roster, dispatchCoordinator, profile) {
+        if (!initializedExpanded && (effectiveBots.all.isNotEmpty() || roster != null)) {
+            val initial = roster?.active(profile)?.name ?: profile ?: coordinatorProfile
+            val resolved = effectiveBots.all.firstOrNull { it.name == initial }?.name
+                ?: effectiveBots.bots.firstOrNull()?.name
+                ?: initial
+            expandedAgents = setOf(resolved)
+            initializedExpanded = true
+        }
+    }
+    val boundAgentName = userPickedAgent ?: roster?.active(profile)?.name ?: profile ?: coordinatorProfile
+    LaunchedEffect(multiExpandAgents, boundAgentName) {
+        if (!multiExpandAgents && expandedAgents.size > 1) {
+            val kept = expandedAgents.firstOrNull { it == boundAgentName } ?: expandedAgents.firstOrNull()
+            expandedAgents = setOfNotNull(kept)
+        }
+    }
+    val browsedProfile: String? = if (userPickedAgent == null) {
+        profile
+    } else {
+        roster?.let { r -> boundAgentName.takeIf { it != r.launch } } ?: boundAgentName.takeUnless { it == Bot.DEFAULT }
+    }
+    val activePageProfile: String? = if (pageAgentLabel != null) pageProfileOverride else browsedProfile
+
     var profilesOpen by remember { mutableStateOf(false) }
 
     var searchOpen by remember { mutableStateOf(false) }
@@ -494,9 +536,9 @@ fun SessionsSidebar(
     // gateway. The page's own view model, shared through this screen's store; opening it then only refreshes.
     if (isDesktop) {
         val config: ConfigViewModel = koinViewModel()
-        LaunchedEffect(gateway, profile) {
+        LaunchedEffect(gateway, activePageProfile) {
             delay(CONFIG_PREFETCH_DELAY)
-            config.bind(gateway, profile)
+            config.bind(gateway, activePageProfile)
         }
     }
     var pluginsOpen by remember { mutableStateOf(false) }
@@ -539,11 +581,6 @@ fun SessionsSidebar(
     var accountOpen by remember { mutableStateOf(false) }
     var newRoomOpen by remember { mutableStateOf(false) }
     val threads by viewModel.threads.collectAsStateWithLifecycle()
-    val dispatchSessions by viewModel.dispatchSessions.collectAsStateWithLifecycle()
-    val dispatchCoordinator by viewModel.dispatchCoordinator.collectAsStateWithLifecycle()
-    val dispatchJump by viewModel.dispatchJump.collectAsStateWithLifecycle()
-    val calendarAgent by viewModel.calendarAgent.collectAsStateWithLifecycle()
-    val calendarJump by viewModel.calendarJump.collectAsStateWithLifecycle()
     var autoRoutedDispatchForGateway by remember { mutableStateOf<String?>(null) }
     var threadActions by remember { mutableStateOf<ThreadRow?>(null) }
     var renameThread by remember { mutableStateOf<ChatThread?>(null) }
@@ -572,6 +609,8 @@ fun SessionsSidebar(
         configOpen = false
         pluginsOpen = false
         insightsOpen = false
+        pageProfileOverride = null
+        pageAgentLabel = null
     }
     val pageOpen = scheduledOpen || inboxOpen || tasksOpen || calendarOpen || routinesOf != null || capabilitiesOpen || configOpen || pluginsOpen || insightsOpen
 
@@ -627,7 +666,12 @@ fun SessionsSidebar(
             else -> viewModel.setFilter(SessionListFilter.Recent)
         }
     }
-    LaunchedEffect(gateway, profile) { viewModel.bind(gateway, profile) }
+    LaunchedEffect(gateway, browsedProfile) { viewModel.bind(gateway, browsedProfile) }
+    LaunchedEffect(multiExpandAgents, expandedAgents, gateway, isConnected) {
+        if (multiExpandAgents && isConnected && expandedAgents.size > 1) {
+            viewModel.ensureAgentsLoaded(expandedAgents)
+        }
+    }
     var wasVisible by remember { mutableStateOf(visible) }
     LaunchedEffect(visible) {
         if (visible && !wasVisible) viewModel.refreshQuietly()
@@ -656,37 +700,57 @@ fun SessionsSidebar(
     val shownThreads = sections.threads.filter { attentionFilter.keeps(statuses[it.session.id]) }
     val shownDispatch = sections.dispatch.filter { attentionFilter.keeps(statuses[it.session.id]) }
     val shownCalendar = sections.calendar?.takeIf { attentionFilter.keeps(statuses[it.id]) }
-    val openHere: (SessionSummary) -> Unit = {
-        // The viewport decides when the new messages have actually been read.
-        val readUpTo = viewModel.readUpTo(it)
-        onOpenSession(it, readUpTo)
+    fun resolveSessionForAgent(agentName: String, session: SessionSummary): SessionSummary {
+        if (session.profile != null) return session
+        val isLaunch = agentName == (launchProfile ?: Bot.DEFAULT)
+        if (profile == null && isLaunch) return session
+        val resolvedProfile = if (isLaunch) (launchProfile ?: Bot.DEFAULT) else agentName
+        return session.copy(profile = resolvedProfile)
+    }
+
+    val openHereForAgent: (String, SessionSummary) -> Unit = { agentName, session ->
+        userPickedAgent = agentName
+        val readUpTo = if (agentName == boundAgentName) viewModel.readUpTo(session) else null
+        onOpenSession(resolveSessionForAgent(agentName, session), readUpTo)
         if (searchOpen) closeSearch()
     }
+    val openHere: (SessionSummary) -> Unit = { openHereForAgent(boundAgentName, it) }
     val rowActions: (SessionSummary) -> Unit = { actionTarget = it }
     // A click with keys held, on the desktop: pin, archive, or the chat in a window of its own.
     val windowInfo = LocalWindowInfo.current
     val shortcutBus = LocalShortcuts.current
     // The chat in a window of its own; where no window can open (a phone), it opens as a plain click does.
-    val popOut: (SessionSummary) -> Unit = { s ->
-        // Opening a window preserves the unread boundary too.
-        val readUpTo = viewModel.readUpTo(s)
-        val targetProfile = s.profile?.let { reportChatProfile(it, profile, roster?.takeIf { r -> r.launchKnown }?.launch) } ?: profile
+    val popOutForAgent: (String, SessionSummary) -> Unit = { agentName, s ->
+        val readUpTo = if (agentName == boundAgentName) viewModel.readUpTo(s) else null
+        val owner = s.profile ?: agentName.takeIf { it != (launchProfile ?: Bot.DEFAULT) }
+        val targetProfile = owner?.let { reportChatProfile(it, profile, launchProfile) }
         val popped = shortcutBus.fire(Shortcut.PopOut(ChatTarget(gateway, s.id, s.displayTitle, profile = targetProfile, readUpTo = readUpTo)))
-        if (!popped) openHere(s) else if (s.id == selectedId && targetProfile == profile) onNewChat(null)
+        if (!popped) openHereForAgent(agentName, s) else if (s.id == selectedId && targetProfile == profile) onNewChatInProfile(null, browsedProfile)
     }
+    val popOut: (SessionSummary) -> Unit = { popOutForAgent(boundAgentName, it) }
     // A chat a window of its own shows comes forward there, so no chat runs in two windows at once.
     val windowed by chatHost.sideChats.collectAsStateWithLifecycle()
-    val open: (SessionSummary) -> Unit = { s -> if (isDesktop && s.id in windowed) popOut(s) else openHere(s) }
-    val click: (SessionSummary) -> Unit = click@{ s ->
-        if (!isDesktop) return@click open(s)
+    val openForAgent: (String, SessionSummary) -> Unit = { agentName, s ->
+        if (isDesktop && s.id in windowed) popOutForAgent(agentName, s) else openHereForAgent(agentName, s)
+    }
+    val open: (SessionSummary) -> Unit = { openForAgent(boundAgentName, it) }
+    val clickForAgent: (String, SessionSummary) -> Unit = click@{ agentName, s ->
+        if (!isDesktop) return@click openForAgent(agentName, s)
         val keys = windowInfo.keyboardModifiers
         when (rowClick(shift = keys.isShiftPressed, primary = keys.isCtrlPressed || keys.isMetaPressed, alt = keys.isAltPressed)) {
-            RowClick.Open -> open(s)
-            RowClick.Pin -> viewModel.togglePinned(s)
-            RowClick.Archive -> viewModel.toggleArchived(s)
-            RowClick.NewWindow -> popOut(s)
+            RowClick.Open -> openForAgent(agentName, s)
+            RowClick.Pin -> {
+                userPickedAgent = agentName
+                viewModel.togglePinned(s)
+            }
+            RowClick.Archive -> {
+                userPickedAgent = agentName
+                viewModel.toggleArchived(s)
+            }
+            RowClick.NewWindow -> popOutForAgent(agentName, s)
         }
     }
+    val click: (SessionSummary) -> Unit = { clickForAgent(boundAgentName, it) }
     // The desktop's keys for the list: search, and stepping through the chats in the order they're listed.
     val listed = shownThreads.map { it.session } +
         shownDispatch.map { it.session } +
@@ -695,9 +759,14 @@ fun SessionsSidebar(
     val modals = LocalOpenModals.current
     ShortcutHandler { shortcut ->
         when (shortcut) {
+            Shortcut.NewChat -> if (modals.any) false else true.also {
+                if (searchOpen) closeSearch()
+                onNewChatInProfile(state.project.takeIf { state.filter == SessionListFilter.Recent }, browsedProfile)
+                onCloseSidebar()
+            }
             // Left to the app too, which shows the sidebar if it's put away.
             Shortcut.SearchChats -> false.also {
-                if (mode != SidebarMode.Chats) pickMode(SidebarMode.Chats)
+                if (state.filter != SessionListFilter.Recent) viewModel.setFilter(SessionListFilter.Recent)
                 searchOpen = true
                 searchFocusAsks++
             }
@@ -720,18 +789,16 @@ fun SessionsSidebar(
                 configOpen = false
                 pluginsOpen = false
                 insightsOpen = false
+                pageProfileOverride = null
+                pageAgentLabel = null
                 if (state.filter != SessionListFilter.Recent) viewModel.setFilter(SessionListFilter.Recent)
                 when (shortcut.page) {
-                    SidebarPage.Chats -> pickMode(SidebarMode.Chats)
-                    SidebarPage.Bots -> pickMode(SidebarMode.Bots)
+                    SidebarPage.Chats, SidebarPage.Bots -> Unit
                     SidebarPage.Inbox -> inboxOpen = true
                     SidebarPage.Tasks -> tasksOpen = true
                     SidebarPage.Calendar -> calendarOpen = true
                     SidebarPage.Scheduled -> scheduledOpen = true
-                    SidebarPage.Archived -> {
-                        pickMode(SidebarMode.Chats)
-                        viewModel.setFilter(SessionListFilter.Archived)
-                    }
+                    SidebarPage.Archived -> viewModel.setFilter(SessionListFilter.Archived)
                     SidebarPage.Capabilities -> capabilitiesOpen = true
                     SidebarPage.Config -> configOpen = true
                     SidebarPage.Plugins -> pluginsOpen = true
@@ -746,20 +813,32 @@ fun SessionsSidebar(
         viewModel.refreshProfiles()
     }
     // A right-click on a chat, on the desktop: its actions in a menu at the pointer, as the long-press sheet has them.
-    val rowMenu: ((SessionSummary) -> List<RowMenuItem>)? = if (!isDesktop) null else { s ->
+    val rowMenuForAgent: ((String, SessionSummary) -> List<RowMenuItem>)? = if (!isDesktop) null else { agentName, s ->
         listOfNotNull(
-            RowMenuItem(openInWindowWord, Lucide.AppWindow) { popOut(s) }.takeIf { !s.archived },
-            RowMenuItem(if (s.pinned) unpinWord else pinWord, if (s.pinned) Lucide.PinOff else Lucide.Pin) { viewModel.togglePinned(s) }
-                .takeIf { !s.archived },
-            RowMenuItem(renameWord, Lucide.Pencil, key = Key.F2) { renameTarget = s },
-            RowMenuItem(makeThreadWord, Lucide.Hash) { viewModel.makeThread(s) }
-                .takeIf { !s.archived && threads.none { t -> t.holds(s) } },
+            RowMenuItem(openInWindowWord, Lucide.AppWindow) { popOutForAgent(agentName, s) }.takeIf { !s.archived },
+            RowMenuItem(if (s.pinned) unpinWord else pinWord, if (s.pinned) Lucide.PinOff else Lucide.Pin) {
+                userPickedAgent = agentName
+                viewModel.togglePinned(s)
+            }.takeIf { !s.archived },
+            RowMenuItem(renameWord, Lucide.Pencil, key = Key.F2) {
+                userPickedAgent = agentName
+                renameTarget = s
+            },
+            RowMenuItem(makeThreadWord, Lucide.Hash) {
+                userPickedAgent = agentName
+                viewModel.makeThread(s)
+            }.takeIf { !s.archived && threads.none { t -> t.holds(s) } },
             RowMenuItem(if (s.archived) unarchiveWord else archiveWord, if (s.archived) Lucide.ArchiveRestore else Lucide.Archive) {
+                userPickedAgent = agentName
                 viewModel.toggleArchived(s)
             },
-            RowMenuItem(deleteWord, Lucide.Trash2, destructive = true, key = Key.Delete) { deleteTarget = s },
+            RowMenuItem(deleteWord, Lucide.Trash2, destructive = true, key = Key.Delete) {
+                userPickedAgent = agentName
+                deleteTarget = s
+            },
         )
     }
+    val rowMenu: ((SessionSummary) -> List<RowMenuItem>)? = rowMenuForAgent?.let { mk -> { s -> mk(boundAgentName, s) } }
 
     val pageKey = when {
         inboxOpen -> "inbox"
@@ -767,16 +846,17 @@ fun SessionsSidebar(
         calendarOpen -> "calendar"
         scheduledOpen -> "scheduled"
         routinesOf != null -> "routines:${routinesOf?.name}"
-        capabilitiesOpen -> "capabilities"
-        configOpen -> "config"
-        pluginsOpen -> "plugins"
-        insightsOpen -> "insights"
+        capabilitiesOpen -> "capabilities:${activePageProfile ?: "launch"}"
+        configOpen -> "config:${activePageProfile ?: "launch"}"
+        pluginsOpen -> "plugins:${activePageProfile ?: "launch"}"
+        insightsOpen -> "insights:${activePageProfile ?: "launch"}"
         else -> null
     }
     // Beside the sidebar, a page stays live while the sidebar is folded away.
     val pageVisible = visible || pageInMain
     val pageView: @Composable () -> Unit = {
         val bot = routinesOf
+        val resolvedAgentLabel = pageAgentLabel ?: effectiveBots.all.firstOrNull { it.name == boundAgentName }?.label
         when {
             inboxOpen -> InboxPage(
                 gateway = gateway,
@@ -848,34 +928,33 @@ fun SessionsSidebar(
             )
             capabilitiesOpen -> CapabilitiesPage(
                 gateway = gateway,
-                profile = profile,
-                onBack = { capabilitiesOpen = false },
+                profile = activePageProfile,
+                profileLabel = resolvedAgentLabel,
+                onBack = { closePages() },
                 onSessionExpired = onSessionExpired,
             )
             configOpen -> ConfigPage(
                 gateway = gateway,
-                profile = profile,
-                onBack = { configOpen = false },
+                profile = activePageProfile,
+                onBack = { closePages() },
                 onSessionExpired = onSessionExpired,
                 visible = pageVisible,
             )
             pluginsOpen -> PluginsPage(
                 gateway = gateway,
-                profile = profile,
-                onBack = { pluginsOpen = false },
+                profile = activePageProfile,
+                onBack = { closePages() },
                 onSessionExpired = onSessionExpired,
                 onOpenPlugin = onOpenPlugin,
             )
             insightsOpen -> InsightsPage(
                 gateway = gateway,
-                profile = profile,
-                onBack = { insightsOpen = false },
+                profile = activePageProfile,
+                onBack = { closePages() },
                 onSessionExpired = onSessionExpired,
             )
         }
     }
-    // The page buttons left on in Settings › Sidebar pages, over the chats; over the bots too while the switch is
-    // hidden, since the Chats side, where they'd otherwise be, can't be reached then. [inset] lines them up with the list.
     val navGrid: @Composable (inset: Dp) -> Unit = { inset ->
         if (navPages.isNotEmpty()) NavGrid(
             navPages.mapNotNull { page ->
@@ -895,15 +974,8 @@ fun SessionsSidebar(
                         calendarOpen = true
                     }
                     SidebarPage.Scheduled -> NavLink(icon, label, selected = pageInMain && scheduledOpen) { closePages(); scheduledOpen = true }
-                    SidebarPage.Insights -> NavLink(icon, label, selected = pageInMain && insightsOpen) { closePages(); insightsOpen = true }
-                    SidebarPage.Capabilities -> NavLink(icon, label, selected = pageInMain && capabilitiesOpen) { closePages(); capabilitiesOpen = true }
-                    SidebarPage.Plugins -> NavLink(icon, label, selected = pageInMain && pluginsOpen) { closePages(); pluginsOpen = true }
-                    SidebarPage.Config -> NavLink(icon, label, selected = pageInMain && configOpen) { closePages(); configOpen = true }
-                    SidebarPage.Archived -> NavLink(icon, label, selected = isDesktop && state.filter == SessionListFilter.Archived) {
-                        viewModel.setFilter(SessionListFilter.Archived)
-                    }
-                    // The two sides are the switch's, not pages with a button here.
-                    SidebarPage.Chats, SidebarPage.Bots -> null
+                    SidebarPage.Insights, SidebarPage.Capabilities, SidebarPage.Plugins, SidebarPage.Config,
+                    SidebarPage.Archived, SidebarPage.Chats, SidebarPage.Bots -> null
                 }
             },
             inset = inset,
@@ -920,11 +992,61 @@ fun SessionsSidebar(
         DisposableEffect(pageKey, pageInMain) {
             val key = pageKey
             // Scheduled, Config, Tasks, and Calendar lay a list beside what's open in it, so they take a wider page.
-            val wide = key == "scheduled" || key == "config" || key == "tasks" || key == "calendar" || key?.startsWith("routines:") == true
+            val wide = key == "scheduled" || key?.startsWith("config") == true || key == "tasks" || key == "calendar" || key?.startsWith("routines:") == true
             val fullWidth = key == "tasks" || key == "calendar"
             if (key != null) mainPage.show(key, { latest() }, close = { closePages() }, wide = wide, fullWidth = fullWidth)
             onDispose { if (key != null) mainPage.clear(key) }
         }
+    }
+
+    val botActions = remember(bots, onOpenBot, onOpenBotSession, onNewBotChat, onOpenBotScreen, onEditBot, onBotDeleted, multiExpandAgents) {
+        object : BotActions {
+            override fun open(bot: Bot) {
+                userPickedAgent = bot.name
+                expandedAgents = if (multiExpandAgents) expandedAgents + bot.name else setOf(bot.name)
+                bots.open(bot) { id, readUpTo -> onOpenBot(bot, id, readUpTo) }
+            }
+            override fun setPinned(bot: Bot, pinned: Boolean) = bots.setPinned(bot, pinned)
+            override fun setHidden(bot: Bot, hidden: Boolean) = bots.setHidden(bot, hidden)
+            override fun startFresh(bot: Bot) = bots.startFresh(bot) { id -> onOpenBot(bot, id, null) }
+            override fun openRecent(bot: Bot) {
+                val recent = bot.lastSession ?: return
+                onOpenBotSession(bot, recent.id ?: return, recent.title?.takeIf { it.isNotBlank() } ?: bot.label)
+            }
+            override fun newChat(bot: Bot) = onNewBotChat(bot)
+            override fun create() = onEditBot(null)
+            override fun edit(bot: Bot) = onEditBot(bot)
+            override fun duplicate(bot: Bot) = bots.duplicate(bot)
+            override fun delete(bot: Bot) = bots.delete(bot) { onBotDeleted(bot) }
+            override fun checkAgain(bot: Bot) = bots.checkAgain(bot)
+            override fun routines(bot: Bot) {
+                closePages()
+                routinesOf = bot
+            }
+            override fun openScreen(bot: Bot) {
+                onOpenBotScreen?.invoke(bot)
+            }
+        }
+    }
+    val openAgentPage: (Bot, () -> Unit) -> Unit = { bot, openFn ->
+        closePages()
+        pageProfileOverride = profileToStore(Profile(bot.name), roster) ?: bot.name.takeUnless { it == launchProfile }
+        pageAgentLabel = bot.label
+        openFn()
+    }
+    val pageCallbacks = remember(roster, launchProfile, multiExpandAgents) {
+        AgentPageCallbacks(
+            onOpenArchived = { bot ->
+                closePages()
+                userPickedAgent = bot.name
+                expandedAgents = if (multiExpandAgents) expandedAgents + bot.name else setOf(bot.name)
+                viewModel.setFilter(SessionListFilter.Archived)
+            },
+            onOpenConfig = { bot -> openAgentPage(bot) { configOpen = true } },
+            onOpenCapabilities = { bot -> openAgentPage(bot) { capabilitiesOpen = true } },
+            onOpenPlugins = { bot -> openAgentPage(bot) { pluginsOpen = true } },
+            onOpenInsights = { bot -> openAgentPage(bot) { insightsOpen = true } },
+        )
     }
 
     Box(
@@ -934,6 +1056,7 @@ fun SessionsSidebar(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)),
     ) {
         if (pageKey != null && !pageInMain && !searchOpen) pageView() else Column(Modifier.fillMaxSize()) {
+            val activeAgentLabel = effectiveBots.all.firstOrNull { it.name == boundAgentName }?.label ?: boundAgentName
             when {
                 searchOpen -> SearchHeader(viewModel, focusAsks = searchFocusAsks, list = searchList, onClose = ::closeSearch, onSubmit = {
                     // Only results for the words in the box now: none while a search is on its way or still to start.
@@ -947,7 +1070,7 @@ fun SessionsSidebar(
                     shown?.firstOrNull()?.let(open)
                 })
                 state.filter != SessionListFilter.Recent -> SubpageHeader(
-                    title = stringResource(state.filter.label),
+                    title = stringResource(Res.string.sessions_agent_scoped_title, stringResource(state.filter.label), activeAgentLabel),
                     onBack = { viewModel.setFilter(SessionListFilter.Recent) },
                 )
                 else -> MainHeader(
@@ -958,117 +1081,18 @@ fun SessionsSidebar(
                         openAccount()
                     },
                     onSettings = onOpenSettings,
-                    // Without the switch, search is the Bots side's only way to the chats, so it keeps the pill.
-                    onSearch = { searchOpen = true }.takeIf { mode == SidebarMode.Chats || !modeSwitch },
-                    profiles = roster?.profiles.orEmpty(),
-                    activeProfile = roster?.active(profile)?.name,
-                    // Profiles made or removed on the host since show up, as the account sheet's do.
-                    onOpenMenu = viewModel::refreshProfiles,
-                    onProfile = { picked -> onSwitchProfile(profileToStore(picked, roster)) },
+                    onSearch = { searchOpen = true },
                     onOpenGateways = onOpenGateways,
                 )
             }
             if (!searchOpen && state.filter == SessionListFilter.Recent) {
-                if (modeSwitch) {
-                    val modeNames = sidebarModeNames()
-                    SegmentedControl(
-                        options = SidebarMode.entries,
-                        selected = mode,
-                        onSelect = pickMode,
-                        // How many bots need the user, readable from the Chats side too.
-                        optionLabel = { modeLabel(it, modeNames, needsYou.size) },
-                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
-                    )
-                }
                 RenameBanner(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp))
                 UpdateBanner(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp))
-                // A desktop starts a chat from the top of its sidebar, as desktop chat apps do; the footer
-                // keeps the account. A phone keeps the pill under the thumb.
-                if (isDesktop) {
-                    NavTile(
-                        NavLink(Lucide.SquarePen, stringResource(Res.string.sessions_new_chat), keys = "Ctrl+N") { onNewChat(state.project) },
-                        // In line with the pages listed under it, which sit in the list's own 8dp margin.
-                        Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                    )
-                }
             }
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val searchResults = state.searchResults
                 when {
-                    !searchOpen && state.filter == SessionListFilter.Recent && mode == SidebarMode.Bots -> {
-                        BotsRoster(
-                            state = botsState,
-                            avatars = avatars,
-                            selectedId = selectedId,
-                            selectedRunning = selectedRunning,
-                            nowSeconds = bots.nowSeconds(),
-                            actions = remember(bots, onOpenBot, onOpenBotSession, onNewBotChat, onOpenBotScreen, onEditBot, onBotDeleted) {
-                                object : BotActions {
-                                    override fun open(bot: Bot) = bots.open(bot) { id, readUpTo -> onOpenBot(bot, id, readUpTo) }
-                                    override fun setPinned(bot: Bot, pinned: Boolean) = bots.setPinned(bot, pinned)
-                                    override fun setHidden(bot: Bot, hidden: Boolean) = bots.setHidden(bot, hidden)
-                                    override fun startFresh(bot: Bot) = bots.startFresh(bot) { id -> onOpenBot(bot, id, null) }
-                                    override fun openRecent(bot: Bot) {
-                                        val recent = bot.lastSession ?: return
-                                        onOpenBotSession(bot, recent.id ?: return, recent.title?.takeIf { it.isNotBlank() } ?: bot.label)
-                                    }
-                                    override fun newChat(bot: Bot) = onNewBotChat(bot)
-                                    override fun create() = onEditBot(null)
-                                    override fun edit(bot: Bot) = onEditBot(bot)
-                                    override fun duplicate(bot: Bot) = bots.duplicate(bot)
-                                    override fun delete(bot: Bot) = bots.delete(bot) { onBotDeleted(bot) }
-                                    override fun checkAgain(bot: Bot) = bots.checkAgain(bot)
-                                    override fun routines(bot: Bot) {
-                                        routinesOf = bot
-                                    }
-                                    override fun openScreen(bot: Bot) {
-                                        onOpenBotScreen?.invoke(bot)
-                                    }
-                                }
-                            },
-                            onRetry = bots::refresh,
-                            onDismissNotice = bots::dismissNotice,
-                            // The roster's own 14dp margin already lines the buttons up with its cards. Empty while
-                            // the switch shows, not left out: the list holds on to the first row it shows, so buttons
-                            // the switch going away brings in would otherwise come in above it, out of sight.
-                            top = { if (!modeSwitch) navGrid(0.dp) },
-                            troubles = troubles,
-                            failingRoutines = failingRoutines,
-                            needsYou = needsYou,
-                            rooms = roomsState.rooms,
-                            roomsAvailable = roomsState.available,
-                            unreadRooms = roomsState.unread,
-                            onOpenRoom = onOpenRoom,
-                            onOpenDesktopRoom = onOpenDesktopRoom,
-                            onNewRoom = {
-                                rooms.dismissNotice()
-                                newRoomOpen = true
-                            },
-                            onRenameRoom = rooms::renameRoom,
-                            onDeleteRoom = rooms::deleteRoom,
-                            roomsNotice = roomsState.actionNotice,
-                            onDismissRoomsNotice = rooms::dismissActionNotice,
-                            screenStates = screenStates,
-                            showScreenAction = onOpenBotScreen != null,
-                        )
-                        CreateRoomDialog(
-                            visible = newRoomOpen,
-                            bots = botsState.all,
-                            busy = roomsState.busy,
-                            error = roomsState.notice,
-                            onDismiss = {
-                                newRoomOpen = false
-                                rooms.dismissNotice()
-                            },
-                            onCreate = { name, members ->
-                                rooms.createRoom(name, members) { room ->
-                                    newRoomOpen = false
-                                    onOpenRoom(room)
-                                }
-                            },
-                        )
-                    }
                     // On a desktop, the recent chats stay in view until a word is typed, so search (opened from
                     // the keyboard as often as not) never shows a blank list. A phone keeps the field alone.
                     searchOpen && searchResults == null && !isDesktop -> Unit
@@ -1100,105 +1124,126 @@ fun SessionsSidebar(
                             focus = searchList,
                         )
                     }
-                    state.filter == SessionListFilter.Recent -> SessionList(
-                        sessions = sections.others.filter { attentionFilter.keeps(statuses[it.id]) },
-                        selectedId = selectedId,
-                        onOpen = click,
-                        onActions = rowActions,
-                        menu = rowMenu,
-                        swipeRight = pinSwipe,
-                        swipeLeft = archiveSwipe,
-                        threads = shownThreads,
-                        onOpenThread = { click(it.session) },
-                        onThreadActions = { threadActions = it },
-                        reorderingThreads = reorderingThreads && attentionFilter == AttentionFilter.All,
-                        onReordered = { ids ->
-                            reorderingThreads = false
-                            if (ids != shownThreads.map { it.thread.id }) viewModel.reorderThreads(ids)
-                        },
-                        dispatch = shownDispatch,
-                        calendar = shownCalendar,
-                        dispatchCollapsed = dispatchCollapsed,
-                        onToggleDispatch = { settingsStore.update { it.copy(dispatchCollapsed = !it.dispatchCollapsed) } },
-                        // A filtered list stays short, so the end is always in sight: paging on would
-                        // fetch the whole history. What's running or waiting is recent anyway. A project's
-                        // chats come whole.
-                        canLoadMore = state.canLoadMore && attentionFilter == AttentionFilter.All && state.project == null,
-                        loadingMore = state.loadingMore,
-                        onLoadMore = viewModel::loadMore,
-                        statuses = statuses,
-                        drafts = drafts,
-                        sectioned = true,
-                        projectIndex = projectIndex,
-                        shownProject = state.project,
-                        pinnedCollapsed = pinnedCollapsed,
-                        onTogglePinned = { settingsStore.update { it.copy(pinnedCollapsed = !it.pinnedCollapsed) } },
-                        threadsCollapsed = threadsCollapsed,
-                        onToggleThreads = { settingsStore.update { it.copy(threadsCollapsed = !it.threadsCollapsed) } },
-                        status = {
-                            if (!state.loading && state.error == null && (state.projects.isNotEmpty() || state.canMakeProjects)) {
-                                item(key = "projects") {
-                                    ProjectFilters(
-                                        state.projects,
-                                        state.project,
-                                        asDropdown = projectsAsDropdown,
-                                        onSelect = viewModel::selectProject,
-                                        onNew = if (state.canMakeProjects) ({ newProject = ProjectDraft() }) else null,
-                                        onOptions = { project, button ->
-                                            projectAnchor = button
-                                            projectActions = project
-                                        },
-                                    )
+                    state.filter == SessionListFilter.Recent -> {
+                        UnifiedAgentSidebar(
+                            botsState = effectiveBots,
+                            avatars = avatars,
+                            coordinatorProfile = coordinatorProfile,
+                            launchProfile = launchProfile,
+                            expandedAgents = expandedAgents,
+                            boundAgentName = boundAgentName,
+                            boundUiState = state,
+                            boundThreads = threads,
+                            boundStatuses = statuses,
+                            agentBranches = agentBranches,
+                            liveWaiting = liveWaiting,
+                            liveRunning = liveRunning,
+                            drafts = drafts,
+                            dispatchSessions = dispatchSessions,
+                            dispatchRooms = dispatchRooms,
+                            calendarAgent = calendarAgent,
+                            attentionFilter = attentionFilter,
+                            selectedId = selectedId,
+                            selectedRunning = selectedRunning,
+                            nowSeconds = bots.nowSeconds(),
+                            showActiveOverview = showActiveOverview,
+                            projectsAsDropdown = projectsAsDropdown,
+                            threadsCollapsed = threadsCollapsed,
+                            dispatchCollapsed = dispatchCollapsed,
+                            pinnedCollapsed = pinnedCollapsed,
+                            reorderingThreads = reorderingThreads && attentionFilter == AttentionFilter.All,
+                            troubles = troubles,
+                            failingRoutines = failingRoutines,
+                            needsYou = needsYou,
+                            rooms = roomsState.rooms,
+                            roomsAvailable = roomsState.available,
+                            unreadRooms = roomsState.unread,
+                            roomsNotice = roomsState.actionNotice,
+                            screenStates = screenStates,
+                            showScreenAction = onOpenBotScreen != null,
+                            botActions = botActions,
+                            pageCallbacks = pageCallbacks,
+                            onToggleAgent = { bot ->
+                                if (bot.name in expandedAgents) {
+                                    expandedAgents = expandedAgents - bot.name
+                                } else {
+                                    userPickedAgent = bot.name
+                                    expandedAgents = if (multiExpandAgents) expandedAgents + bot.name else setOf(bot.name)
                                 }
-                            }
-                            if (!state.loading && state.error == null && state.listed.isNotEmpty()) {
-                                item(key = "filters") {
-                                    AttentionFilters(
-                                        selected = attentionFilter,
-                                        running = state.listed.count { statuses[it.id]?.running == true },
-                                        needsAttention = state.listed.count { statuses[it.id]?.needsAttention == true },
-                                        onSelect = viewModel::setAttentionFilter,
-                                    )
+                            },
+                            onNewChatInAgent = { bot -> onNewBotChat(bot) },
+                            onOpenSession = { bot, session -> clickForAgent(bot.name, session) },
+                            onSessionActions = { bot, session ->
+                                userPickedAgent = bot.name
+                                actionTarget = session
+                            },
+                            sessionMenu = rowMenuForAgent?.let { mk -> { bot, s -> mk(bot.name, s) } },
+                            swipeRight = pinSwipe,
+                            swipeLeft = archiveSwipe,
+                            onOpenThread = { bot, row -> clickForAgent(bot.name, row.session) },
+                            onThreadActions = { bot, row ->
+                                userPickedAgent = bot.name
+                                threadActions = row
+                            },
+                            onReorderedThreads = { ids ->
+                                reorderingThreads = false
+                                if (ids != shownThreads.map { it.thread.id }) viewModel.reorderThreads(ids)
+                            },
+                            onToggleThreads = { settingsStore.update { it.copy(threadsCollapsed = !it.threadsCollapsed) } },
+                            onToggleDispatch = { settingsStore.update { it.copy(dispatchCollapsed = !it.dispatchCollapsed) } },
+                            onTogglePinned = { settingsStore.update { it.copy(pinnedCollapsed = !it.pinnedCollapsed) } },
+                            onSelectProject = viewModel::selectProject,
+                            onNewProject = if (state.canMakeProjects) ({ newProject = ProjectDraft() }) else null,
+                            onProjectOptions = { project, button ->
+                                projectAnchor = button
+                                projectActions = project
+                            },
+                            onSelectAttentionFilter = viewModel::setAttentionFilter,
+                            onLoadMore = viewModel::loadMore,
+                            onRefreshBound = viewModel::refresh,
+                            onOpenActiveDispatch = { entry ->
+                                val targetOwner = entry.profile ?: launchProfile ?: Bot.DEFAULT
+                                userPickedAgent = targetOwner
+                                expandedAgents = if (multiExpandAgents) expandedAgents + targetOwner else setOf(targetOwner)
+                                onOpenTaskSession(entry.sessionId, entry.taskTitle, entry.profile)
+                            },
+                            onOpenActiveBranchSession = { agentName, session ->
+                                userPickedAgent = agentName
+                                expandedAgents = if (multiExpandAgents) expandedAgents + agentName else setOf(agentName)
+                                openForAgent(agentName, session)
+                            },
+                            onOpenRoom = onOpenRoom,
+                            onOpenDesktopRoom = onOpenDesktopRoom,
+                            onNewRoom = {
+                                rooms.dismissNotice()
+                                newRoomOpen = true
+                            },
+                            onRenameRoom = rooms::renameRoom,
+                            onDeleteRoom = rooms::deleteRoom,
+                            onDismissRoomsNotice = rooms::dismissActionNotice,
+                            onRetryBots = {
+                                bots.refresh()
+                                viewModel.refresh()
+                            },
+                            onDismissBotsNotice = bots::dismissNotice,
+                            top = { navGrid(2.dp) },
+                        )
+                        CreateRoomDialog(
+                            visible = newRoomOpen,
+                            bots = effectiveBots.all,
+                            busy = roomsState.busy,
+                            error = roomsState.notice,
+                            onDismiss = {
+                                newRoomOpen = false
+                                rooms.dismissNotice()
+                            },
+                            onCreate = { name, members ->
+                                rooms.createRoom(name, members) { room ->
+                                    newRoomOpen = false
+                                    onOpenRoom(room)
                                 }
-                            }
-                            state.savedCopyAt?.takeIf { state.project == null }?.let { savedAt ->
-                                item(key = "saved-copy") {
-                                    ListNotice(
-                                        stringResource(Res.string.sessions_saved_copy_unreachable, savedCopyText(savedAt)),
-                                        action = stringResource(Res.string.sessions_try_again),
-                                        onAction = viewModel::refresh,
-                                    )
-                                }
-                            }
-                            when {
-                                // Stand-in rows rather than a spinner: switching profile keeps the sidebar open, and
-                                // the list then fills in where it will be.
-                                state.loading -> item(key = "loading") { ListSkeleton() }
-                                state.error != null -> item(key = "error") {
-                                    ListNotice(
-                                        stringResource(Res.string.sessions_load_failed_detail, state.error.orEmpty()),
-                                        action = stringResource(Res.string.sessions_try_again),
-                                        onAction = viewModel::refresh,
-                                    )
-                                }
-                                state.project != null && state.projectSessions == null -> item(key = "project-loading") { ListSkeleton() }
-                                state.listed.isEmpty() -> item(key = "empty") {
-                                    ListNotice(
-                                        stringResource(if (state.project != null) Res.string.sessions_empty_project else Res.string.sessions_empty),
-                                    )
-                                }
-                                attentionFilter == AttentionFilter.Running && state.listed.none { statuses[it.id]?.running == true } -> item(key = "none-running") {
-                                    ListNotice(stringResource(Res.string.sessions_none_running))
-                                }
-                                attentionFilter == AttentionFilter.NeedsAttention && state.listed.none { statuses[it.id]?.needsAttention == true } ->
-                                    item(key = "none-waiting") { ListNotice(stringResource(Res.string.sessions_none_waiting)) }
-                            }
-                        },
-                    ) {
-                        // The pages left on in Settings › Sidebar pages; with none, no room is kept for them. The item
-                        // stays when it's empty: the list holds on to the first row it shows, so pages turned back on
-                        // would otherwise come in above it, out of sight.
-                        item(key = "nav") { navGrid(6.dp) }
+                            },
+                        )
                     }
                     state.loading -> ListSkeleton()
                     state.error != null -> EmptyState(Lucide.CloudOff, stringResource(Res.string.sessions_load_failed), state.error, error = true) {
@@ -1233,7 +1278,7 @@ fun SessionsSidebar(
             onDismissMessage = viewModel::dismissMessage,
             onNewChat = {
                 if (searchOpen) closeSearch()
-                onNewChat(state.project.takeIf { state.filter == SessionListFilter.Recent })
+                onNewChatInProfile(state.project.takeIf { state.filter == SessionListFilter.Recent }, browsedProfile)
             },
             onAccount = {
                 accountAnchor = accountRow[0]
@@ -1374,10 +1419,8 @@ internal fun SessionsSidebarSample(
     projectsAsDropdown: Boolean = false,
     /** The Threads section's threads, whose chats are among [sessions]. */
     threads: List<ChatThread> = emptyList(),
-    /** The gateway's profiles, the first in use; with more than one the header names it. */
-    profiles: List<Profile> = emptyList(),
-    /** The header's profile menu drawn open. */
-    profileMenuOpen: Boolean = false,
+    /** The header's gateway/account menu drawn open. */
+    gatewayMenuOpen: Boolean = false,
 ) {
     // Folds for real in the gallery, kept only while the preview shows.
     var pinnedCollapsed by remember { mutableStateOf(false) }
@@ -1395,9 +1438,8 @@ internal fun SessionsSidebarSample(
                 onAccount = {},
                 onSettings = {},
                 onSearch = {},
-                profiles = profiles,
-                activeProfile = profiles.firstOrNull()?.name,
-                menuInitiallyOpen = profileMenuOpen,
+                onOpenGateways = {},
+                menuInitiallyOpen = gatewayMenuOpen,
             )
             RenameBanner(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -1438,11 +1480,9 @@ internal fun SessionsSidebarSample(
                         NavGrid(
                             listOf(
                                 NavLink(Lucide.Inbox, stringResource(Res.string.sessions_nav_inbox), badge = 2) {},
+                                NavLink(Lucide.ListTodo, stringResource(Res.string.tasks_title)) {},
+                                NavLink(Lucide.Calendar, stringResource(Res.string.app_page_calendar)) {},
                                 NavLink(Lucide.CalendarClock, stringResource(Res.string.sessions_nav_scheduled)) {},
-                                NavLink(Lucide.ChartColumn, stringResource(Res.string.sessions_nav_insights)) {},
-                                NavLink(Lucide.Blocks, stringResource(Res.string.sessions_nav_capabilities)) {},
-                                NavLink(Lucide.Puzzle, stringResource(Res.string.sessions_nav_plugins)) {},
-                                NavLink(Lucide.Archive, stringResource(Res.string.sessions_nav_archived)) {},
                             ),
                         )
                     }
@@ -1461,7 +1501,7 @@ internal fun SessionsSidebarSample(
     }
 }
 
-/** The sidebar's Bots side drawn from [state] alone, for previews: the header, the switch and the roster. */
+/** The unified agent sidebar drawn from [state] alone, for previews. */
 @Composable
 internal fun BotsSidebarSample(
     state: BotsUiState,
@@ -1477,28 +1517,86 @@ internal fun BotsSidebarSample(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)),
     ) {
         Column(Modifier.fillMaxSize()) {
-            MainHeader(gatewayLabel = "homelab", connection = null, onAccount = {}, onSettings = {}, onSearch = null)
-            val modeNames = sidebarModeNames()
-            SegmentedControl(
-                options = SidebarMode.entries,
-                selected = SidebarMode.Bots,
-                onSelect = {},
-                optionLabel = { modeLabel(it, modeNames, needsYou.size) },
-                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
-            )
+            MainHeader(gatewayLabel = "homelab", connection = null, onAccount = {}, onSettings = {}, onSearch = {}, onOpenGateways = {})
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                BotsRoster(
-                    state = state,
+                UnifiedAgentSidebar(
+                    botsState = state,
                     avatars = emptyMap(),
+                    coordinatorProfile = Bot.DEFAULT,
+                    launchProfile = Bot.DEFAULT,
+                    expandedAgents = setOfNotNull(state.bots.firstOrNull()?.name),
+                    boundAgentName = state.bots.firstOrNull()?.name ?: Bot.DEFAULT,
+                    boundUiState = SessionsUiState(loading = false),
+                    boundThreads = emptyList(),
+                    boundStatuses = emptyMap(),
+                    agentBranches = emptyMap(),
+                    liveWaiting = emptyMap(),
+                    liveRunning = emptyMap(),
+                    drafts = emptySet(),
+                    dispatchSessions = emptyMap(),
+                    dispatchRooms = emptyMap(),
+                    calendarAgent = null,
+                    attentionFilter = AttentionFilter.All,
                     selectedId = null,
                     selectedRunning = false,
                     nowSeconds = nowSeconds,
-                    actions = PreviewBotActions,
-                    onRetry = {},
-                    onDismissNotice = {},
+                    showActiveOverview = true,
+                    projectsAsDropdown = false,
+                    threadsCollapsed = false,
+                    dispatchCollapsed = false,
+                    pinnedCollapsed = false,
+                    reorderingThreads = false,
+                    troubles = emptyMap(),
+                    failingRoutines = emptyMap(),
                     needsYou = needsYou,
                     rooms = rooms,
                     roomsAvailable = rooms.isNotEmpty(),
+                    unreadRooms = emptySet(),
+                    roomsNotice = null,
+                    screenStates = emptyMap(),
+                    showScreenAction = false,
+                    botActions = PreviewBotActions,
+                    pageCallbacks = AgentPageCallbacks({}, {}, {}, {}, {}),
+                    onToggleAgent = {},
+                    onNewChatInAgent = {},
+                    onOpenSession = { _, _ -> },
+                    onSessionActions = { _, _ -> },
+                    sessionMenu = null,
+                    swipeRight = { null },
+                    swipeLeft = { null },
+                    onOpenThread = { _, _ -> },
+                    onThreadActions = { _, _ -> },
+                    onReorderedThreads = {},
+                    onToggleThreads = {},
+                    onToggleDispatch = {},
+                    onTogglePinned = {},
+                    onSelectProject = {},
+                    onNewProject = null,
+                    onProjectOptions = { _, _ -> },
+                    onSelectAttentionFilter = {},
+                    onLoadMore = {},
+                    onRefreshBound = {},
+                    onOpenActiveDispatch = {},
+                    onOpenActiveBranchSession = { _, _ -> },
+                    onOpenRoom = {},
+                    onOpenDesktopRoom = {},
+                    onNewRoom = {},
+                    onRenameRoom = { _, _ -> },
+                    onDeleteRoom = {},
+                    onDismissRoomsNotice = {},
+                    onRetryBots = {},
+                    onDismissBotsNotice = {},
+                    top = {
+                        NavGrid(
+                            listOf(
+                                NavLink(Lucide.Inbox, stringResource(Res.string.sessions_nav_inbox), badge = 2) {},
+                                NavLink(Lucide.ListTodo, stringResource(Res.string.tasks_title)) {},
+                                NavLink(Lucide.Calendar, stringResource(Res.string.app_page_calendar)) {},
+                                NavLink(Lucide.CalendarClock, stringResource(Res.string.sessions_nav_scheduled)) {},
+                            ),
+                            inset = 2.dp,
+                        )
+                    },
                 )
             }
         }
@@ -1535,26 +1633,10 @@ private val SessionListFilter.label: StringResource
         SessionListFilter.Archived -> Res.string.sessions_nav_archived
     }
 
-/** Each side of the Chats / Bots switch by name, read once in composition for the switch's plain label lambda. */
-@Composable
-private fun sidebarModeNames(): Map<SidebarMode, String> = SidebarMode.entries.associateWith {
-    stringResource(
-        when (it) {
-            SidebarMode.Chats -> Res.string.sessions_mode_chats
-            SidebarMode.Bots -> Res.string.sessions_mode_bots
-        },
-    )
-}
-
-/** A side of the switch, Bots with how many bots need the user. */
-private fun modeLabel(mode: SidebarMode, names: Map<SidebarMode, String>, needsYou: Int): String {
-    val name = names[mode] ?: mode.name
-    return if (mode == SidebarMode.Bots && needsYou > 0) "$name · $needsYou" else name
-}
-
 /**
  * The app's name over the gateway in use, its dot showing the connection, and Settings; then the
- * search pill. With more than one profile, the name and gateway open a menu of them; otherwise the account sheet.
+ * search pill. Clicking the title opens the gateway and account menu (or the account sheet when no gateway
+ * switcher is supplied).
  */
 @Composable
 internal fun MainHeader(
@@ -1564,21 +1646,13 @@ internal fun MainHeader(
     onAccount: () -> Unit,
     onSettings: () -> Unit,
     onSearch: (() -> Unit)?,
-    /** The gateway's profiles; with more than one, the header names the active one and opens them in a menu. */
-    profiles: List<Profile> = emptyList(),
-    /** The active profile's name, the launch profile's included. */
-    activeProfile: String? = null,
-    onProfile: (Profile) -> Unit = {},
-    onOpenGateways: () -> Unit = {},
-    /** The profile menu is opening. */
-    onOpenMenu: () -> Unit = {},
-    /** For previews: the profile menu drawn open. */
+    onOpenGateways: (() -> Unit)? = null,
+    /** For previews: the gateway/account menu drawn open. */
     menuInitiallyOpen: Boolean = false,
 ) {
     val accountLabel = stringResource(Res.string.sessions_account_and_gateways)
     val connectionText = stringResource(connectionWord(connection))
-    val switching = profiles.size > 1
-    val active = profiles.firstOrNull { it.name == activeProfile }
+    val hasMenu = onOpenGateways != null
     var menuOpen by remember { mutableStateOf(menuInitiallyOpen) }
     Column {
         Row(
@@ -1586,92 +1660,67 @@ internal fun MainHeader(
             horizontalArrangement = Arrangement.spacedBy(if (isDesktop) 4.dp else 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // On the desktop this strip is the window's title bar: only the name and gateway are a button, as wide
-            // as they are, and the rest of the strip drags the window (a double-click maximises it). The Box takes
-            // what Settings leaves, so a long gateway name can't push Settings off the strip.
             Box(Modifier.weight(1f)) {
-                // With profiles to switch between, they come first in a menu here, one tap from the list; the account
-                // sheet is the menu's last row. With one, a tap opens the account sheet as before.
                 DropdownMenu(
-                    expanded = menuOpen,
+                    expanded = hasMenu && menuOpen,
                     onExpandedChange = { menuOpen = it },
                     alignment = AnchorAlignment.Start,
                     maxHeight = PROJECT_MENU_MAX_HEIGHT,
                     items = {
-                        profiles.forEach { profile ->
-                            val picked = profile.name == activeProfile
-                            // A bot, as the account sheet's Profile row: the account row below is the person.
-                            MenuChoice(profile.label, Lucide.Bot, selected = picked, onClick = { if (!picked) onProfile(profile) })
+                        onOpenGateways?.let { switchGateway ->
+                            MenuAction(stringResource(Res.string.sessions_switch_gateway), Lucide.ArrowLeftRight, onClick = switchGateway)
                         }
-                        MenuSeparator()
-                        MenuAction(stringResource(Res.string.sessions_switch_gateway), Lucide.ArrowLeftRight, onClick = onOpenGateways)
                         MenuAction(accountLabel, Lucide.CircleUserRound, onClick = onAccount)
                     },
                 ) {
-                Column(
-                    Modifier
-                        .then(if (isDesktop) Modifier.widthIn(max = 200.dp) else Modifier.fillMaxWidth())
-                        .heightIn(min = MinTouchTarget)
-                        .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
-                        .handCursor()
-                        .clickable(
-                            onClickLabel = if (switching) stringResource(Res.string.sessions_switch_profile) else accountLabel,
-                            role = if (switching) Role.DropdownList else Role.Button,
-                            interactionSource = null,
-                            indication = if (isDesktop) rememberHoverIndication(Theme[colors][text]) else LocalIndication.current,
-                            onClick = {
-                                when {
-                                    !switching -> onAccount()
-                                    menuOpen -> menuOpen = false
-                                    else -> {
-                                        menuOpen = true
-                                        onOpenMenu()
+                    Column(
+                        Modifier
+                            .then(if (isDesktop) Modifier.widthIn(max = 200.dp) else Modifier.fillMaxWidth())
+                            .heightIn(min = MinTouchTarget)
+                            .clip(RoundedCornerShape(Theme[radii][radiusSmall]))
+                            .handCursor()
+                            .clickable(
+                                onClickLabel = accountLabel,
+                                role = if (hasMenu) Role.DropdownList else Role.Button,
+                                interactionSource = null,
+                                indication = if (isDesktop) rememberHoverIndication(Theme[colors][text]) else LocalIndication.current,
+                                onClick = {
+                                    when {
+                                        !hasMenu -> onAccount()
+                                        menuOpen -> menuOpen = false
+                                        else -> menuOpen = true
                                     }
-                                }
-                            },
-                        )
-                        .then(if (isDesktop) Modifier.padding(horizontal = 6.dp) else Modifier)
-                        .semantics(mergeDescendants = true) { stateDescription = connectionText },
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(
-                        "MotherBase",
-                        // The name alone, without the mark beside it, so it carries the header.
-                        style = Theme[typography][heading].copy(fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.02).em),
-                        color = Theme[colors][text],
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(6.dp).background(connectionDot(connection), CircleShape))
+                                },
+                            )
+                            .then(if (isDesktop) Modifier.padding(horizontal = 6.dp) else Modifier)
+                            .semantics(mergeDescendants = true) { stateDescription = connectionText },
+                        verticalArrangement = Arrangement.Center,
+                    ) {
                         Text(
-                            gatewayLabel,
-                            style = Theme[typography][caption].copy(fontSize = 12.sp),
-                            color = Theme[colors][textTertiary],
+                            "MotherBase",
+                            style = Theme[typography][heading].copy(fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.02).em),
+                            color = Theme[colors][text],
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
                         )
-                        // The profile takes what it needs up to a cap, and the gateway the rest: a long name of
-                        // either is cut short and the chevron always shows.
-                        if (switching && active != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(6.dp).background(connectionDot(connection), CircleShape))
                             Text(
-                                "· ${active.label}",
+                                gatewayLabel,
                                 style = Theme[typography][caption].copy(fontSize = 12.sp),
-                                color = Theme[colors][textSecondary],
+                                color = Theme[colors][textTertiary],
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = PROFILE_NAME_MAX_WIDTH),
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            UnstyledIcon(
+                                if (menuOpen) Lucide.ChevronUp else Lucide.ChevronDown,
+                                contentDescription = null,
+                                tint = Theme[colors][textTertiary],
+                                modifier = Modifier.size(12.dp),
                             )
                         }
-                        UnstyledIcon(
-                            if (menuOpen) Lucide.ChevronUp else Lucide.ChevronDown,
-                            contentDescription = null,
-                            tint = Theme[colors][textTertiary],
-                            modifier = Modifier.size(12.dp),
-                        )
                     }
-                }
                 }
             }
             val settingsWord = stringResource(Res.string.common_settings)
@@ -1682,8 +1731,6 @@ internal fun MainHeader(
                 tint = Theme[colors][textSecondary],
             )
         }
-        // Search looks through chats; the bot roster is short enough to read. The header keeps its height
-        // without the pill, so switching sides doesn't move the switch under the finger.
         if (onSearch != null) SearchPill(onSearch) else Spacer(Modifier.height(maxOf(MinTouchTarget, SEARCH_PILL_HEIGHT)))
     }
 }
@@ -1703,9 +1750,6 @@ internal fun connectionWord(connection: ConnectionState?): StringResource = when
     is ConnectionState.Reconnecting -> Res.string.sessions_connection_reconnecting
     is ConnectionState.Connecting, ConnectionState.Idle -> Res.string.sessions_connection_connecting
 }
-
-/** The most the header's profile name takes, so the gateway's keeps some room beside it. */
-private val PROFILE_NAME_MAX_WIDTH = 120.dp
 
 /** How tall the search pill is drawn; the touch target around it can be taller. */
 private val SEARCH_PILL_HEIGHT = 40.dp
@@ -1884,17 +1928,12 @@ internal class NavLink(
     val onClick: () -> Unit,
 )
 
-/** The sidebar's pages that have a button above the chats, in the order they're shown. */
+/** Gateway-wide sidebar pages shown above the agent tree, in order. Per-agent pages live in each agent's menu. */
 internal val NAV_PAGES = listOf(
     SidebarPage.Inbox,
     SidebarPage.Tasks,
     SidebarPage.Calendar,
     SidebarPage.Scheduled,
-    SidebarPage.Insights,
-    SidebarPage.Capabilities,
-    SidebarPage.Plugins,
-    SidebarPage.Config,
-    SidebarPage.Archived,
 )
 
 /**
@@ -1936,16 +1975,10 @@ internal fun navLabel(page: SidebarPage): StringResource = when (page) {
     SidebarPage.Archived -> Res.string.sessions_nav_archived
 }
 
-/** The sidebar's pages as tiles, two to a row; on the desktop one under another, as a desktop sidebar lists its places. */
+/** The gateway-level workspace pages laid out as a compact two-column grid to keep vertical space free for agents. */
 @Composable
-private fun NavGrid(links: List<NavLink>, inset: Dp = 6.dp) {
-    if (isDesktop) {
-        Column(Modifier.padding(start = inset, end = inset, bottom = 10.dp)) {
-            links.forEach { NavTile(it, Modifier.fillMaxWidth()) }
-        }
-        return
-    }
-    Column(Modifier.padding(start = inset, end = inset, bottom = 10.dp)) {
+internal fun NavGrid(links: List<NavLink>, inset: Dp = 6.dp) {
+    Column(Modifier.padding(start = inset, end = inset, bottom = 6.dp)) {
         links.chunked(2).forEach { pair ->
             // A tile whose label wraps keeps its neighbour the same height.
             Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1957,8 +1990,7 @@ private fun NavGrid(links: List<NavLink>, inset: Dp = 6.dp) {
 }
 
 /**
- * A 44dp tile, an accent icon and its label, inside a full-height touch target. On the desktop a flat row, as a
- * desktop sidebar lists its places: filled only under the mouse.
+ * A gateway workspace tile: an accent icon and its label inside a full-height touch target.
  */
 @Composable
 private fun NavTile(link: NavLink, modifier: Modifier = Modifier) {
@@ -1974,26 +2006,24 @@ private fun NavTile(link: NavLink, modifier: Modifier = Modifier) {
     ) {
         Row(
             Modifier
-                // A phone's tile fills its grid cell; a desktop row is as tall as its own line, outside a grid too.
-                .then(if (isDesktop) Modifier.fillMaxWidth().heightIn(min = DESKTOP_NAV_ROW) else Modifier.fillMaxSize())
-                .padding(vertical = if (isDesktop) 1.dp else 2.dp)
+                .fillMaxSize()
+                .padding(vertical = if (isDesktop) 2.dp else 2.dp)
                 .clip(shape)
-                // On the desktop the page that's open beside the sidebar stays marked, as a chat row does.
-                .background(if (isDesktop && !link.selected) Color.Transparent else Theme[colors][surface2], shape)
+                .background(if (link.selected) Theme[colors][surface2] else Theme[colors][surface].copy(alpha = if (isDesktop) 0f else 1f), shape)
+                .then(if (!isDesktop && !link.selected) Modifier.background(Theme[colors][surface2], shape) else Modifier)
                 .indication(interaction, rememberHoverIndication(Theme[colors][text]))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 10.dp, vertical = if (isDesktop) 5.dp else 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             UnstyledIcon(link.icon, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(16.dp))
             Text(
                 link.label,
-                style = Theme[typography][label].copy(fontSize = 13.5.sp, fontWeight = FontWeight.Medium),
+                style = Theme[typography][label].copy(fontSize = 13.sp, fontWeight = FontWeight.Medium),
                 color = Theme[colors][text],
-                // Large text wraps rather than cutting the name off; the tile grows.
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = isDesktop && (link.keys != null || link.badge > 0)),
+                modifier = Modifier.weight(1f, fill = link.keys != null || link.badge > 0),
             )
             if (isDesktop && link.keys != null) {
                 Text(keysLabel(link.keys), style = Theme[typography][caption], color = Theme[colors][textTertiary], maxLines = 1)
@@ -2544,15 +2574,15 @@ private const val TYPE_AHEAD_PAUSE_MS = 1_000L
 private const val CONFIG_PREFETCH_DELAY = 4_000L
 
 // Thread, pinned and other rows are all a SessionRow, so folding a section lets the list reuse their slots.
-private const val SessionRowType = "session-row"
-private const val SectionLabelType = "section-label"
+internal const val SessionRowType = "session-row"
+internal const val SectionLabelType = "section-label"
 
 /**
  * The Threads section while it is being put in order: each row has a handle to drag it up or down, the rows
  * making way as it passes them, and "Done" on the label saves the order.
  */
 @Composable
-private fun ThreadReorder(rows: List<ThreadRow>, projectLabel: (ThreadRow) -> String?, onDone: (List<String>) -> Unit) {
+internal fun ThreadReorder(rows: List<ThreadRow>, projectLabel: (ThreadRow) -> String?, onDone: (List<String>) -> Unit) {
     val order = remember { mutableStateListOf<String>().apply { addAll(rows.map { it.thread.id }) } }
     // A thread added or removed meanwhile (on another device) joins or leaves the order where it stands.
     LaunchedEffect(rows) {
@@ -2742,7 +2772,7 @@ internal fun StartThreadFreshDialog(thread: ChatThread?, onDismiss: () -> Unit, 
 }
 
 @Composable
-private fun ListLabel(text: String) {
+internal fun ListLabel(text: String) {
     Text(
         text.uppercase(),
         style = Theme[typography][eyebrow],
@@ -2757,7 +2787,7 @@ private fun ListLabel(text: String) {
  * while it is folded. [show] and [hide] are the click labels, naming what it holds ("Show pinned chats").
  */
 @Composable
-private fun SectionToggle(title: String, count: Int, collapsed: Boolean, show: String, hide: String, onToggle: () -> Unit) {
+internal fun SectionToggle(title: String, count: Int, collapsed: Boolean, show: String, hide: String, onToggle: () -> Unit) {
     val state = stringResource(if (collapsed) Res.string.sessions_collapsed else Res.string.sessions_expanded)
     Row(
         Modifier
@@ -2877,7 +2907,7 @@ private fun rowStatusLine(status: RowStatus?, draft: Boolean): String? =
     rowStatusWords(status, draft).map { stringResource(it) }.joinToString(" · ").ifEmpty { null }
 
 @Composable
-private fun SessionListSwipeRow(
+internal fun SessionListSwipeRow(
     displaySession: SessionSummary,
     actionSession: SessionSummary,
     showProjectLabel: Boolean,
@@ -3181,7 +3211,7 @@ private val PROJECT_TAG_MIN_WIDTH = 48.dp
 
 /** A 28dp disc tinted for [tone], its icon spinning while a turn runs. The row says the same in words. */
 @Composable
-private fun StatusDisc(tone: RowTone, color: Color) {
+internal fun StatusDisc(tone: RowTone, color: Color) {
     val fill = when (tone) {
         RowTone.Approval, RowTone.Question -> Theme[colors][warningSoft]
         RowTone.Running, RowTone.Reply -> Theme[colors][accentSoft]
@@ -3207,7 +3237,7 @@ private fun StatusDisc(tone: RowTone, color: Color) {
 }
 
 /** A chat row's status disc on the desktop, where rows are packed to a mouse's scale. */
-private val DESKTOP_DISC = 22.dp
+internal val DESKTOP_DISC = 22.dp
 
 @Composable
 internal fun ListSpinner() {
@@ -3216,7 +3246,7 @@ internal fun ListSpinner() {
 
 /** All / Running / Needs attention over the recent list, with how many each holds. */
 @Composable
-private fun AttentionFilters(selected: AttentionFilter, running: Int, needsAttention: Int, onSelect: (AttentionFilter) -> Unit) {
+internal fun AttentionFilters(selected: AttentionFilter, running: Int, needsAttention: Int, onSelect: (AttentionFilter) -> Unit) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 6.dp, end = 6.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -3240,7 +3270,7 @@ private fun AttentionFilters(selected: AttentionFilter, running: Int, needsAtten
 
 /** The projects as [ProjectDropdown] when the "Projects as a list" setting is on, else as [ProjectChips]. */
 @Composable
-private fun ProjectFilters(
+internal fun ProjectFilters(
     projects: List<Project>,
     selected: Project?,
     asDropdown: Boolean,
