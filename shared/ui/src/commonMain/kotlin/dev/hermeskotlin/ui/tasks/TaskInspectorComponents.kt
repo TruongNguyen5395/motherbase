@@ -35,7 +35,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,13 +55,16 @@ import com.composables.icons.lucide.CalendarClock
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.CircleDot
+import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Folder
 import com.composables.icons.lucide.FolderX
 import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
+import com.composables.icons.lucide.MessageSquareReply
 import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.ShieldAlert
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.TriangleAlert
@@ -101,6 +107,7 @@ import dev.hermeskotlin.designsystem.components.Spinner
 import dev.hermeskotlin.designsystem.components.handCursor
 import dev.hermeskotlin.designsystem.components.scrollbar
 import dev.hermeskotlin.designsystem.danger
+import dev.hermeskotlin.designsystem.dangerSoft
 import dev.hermeskotlin.designsystem.eyebrow
 import dev.hermeskotlin.designsystem.heading
 import dev.hermeskotlin.designsystem.radii
@@ -111,6 +118,7 @@ import dev.hermeskotlin.designsystem.radiusSmall
 import dev.hermeskotlin.designsystem.stroke
 import dev.hermeskotlin.designsystem.strokeStrong
 import dev.hermeskotlin.designsystem.success
+import dev.hermeskotlin.designsystem.successSoft
 import dev.hermeskotlin.designsystem.surface
 import dev.hermeskotlin.designsystem.surface2
 import dev.hermeskotlin.designsystem.text as textColor
@@ -167,43 +175,109 @@ internal fun MiniBadge(
     )
 }
 
-/** Compact unread indicator dot with soft outer ring and optional numeric badge count. */
-@Composable
-internal fun UnreadIndicatorDot(
-    color: Color,
-    ringColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier
-            .size(14.dp)
-            .clip(CircleShape)
-            .background(ringColor),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+/** Draws a subtle left edge accent stripe on cards/rows without replacing card border styling. */
+internal fun Modifier.leftEdgeAccentStripe(
+    color: Color?,
+    width: Dp = 3.dp,
+): Modifier = if (color == null) {
+    this
+} else {
+    drawWithContent {
+        drawContent()
+        drawRect(
+            color = color,
+            topLeft = Offset.Zero,
+            size = Size(width.toPx(), size.height),
+        )
     }
 }
 
-/** Compact numeric unread counter paired with a small dot (avoids noisy text labels). */
+/**
+ * Distinct non-text indicator for replies needing review after an agent run (`success` green)
+ * or blocking input prompts (`danger` red), separated visually from blue `selected` card chrome.
+ */
+@Composable
+internal fun UnreadReviewIndicator(
+    waitingInput: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val tone = if (waitingInput) Theme[colors][danger] else Theme[colors][success]
+    val soft = (if (waitingInput) Theme[colors][dangerSoft] else Theme[colors][successSoft])
+        .compositeOver(Theme[colors][surface])
+    val shape = RoundedCornerShape(Theme[radii][radiusFull])
+    Row(
+        modifier
+            .clip(shape)
+            .background(soft)
+            .border(1.dp, tone.copy(alpha = 0.7f), shape)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(6.dp).clip(CircleShape).background(tone))
+        UnstyledIcon(
+            if (waitingInput) Lucide.ShieldAlert else Lucide.MessageSquareReply,
+            contentDescription = null,
+            tint = tone,
+            modifier = Modifier.size(11.dp),
+        )
+    }
+}
+
+/** Animated circular spinner pill for actively executing tasks (or clock icon when queued). */
+@Composable
+internal fun RunningPillBadge(
+    agentState: String,
+    isRunning: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val label = agentStateLabel(if (isRunning) TaskContext.STATE_RUNNING else agentState)
+    val shape = RoundedCornerShape(Theme[radii][radiusFull])
+    Row(
+        modifier
+            .clip(shape)
+            .background(Theme[colors][accentSoft])
+            .border(1.dp, Theme[colors][accent].copy(alpha = 0.4f), shape)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (isRunning) {
+            Spinner(Modifier.size(10.dp), color = Theme[colors][accentText])
+        } else {
+            UnstyledIcon(Lucide.Clock, contentDescription = null, tint = Theme[colors][accentText], modifier = Modifier.size(10.dp))
+        }
+        Text(
+            label,
+            style = Theme[typography][caption].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+            color = Theme[colors][accentText],
+            maxLines = 1,
+        )
+    }
+}
+
+/** Compact numeric unread counter paired with a green dot matching [UnreadReviewIndicator]. */
 @Composable
 internal fun UnreadCountIndicator(
     count: Int,
     modifier: Modifier = Modifier,
 ) {
+    val tone = Theme[colors][success]
+    val shape = RoundedCornerShape(Theme[radii][radiusFull])
     Row(
         modifier
-            .clip(RoundedCornerShape(Theme[radii][radiusFull]))
-            .background(Theme[colors][accentSoft])
+            .clip(shape)
+            .background(Theme[colors][successSoft].compositeOver(Theme[colors][surface]))
+            .border(1.dp, tone.copy(alpha = 0.45f), shape)
             .padding(horizontal = 6.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(6.dp).clip(CircleShape).background(Theme[colors][accent]))
+        Box(Modifier.size(6.dp).clip(CircleShape).background(tone))
         Text(
             count.toString(),
             style = Theme[typography][caption].copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-            color = Theme[colors][accentText],
+            color = tone,
             maxLines = 1,
         )
     }
@@ -1365,18 +1439,27 @@ internal fun DispatchTaskSidePanel(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                val taskRunning = task.id in state.runningTaskIds
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(quadrantAccentColor(matrixPos.quadrant)))
+                    if (taskRunning) {
+                        Spinner(Modifier.size(12.dp), color = Theme[colors][accent])
+                    } else {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(quadrantAccentColor(matrixPos.quadrant)))
+                    }
                     Text(
                         summaryText,
                         style = Theme[typography][caption],
                         color = Theme[colors][textSecondary],
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (taskRunning || task.agentState == TaskContext.STATE_QUEUED) {
+                        RunningPillBadge(agentState = task.agentState, isRunning = taskRunning)
+                    }
                 }
 
                 TaskHandlerMismatchBanner(

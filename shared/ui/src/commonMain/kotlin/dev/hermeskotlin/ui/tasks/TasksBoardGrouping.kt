@@ -201,6 +201,22 @@ internal fun resolveTaskReplyBadge(
     return TaskReplyBadge.NONE
 }
 
+/**
+ * Resolves whether a non-Done task is currently executing an agent turn.
+ * Live gateway/session signals override a stale Directus `running` state after a turn completes.
+ */
+internal fun isTaskActivelyRunning(
+    task: DirectusTask,
+    runningSessionIds: Set<String> = emptySet(),
+    clearedStaleRunningTaskIds: Set<String> = emptySet(),
+    activeTurnOverride: Boolean = false,
+): Boolean {
+    if (task.status == DirectusTask.STATUS_DONE) return false
+    if (activeTurnOverride) return true
+    if (task.channels.any { it.isSession && it.id in runningSessionIds }) return true
+    return task.agentState == TaskContext.STATE_RUNNING && task.id !in clearedStaleRunningTaskIds
+}
+
 internal fun isAttentionRisk(task: DirectusTask, todayEpochDay: Long): Boolean =
     task.status != DirectusTask.STATUS_DONE &&
         (task.status == DirectusTask.STATUS_BLOCKED || taskOverdueDays(task, todayEpochDay) > 0)

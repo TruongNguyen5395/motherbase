@@ -151,6 +151,9 @@ data class TasksUiState(
     val todayEpochDay: Long = currentLocalEpochDay(),
     val seenRoomSeqs: Map<String, Int> = emptyMap(),
     val waitingSessionIds: Set<String> = emptySet(),
+    val liveRunningSessionIds: Set<String> = emptySet(),
+    val liveRunningTaskIds: Set<String> = emptySet(),
+    val clearedStaleRunningTaskIds: Set<String> = emptySet(),
     val localReadAtByTaskId: Map<String, Double> = emptyMap(),
     val localUnreadTaskIds: Set<String> = emptySet(),
     val selectedTaskId: String? = null,
@@ -232,6 +235,19 @@ data class TasksUiState(
     val unreadCount: Int
         get() = replyBadges.values.count { it != TaskReplyBadge.NONE }
 
+    val runningTaskIds: Set<String>
+        get() = tasks.mapNotNull { task ->
+            val activeOverride = (task.id == selectedTaskId && channelTurnRunning) || task.id in liveRunningTaskIds
+            task.id.takeIf {
+                isTaskActivelyRunning(
+                    task = task,
+                    runningSessionIds = liveRunningSessionIds,
+                    clearedStaleRunningTaskIds = clearedStaleRunningTaskIds,
+                    activeTurnOverride = activeOverride,
+                )
+            }
+        }.toSet()
+
     internal val attentionSplit: AttentionSplit
         get() = buildAttentionSplit(tasks, todayEpochDay, replyBadges)
 }
@@ -263,6 +279,8 @@ class TasksViewModel(
     private var activeRuntimeSessionId: String? = null
     private var activeRuntimeChannelId: String? = null
     private val runningTaskSessions = LinkedHashMap<String, String>()
+    private val localTurnSessionIds = LinkedHashSet<String>()
+    private var latestAttentionRunningSessions: Set<String> = emptySet()
     private var externalContextOnly: Boolean = false
     private var externalViewingTaskId: String? = null
     private var externalViewingChannelId: String? = null
@@ -317,6 +335,27 @@ class TasksViewModel(
                     _state.update { it.copy(waitingSessionIds = waitingMap.keys) }
                 }
             }
+            viewModelScope.launch {
+                attentionTracker.running.collect { runningMap ->
+                    val prevRunning = latestAttentionRunningSessions
+                    val nextRunning = runningMap.filterValues { it }.keys
+                    latestAttentionRunningSessions = nextRunning
+                    val ended = prevRunning - nextRunning
+                    val snapshotTasks = _state.value.tasks
+                    val newlyCleared = ended.mapNotNull { sid ->
+                        resolveOwningTaskId(sid)?.takeIf { tid ->
+                            snapshotTasks.firstOrNull { it.id == tid }?.agentState == TaskContext.STATE_RUNNING
+                        }
+                    }.toSet()
+                    val newlyStarted = nextRunning.mapNotNull { resolveOwningTaskId(it) }.toSet()
+                    _state.update { cur ->
+                        cur.copy(
+                            liveRunningSessionIds = nextRunning + localTurnSessionIds,
+                            clearedStaleRunningTaskIds = (cur.clearedStaleRunningTaskIds + newlyCleared) - newlyStarted,
+                        )
+                    }
+                }
+            }
         }
         viewModelScope.launch {
             proposalCoordinator.statuses.collect { map -> _state.update { it.copy(proposalStatuses = map) } }
@@ -364,6 +403,7 @@ class TasksViewModel(
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
         runningTaskSessions.clear()
+        localTurnSessionIds.clear()
         externalContextOnly = false
         externalViewingTaskId = null
         externalViewingChannelId = null
@@ -382,6 +422,7 @@ class TasksViewModel(
                 focusGrouping = it.focusGrouping,
                 todayEpochDay = currentLocalEpochDay(),
                 waitingSessionIds = it.waitingSessionIds,
+                liveRunningSessionIds = latestAttentionRunningSessions,
                 gatewayConnected = connection.state.value is ConnectionState.Connected,
             )
         }
@@ -529,6 +570,10 @@ class TasksViewModel(
                             base
                         }
                     }
+                    val serverById = board.tasks.associateBy { it.id }
+                    val keptClearedStale = cur.clearedStaleRunningTaskIds.filterTo(HashSet()) { id ->
+                        serverById[id]?.agentState == TaskContext.STATE_RUNNING
+                    }
                     cur.copy(
                         loading = false,
                         error = null,
@@ -542,6 +587,7 @@ class TasksViewModel(
                         activeChannelIdx = safeChannelIdx,
                         localReadAtByTaskId = keptLocalRead,
                         localUnreadTaskIds = emptySet(),
+                        clearedStaleRunningTaskIds = keptClearedStale,
                     )
                 }
                 _state.value.config?.coordinator?.let { coord ->
@@ -2043,6 +2089,7 @@ class TasksViewModel(
                     )
                 }
                 lastStreamEventAtMs = nowMs()
+                markTaskTurnStarted(latestTask.id, channel.id)
                 markChannelSeen(gateway, channel, latestTask.replyStatus?.latestRoomSeq)
                 dispatchMessage(channel, visibleText, attachments, taskId = latestTask.id)
                 if (!externalContextOnly) {
@@ -2051,6 +2098,7 @@ class TasksViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                markTaskTurnSettled(task.id, sessionId = null)
                 _state.update { cur ->
                     cur.copy(
                         channelAttachments = attachments + cur.channelAttachments,
@@ -2101,6 +2149,7 @@ class TasksViewModel(
                 }
                 val idx = latestTask.channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0)
                 val watermark = readWatermarkFor(latestTask)
+                markTaskTurnStarted(latestTask.id, channel.id)
                 _state.update { cur ->
                     cur.copy(
                         activeChannelIdx = if (!externalContextOnly && cur.selectedTaskId == latestTask.id) idx else cur.activeChannelIdx,
@@ -2124,6 +2173,7 @@ class TasksViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                markTaskTurnSettled(task.id, sessionId = null)
                 _state.update { it.copy(channelTurnRunning = false, actionFeedback = e.message ?: "Could not start plan preparation") }
             } finally {
                 markBusy(task.id, false)
@@ -2243,6 +2293,7 @@ class TasksViewModel(
                             localUnreadTaskIds = cur.localUnreadTaskIds - latest.id,
                         )
                     }
+                    markTaskTurnStarted(latest.id, active.id)
                     markChannelSeen(gateway, active, latest.replyStatus?.latestRoomSeq)
                     if (!externalContextOnly && keptOnBoard && _state.value.selectedTaskId == latest.id) {
                         val key = "user-${Uuid.random()}"
@@ -2280,6 +2331,7 @@ class TasksViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                markTaskTurnSettled(task.id, sessionId = null)
                 _state.update { cur ->
                     cur.copy(
                         channelMessages = if (optimisticKey != null) cur.channelMessages.filterNot { it.key == optimisticKey } else cur.channelMessages,
@@ -2550,8 +2602,13 @@ class TasksViewModel(
             )
         }
         val owningTaskId = resolveOwningTaskId(runtimeId) ?: resolveOwningTaskId(channel.id)
-        if (owningTaskId != null && (running || openRequests.isNotEmpty())) {
-            runningTaskSessions[runtimeId] = owningTaskId
+        if (owningTaskId != null) {
+            if (running || openRequests.isNotEmpty()) {
+                runningTaskSessions[runtimeId] = owningTaskId
+                markTaskTurnStarted(owningTaskId, channel.id)
+            } else {
+                markTaskTurnSettled(owningTaskId, channel.id)
+            }
         }
         if (externalContextOnly) return
         activeRuntimeSessionId = runtimeId
@@ -2596,11 +2653,16 @@ class TasksViewModel(
         }
         val payload = event.payload as? JsonObject
         if (event.type == "message.complete" || event.type == "turn.error" || event.type == "session.error") {
+            val evSessionId = event.sessionId
             val isActiveForeground = !externalContextOnly &&
-                event.sessionId == activeRuntimeSessionId &&
+                evSessionId == activeRuntimeSessionId &&
                 (!hasObservedVisibility || pageVisible)
+            val resolvedTaskId = evSessionId?.let { runningTaskSessions.remove(it) ?: resolveOwningTaskId(it) }
+                ?: if (isActiveForeground) _state.value.selectedTaskId else null
+            if (resolvedTaskId != null || evSessionId != null) {
+                markTaskTurnSettled(resolvedTaskId, evSessionId)
+            }
             if (isActiveForeground) {
-                runningTaskSessions.remove(event.sessionId)
                 turnPollJob?.cancel()
                 _state.update { cur ->
                     cur.copy(
@@ -2626,15 +2688,13 @@ class TasksViewModel(
                 }
                 return
             }
-            val evSessionId = event.sessionId ?: return
-            val backgroundTaskId = runningTaskSessions.remove(evSessionId) ?: resolveOwningTaskId(evSessionId)
-            if (backgroundTaskId != null) {
-                val viewingExternally = externalContextOnly && externalViewingTaskId == backgroundTaskId
+            if (resolvedTaskId != null) {
+                val viewingExternally = externalContextOnly && externalViewingTaskId == resolvedTaskId
                 if (!viewingExternally) {
                     _state.update { cur ->
                         cur.copy(
-                            localUnreadTaskIds = cur.localUnreadTaskIds + backgroundTaskId,
-                            localReadAtByTaskId = cur.localReadAtByTaskId - backgroundTaskId,
+                            localUnreadTaskIds = cur.localUnreadTaskIds + resolvedTaskId,
+                            localReadAtByTaskId = cur.localReadAtByTaskId - resolvedTaskId,
                         )
                     }
                 }
@@ -2642,8 +2702,15 @@ class TasksViewModel(
             }
             return
         }
+        val evSid = event.sessionId
+        if (evSid != null && event.type in setOf("message.start", "thinking.delta", "tool.start", "tool.complete", "tool.result")) {
+            val owningTaskId = runningTaskSessions[evSid] ?: resolveOwningTaskId(evSid)
+            if (owningTaskId != null) {
+                markTaskTurnStarted(owningTaskId, evSid)
+            }
+        }
         val runtimeId = activeRuntimeSessionId ?: return
-        if (externalContextOnly || event.sessionId != runtimeId) return
+        if (externalContextOnly || evSid != runtimeId) return
         when (event.type) {
             "message.start" -> {
                 lastStreamEventAtMs = nowMs()
@@ -2768,6 +2835,7 @@ class TasksViewModel(
                         loadCoordinatorLog(gateway, attachSession = false)
                     }
                     if (!channel.isRoom && _state.value.channelMessages.lastOrNull()?.let { !it.fromUser && !it.streaming } == true) {
+                        markTaskTurnSettled(task?.id, channel.id)
                         _state.update { it.copy(channelTurnRunning = false, channelTurnStatus = null) }
                         refreshBoardSilently(gateway)
                         return@launch
@@ -2791,12 +2859,16 @@ class TasksViewModel(
                 task != null && task.status != DirectusTask.STATUS_DONE &&
                     !(externalContextOnly && externalViewingTaskId == id)
             }
+            val keptClearedStale = cur.clearedStaleRunningTaskIds.filterTo(HashSet()) { id ->
+                serverById[id]?.agentState == TaskContext.STATE_RUNNING
+            }
             cur.copy(
                 projects = board.projects,
                 tasks = board.tasks,
                 todayEpochDay = currentLocalEpochDay(),
                 localReadAtByTaskId = keptLocalRead,
                 localUnreadTaskIds = keptLocalUnread,
+                clearedStaleRunningTaskIds = keptClearedStale,
             )
         }
         dispatchStore?.syncBoard(gateway.gatewayUrl, board.tasks, includeDone = includeDone)
@@ -2971,6 +3043,8 @@ class TasksViewModel(
         val runtimeId = ensureRuntimeSession(client, channel)
         if (taskId != null) {
             runningTaskSessions[runtimeId] = taskId
+            markTaskTurnStarted(taskId, runtimeId)
+            markTaskTurnStarted(taskId, channel.id)
         }
         val gatewayUrl = boundGateway?.gatewayUrl
         val queuedImages = mutableListOf<String>()
@@ -3027,6 +3101,45 @@ class TasksViewModel(
         _state.value.tasks.firstOrNull { t -> t.channels.any { !it.isRoom && it.id == sessionId } }?.id?.let { return it }
         val gwUrl = boundGateway?.gatewayUrl ?: return null
         return dispatchStore?.byGateway?.value?.get(gwUrl)?.get(sessionId)?.taskId
+    }
+
+    private fun markTaskTurnStarted(taskId: String?, sessionId: String?) {
+        val cleanSession = sessionId?.trim()?.takeIf { it.isNotEmpty() }
+        if (cleanSession != null) {
+            localTurnSessionIds.add(cleanSession)
+        }
+        if (taskId == null && cleanSession == null) return
+        _state.update { cur ->
+            cur.copy(
+                liveRunningSessionIds = latestAttentionRunningSessions + localTurnSessionIds,
+                liveRunningTaskIds = if (taskId != null) cur.liveRunningTaskIds + taskId else cur.liveRunningTaskIds,
+                clearedStaleRunningTaskIds = if (taskId != null) cur.clearedStaleRunningTaskIds - taskId else cur.clearedStaleRunningTaskIds,
+            )
+        }
+    }
+
+    private fun markTaskTurnSettled(taskId: String?, sessionId: String?) {
+        val cleanSession = sessionId?.trim()?.takeIf { it.isNotEmpty() }
+        val owningTask = taskId?.let { tid -> _state.value.tasks.firstOrNull { it.id == tid } }
+        val sessionIdsToClear = buildSet {
+            if (cleanSession != null) add(cleanSession)
+            owningTask?.channels?.forEach { ch ->
+                if (ch.isSession) add(ch.id)
+            }
+        }
+        localTurnSessionIds.removeAll(sessionIdsToClear)
+        _state.update { cur ->
+            val wasStaleOrRunning = owningTask?.agentState == TaskContext.STATE_RUNNING
+            cur.copy(
+                liveRunningSessionIds = latestAttentionRunningSessions + localTurnSessionIds - sessionIdsToClear,
+                liveRunningTaskIds = if (taskId != null) cur.liveRunningTaskIds - taskId else cur.liveRunningTaskIds,
+                clearedStaleRunningTaskIds = if (taskId != null && wasStaleOrRunning) {
+                    cur.clearedStaleRunningTaskIds + taskId
+                } else {
+                    cur.clearedStaleRunningTaskIds
+                },
+            )
+        }
     }
 
     private fun replaceTask(updated: DirectusTask) {

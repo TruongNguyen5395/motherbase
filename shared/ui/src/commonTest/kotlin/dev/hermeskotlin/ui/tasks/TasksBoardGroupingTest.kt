@@ -221,4 +221,43 @@ class TasksBoardGroupingTest {
         assertEquals(listOf("solo"), groups.last().tasks.map { it.id })
         assertTrue(groups.first().alertCount >= groups[1].alertCount)
     }
+
+    @Test
+    fun isTaskActivelyRunningUsesLiveSessionsAndSuppressesStaleDirectusRunningState() {
+        val idleWithSession = task(
+            id = "t-live",
+            agentState = TaskContext.STATE_IDLE,
+            channels = listOf(TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-live", label = "Session")),
+        )
+        val staleRunningTask = task(
+            id = "t-stale",
+            agentState = TaskContext.STATE_RUNNING,
+            channels = listOf(TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-done", label = "Session")),
+        )
+        val doneTask = task(
+            id = "t-done",
+            status = DirectusTask.STATUS_DONE,
+            agentState = TaskContext.STATE_RUNNING,
+            channels = listOf(TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-live", label = "Session")),
+        )
+
+        assertTrue(isTaskActivelyRunning(idleWithSession, runningSessionIds = setOf("sess-live")))
+        assertFalse(isTaskActivelyRunning(idleWithSession))
+
+        assertTrue(isTaskActivelyRunning(staleRunningTask))
+        assertFalse(
+            isTaskActivelyRunning(
+                staleRunningTask,
+                clearedStaleRunningTaskIds = setOf("t-stale"),
+            ),
+        )
+        assertTrue(
+            isTaskActivelyRunning(
+                staleRunningTask,
+                runningSessionIds = setOf("sess-done"),
+                clearedStaleRunningTaskIds = setOf("t-stale"),
+            ),
+        )
+        assertFalse(isTaskActivelyRunning(doneTask, runningSessionIds = setOf("sess-live"), activeTurnOverride = true))
+    }
 }

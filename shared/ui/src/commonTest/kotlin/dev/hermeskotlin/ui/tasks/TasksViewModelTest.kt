@@ -2130,4 +2130,74 @@ class TasksViewModelTest {
             h.connection.stop()
         }
     }
+
+    @Test
+    fun liveTurnEventsDriveRunningTaskIdsAndClearStaleRunningIntoUnreadOnComplete() = runTest(dispatcher) {
+        var agentStateFromServer = "idle"
+        var unreadFromServer = false
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when (rec.path) {
+                    "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "configured": true,
+                              "projects": [{"id":"proj-1","name":"Homelab","archived":false}],
+                              "tasks": [
+                                {
+                                  "id":"t1",
+                                  "title":"Run background deploy",
+                                  "status":"in_progress",
+                                  "project_id":"proj-1",
+                                  "context":{
+                                    "id":"ctx-1",
+                                    "task_id":"t1",
+                                    "project_id":"proj-1",
+                                    "agent_state":"$agentStateFromServer",
+                                    "channels":[{"type":"session","id":"sess-bg","label":"Session (@Hermes)","managed":true}]
+                                  },
+                                  "reply_status":{"has_unread_reply":$unreadFromServer,"awaiting_reply":false,"last_reply_at":${if (unreadFromServer) 200.0 else 0.0}}
+                                }
+                              ]
+                            }
+                        """.trimIndent()
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            val initial = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.isNotEmpty() } }
+            assertFalse("t1" in initial.runningTaskIds)
+
+            // Gateway starts a turn for a task whose Directus agent_state is still "idle".
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"sess-bg","type":"message.start","payload":{}}}""")
+            val runningState = withTimeout(5_000) { h.vm.state.first { "t1" in it.runningTaskIds } }
+            assertTrue("t1" in runningState.runningTaskIds)
+
+            // When the turn completes, even if Directus still reports stale agent_state="running",
+            // the task stops spinning and surfaces the Unread review indicator instead.
+            agentStateFromServer = "running"
+            unreadFromServer = true
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"sess-bg","type":"message.complete","payload":{}}}""")
+            val completedState = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    "t1" !in st.runningTaskIds &&
+                        st.replyBadges["t1"] == TaskReplyBadge.UNREAD &&
+                        st.tasks.firstOrNull()?.replyStatus?.hasUnreadReply == true
+                }
+            }
+            assertFalse("t1" in completedState.runningTaskIds)
+            assertEquals(TaskReplyBadge.UNREAD, completedState.replyBadges["t1"])
+
+            // A subsequent turn re-enables the running indicator even while stale running was recorded.
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"sess-bg","type":"message.start","payload":{}}}""")
+            val restarted = withTimeout(5_000) { h.vm.state.first { "t1" in it.runningTaskIds } }
+            assertTrue("t1" in restarted.runningTaskIds)
+        } finally {
+            h.connection.stop()
+        }
+    }
 }

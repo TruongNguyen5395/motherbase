@@ -1045,4 +1045,61 @@ class TasksPageUiTest {
         waitForIdle()
         assertEquals(460, appSettings.dispatchRailWidth)
     }
+
+    @Test
+    fun runningSpinnerAndReviewIndicatorStayVisibleIndependentlyAcrossBoardAndMatrix() = runDesktopComposeUiTest(width = 1280, height = 800) {
+        val today = epochDayFromCivilIso("2026-11-18")!!
+        val proj = DirectusProject(id = "p1", name = "Ops", sort = 1)
+        val runningAndUnread = DirectusTask(
+            id = "t-run-rev",
+            title = "Active task with unread review",
+            status = DirectusTask.STATUS_IN_PROGRESS,
+            priority = "medium",
+            context = TaskContext(
+                taskId = "t-run-rev",
+                projectId = "p1",
+                agentState = TaskContext.STATE_RUNNING,
+                impact = "high",
+                urgency = "low",
+                channels = listOf(TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-run", label = "Session (@Ops)")),
+            ),
+            replyStatus = TaskReplyStatus(hasUnreadReply = true, lastReplyAt = 2_000.0),
+        )
+        var viewMode by mutableStateOf(TasksBoardViewMode.PROJECTS)
+
+        setContent {
+            val state = TasksUiState(
+                config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+                projects = listOf(proj),
+                tasks = listOf(runningAndUnread),
+                selectedTaskId = "t-run-rev",
+                todayEpochDay = today,
+                boardViewMode = viewMode,
+                showPriorityStrip = false,
+            )
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onSetBoardViewMode = { viewMode = it },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithTag("task_running_spinner_t-run-rev", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithTag("task_indicator_t-run-rev", useUnmergedTree = true).assertIsDisplayed()
+        onAllNodesWithText("Running")[0].assertIsDisplayed()
+
+        onNodeWithText("Matrix").performClick()
+        waitForIdle()
+        onNodeWithTag("matrix_running_spinner_t-run-rev", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithTag("matrix_indicator_t-run-rev", useUnmergedTree = true).assertIsDisplayed()
+    }
 }

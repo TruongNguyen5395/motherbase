@@ -63,6 +63,7 @@ import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.EisenhowerQuadrant
 import dev.hermeskotlin.core.tasks.MatrixLevel
+import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.accentSoft
 import dev.hermeskotlin.designsystem.accentText
@@ -74,6 +75,7 @@ import dev.hermeskotlin.designsystem.components.Button
 import dev.hermeskotlin.designsystem.components.ButtonSize
 import dev.hermeskotlin.designsystem.components.ButtonVariant
 import dev.hermeskotlin.designsystem.components.Dialog
+import dev.hermeskotlin.designsystem.components.Spinner
 import dev.hermeskotlin.designsystem.components.handCursor
 import dev.hermeskotlin.designsystem.danger
 import dev.hermeskotlin.designsystem.dangerSoft
@@ -86,6 +88,8 @@ import dev.hermeskotlin.designsystem.radiusMedium
 import dev.hermeskotlin.designsystem.radiusSmall
 import dev.hermeskotlin.designsystem.stroke
 import dev.hermeskotlin.designsystem.strokeStrong
+import dev.hermeskotlin.designsystem.success
+import dev.hermeskotlin.designsystem.successSoft
 import dev.hermeskotlin.designsystem.surface
 import dev.hermeskotlin.designsystem.surface2
 import dev.hermeskotlin.designsystem.surface3
@@ -571,6 +575,7 @@ internal fun TasksEisenhowerMatrixBoard(
     onSelectTask: (String?) -> Unit,
     onUpdateTaskMatrix: (taskId: String, impact: MatrixLevel, urgency: MatrixLevel) -> Unit,
     modifier: Modifier = Modifier,
+    runningTaskIds: Set<String> = emptySet(),
 ) {
     val quadrants = remember(tasks, todayEpochDay, replyBadges) {
         buildMatrixQuadrants(tasks, todayEpochDay, replyBadges)
@@ -681,6 +686,7 @@ internal fun TasksEisenhowerMatrixBoard(
                         replyBadges = replyBadges,
                         selectedTaskId = selectedTaskId,
                         busyTaskIds = busyTaskIds,
+                        runningTaskIds = runningTaskIds,
                         draggingTaskId = draggingTask?.id,
                         dropHighlighted = hoveredQuadrant == EisenhowerQuadrant.SCHEDULE,
                         onBoundsChanged = { dropBounds[EisenhowerQuadrant.SCHEDULE] = it },
@@ -702,6 +708,7 @@ internal fun TasksEisenhowerMatrixBoard(
                         replyBadges = replyBadges,
                         selectedTaskId = selectedTaskId,
                         busyTaskIds = busyTaskIds,
+                        runningTaskIds = runningTaskIds,
                         draggingTaskId = draggingTask?.id,
                         dropHighlighted = hoveredQuadrant == EisenhowerQuadrant.DO_NOW,
                         onBoundsChanged = { dropBounds[EisenhowerQuadrant.DO_NOW] = it },
@@ -728,6 +735,7 @@ internal fun TasksEisenhowerMatrixBoard(
                         replyBadges = replyBadges,
                         selectedTaskId = selectedTaskId,
                         busyTaskIds = busyTaskIds,
+                        runningTaskIds = runningTaskIds,
                         draggingTaskId = draggingTask?.id,
                         dropHighlighted = hoveredQuadrant == EisenhowerQuadrant.LATER,
                         onBoundsChanged = { dropBounds[EisenhowerQuadrant.LATER] = it },
@@ -749,6 +757,7 @@ internal fun TasksEisenhowerMatrixBoard(
                         replyBadges = replyBadges,
                         selectedTaskId = selectedTaskId,
                         busyTaskIds = busyTaskIds,
+                        runningTaskIds = runningTaskIds,
                         draggingTaskId = draggingTask?.id,
                         dropHighlighted = hoveredQuadrant == EisenhowerQuadrant.DELEGATE,
                         onBoundsChanged = { dropBounds[EisenhowerQuadrant.DELEGATE] = it },
@@ -866,6 +875,7 @@ internal fun TasksEisenhowerMatrixBoard(
                                 replyBadge = replyBadges[task.id] ?: TaskReplyBadge.NONE,
                                 selected = task.id == selectedTaskId,
                                 busy = task.id in busyTaskIds,
+                                running = task.id in runningTaskIds,
                                 beingDragged = task.id == draggingTask?.id,
                                 onSelect = { onSelectTask(task.id) },
                                 onOpenPad = { padTargetTask = task },
@@ -1023,6 +1033,7 @@ private fun MatrixQuadrantCard(
     onFinishDrag: () -> Unit,
     onCancelDrag: () -> Unit,
     modifier: Modifier = Modifier,
+    runningTaskIds: Set<String> = emptySet(),
 ) {
     val accentCol = quadrantAccentColor(quadrant)
     val shape = RoundedCornerShape(Theme[radii][radiusLarge])
@@ -1096,6 +1107,7 @@ private fun MatrixQuadrantCard(
                         replyBadge = replyBadges[task.id] ?: TaskReplyBadge.NONE,
                         selected = task.id == selectedTaskId,
                         busy = task.id in busyTaskIds,
+                        running = task.id in runningTaskIds,
                         beingDragged = task.id == draggingTaskId,
                         onSelect = { onSelectTask(task.id) },
                         onOpenPad = { onOpenPad(task) },
@@ -1126,6 +1138,7 @@ private fun MatrixTaskRow(
     onUpdateDrag: (Offset) -> Unit,
     onFinishDrag: () -> Unit,
     onCancelDrag: () -> Unit,
+    running: Boolean = task.agentState == TaskContext.STATE_RUNNING,
 ) {
     val latestStart by rememberUpdatedState(onStartDrag)
     val latestUpdate by rememberUpdatedState(onUpdateDrag)
@@ -1139,15 +1152,23 @@ private fun MatrixTaskRow(
     val bg = when {
         beingDragged -> Theme[colors][surface2].copy(alpha = 0.5f)
         selected -> Theme[colors][accentSoft].compositeOver(Theme[colors][surface])
-        isUnread -> Theme[colors][accentSoft].compositeOver(Theme[colors][surface])
+        isWaitingInput -> Theme[colors][dangerSoft].compositeOver(Theme[colors][surface])
+        isUnread -> Theme[colors][successSoft].compositeOver(Theme[colors][surface])
         else -> Theme[colors][surface2].copy(alpha = 0.55f)
     }
     val borderColor = when {
         selected -> Theme[colors][accent]
         isWaitingInput -> Theme[colors][danger].copy(alpha = 0.7f)
-        isUnread -> Theme[colors][accent].copy(alpha = 0.7f)
+        isUnread -> Theme[colors][success].copy(alpha = 0.65f)
         else -> Theme[colors][stroke]
     }
+    val edgeStripeColor = when {
+        selected -> null
+        isWaitingInput -> Theme[colors][danger]
+        isUnread -> Theme[colors][success]
+        else -> null
+    }
+    val borderWidth = if (selected) 1.5.dp else 1.dp
     var gripCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     Row(
@@ -1155,7 +1176,8 @@ private fun MatrixTaskRow(
             .fillMaxWidth()
             .clip(shape)
             .background(bg)
-            .border(1.dp, borderColor, shape)
+            .leftEdgeAccentStripe(edgeStripeColor)
+            .border(borderWidth, borderColor, shape)
             .clickable(role = Role.Button, onClick = onSelect)
             .handCursor()
             .padding(start = 4.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
@@ -1200,10 +1222,11 @@ private fun MatrixTaskRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (isWaitingInput) {
-                    UnreadIndicatorDot(Theme[colors][danger], Theme[colors][dangerSoft], Modifier.testTag("matrix_indicator_${task.id}"))
-                } else if (isUnread) {
-                    UnreadIndicatorDot(Theme[colors][accent], Theme[colors][accentSoft], Modifier.testTag("matrix_indicator_${task.id}"))
+                if (busy || running) {
+                    Spinner(
+                        Modifier.size(13.dp).testTag("matrix_running_spinner_${task.id}"),
+                        color = Theme[colors][accent],
+                    )
                 }
                 Text(
                     task.title,
@@ -1215,6 +1238,12 @@ private fun MatrixTaskRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                if (isWaitingInput || isUnread) {
+                    UnreadReviewIndicator(
+                        waitingInput = isWaitingInput,
+                        modifier = Modifier.testTag("matrix_indicator_${task.id}"),
+                    )
+                }
             }
             if (showProjectBadge || pos.boostedByDue) {
                 Row(

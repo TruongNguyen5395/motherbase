@@ -179,6 +179,7 @@ import dev.hermeskotlin.designsystem.sidebar as sidebarColor
 import dev.hermeskotlin.designsystem.stroke
 import dev.hermeskotlin.designsystem.strokeStrong
 import dev.hermeskotlin.designsystem.success
+import dev.hermeskotlin.designsystem.successSoft
 import dev.hermeskotlin.designsystem.surface
 import dev.hermeskotlin.designsystem.surface2
 import dev.hermeskotlin.designsystem.surface3
@@ -689,6 +690,7 @@ internal fun TasksBoardContent(
                     coordinatorPetSprite = petSprite,
                     coordinatorPetState = coordinatorPetState,
                     busy = selected.id in state.busyTaskIds,
+                    running = selected.id in state.runningTaskIds,
                     timeBlocks = state.taskTimeBlocks[selected.id].orEmpty(),
                     calendarPluginAvailable = state.calendarPluginAvailable,
                     calendarTimezone = state.calendarTimezone,
@@ -1066,7 +1068,7 @@ private fun BoardControlsBar(
             Chip(
                 text = stringResource(Res.string.tasks_filter_unread),
                 count = state.unreadCount.takeIf { it > 0 },
-                countColor = Theme[colors][accentText],
+                countColor = Theme[colors][success],
                 selected = state.unreadOnly,
                 onClick = onToggleUnreadOnly,
                 modifier = Modifier.testTag("board_filter_unread"),
@@ -1187,6 +1189,7 @@ private fun BoardScrollGrid(
     val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
     val standaloneLabel = stringResource(Res.string.tasks_standalone_group)
     val replyBadges = state.replyBadges
+    val runningTaskIds = state.runningTaskIds
     val visibleTasks = remember(state.tasks, state.unreadOnly, replyBadges) {
         if (state.unreadOnly) {
             state.tasks.filter { (replyBadges[it.id] ?: TaskReplyBadge.NONE) != TaskReplyBadge.NONE }
@@ -1257,6 +1260,7 @@ private fun BoardScrollGrid(
                         replyBadges = replyBadges,
                         selectedTaskId = state.selectedTaskId,
                         busyTaskIds = state.busyTaskIds,
+                        runningTaskIds = runningTaskIds,
                         onSelectTask = onSelectTask,
                     )
                 }
@@ -1293,6 +1297,7 @@ private fun BoardScrollGrid(
                             wideLayout = columns == 2,
                             selectedTaskId = state.selectedTaskId,
                             busyTaskIds = state.busyTaskIds,
+                            runningTaskIds = runningTaskIds,
                             onSelectTask = onSelectTask,
                             onUpdateTaskMatrix = onUpdateTaskMatrix,
                         )
@@ -1315,6 +1320,7 @@ private fun BoardScrollGrid(
                             collapsed = group.key in state.collapsedWorkstreamKeys,
                             selectedTaskId = state.selectedTaskId,
                             busyTaskIds = state.busyTaskIds,
+                            runningTaskIds = runningTaskIds,
                             onToggleCollapse = { onToggleWorkstreamCollapsed(group.key) },
                             onSelectTask = onSelectTask,
                         )
@@ -1330,6 +1336,7 @@ private fun BoardScrollGrid(
                             wideThreeCols = kanbanWide,
                             selectedTaskId = state.selectedTaskId,
                             busyTaskIds = state.busyTaskIds,
+                            runningTaskIds = runningTaskIds,
                             onSelectTask = onSelectTask,
                         )
                     }
@@ -1346,6 +1353,7 @@ private fun BoardScrollGrid(
                         wideLayout = columns == 2,
                         selectedTaskId = state.selectedTaskId,
                         busyTaskIds = state.busyTaskIds,
+                        runningTaskIds = runningTaskIds,
                         onSelectTask = onSelectTask,
                         onUpdateTaskMatrix = onUpdateTaskMatrix,
                     )
@@ -1392,6 +1400,7 @@ private fun BoardScrollGrid(
                         expanded = bucket.key in state.expandedProjectIds,
                         selectedTaskId = state.selectedTaskId,
                         busyTaskIds = state.busyTaskIds,
+                        runningTaskIds = runningTaskIds,
                         onSelectTask = onSelectTask,
                         onToggleExpand = { onToggleProjectExpanded(bucket.key) },
                         onFocusProject = { onFocusProject(bucket.key) },
@@ -1412,6 +1421,7 @@ private fun AttentionStripSection(
     replyBadges: Map<String, TaskReplyBadge>,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
+    runningTaskIds: Set<String> = emptySet(),
     onSelectTask: (String?) -> Unit,
 ) {
     if (split.isEmpty) {
@@ -1484,6 +1494,7 @@ private fun AttentionStripSection(
                 replyBadges = replyBadges,
                 selectedTaskId = selectedTaskId,
                 busyTaskIds = busyTaskIds,
+                runningTaskIds = runningTaskIds,
                 onSelectTask = onSelectTask,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1503,6 +1514,7 @@ private fun AttentionSubgroupColumn(
     replyBadges: Map<String, TaskReplyBadge>,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
+    runningTaskIds: Set<String> = emptySet(),
     onSelectTask: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1523,6 +1535,7 @@ private fun AttentionSubgroupColumn(
                 replyBadge = badge,
                 selected = task.id == selectedTaskId,
                 busy = task.id in busyTaskIds,
+                running = task.id in runningTaskIds,
                 onClick = { onSelectTask(task.id) },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1548,6 +1561,7 @@ private fun BentoColumnStack(
     modifier: Modifier = Modifier,
 ) {
     val replyBadges = state.replyBadges
+    val runningTaskIds = state.runningTaskIds
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         buckets.forEach { bucket ->
             ProjectBentoCard(
@@ -1558,6 +1572,7 @@ private fun BentoColumnStack(
                 expanded = bucket.key in state.expandedProjectIds,
                 selectedTaskId = state.selectedTaskId,
                 busyTaskIds = state.busyTaskIds,
+                runningTaskIds = runningTaskIds,
                 onSelectTask = onSelectTask,
                 onToggleExpand = { onToggleProjectExpanded(bucket.key) },
                 onFocusProject = { onFocusProject(bucket.key) },
@@ -1623,6 +1638,7 @@ private fun WorkstreamSectionCard(
     collapsed: Boolean,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
+    runningTaskIds: Set<String> = emptySet(),
     onToggleCollapse: () -> Unit,
     onSelectTask: (String?) -> Unit,
 ) {
@@ -1697,6 +1713,7 @@ private fun WorkstreamSectionCard(
                                     replyBadge = badge,
                                     selected = task.id == selectedTaskId,
                                     busy = task.id in busyTaskIds,
+                                    running = task.id in runningTaskIds,
                                     onClick = { onSelectTask(task.id) },
                                     modifier = Modifier.weight(1f),
                                 )
@@ -1715,6 +1732,7 @@ private fun WorkstreamSectionCard(
                             replyBadge = badge,
                             selected = task.id == selectedTaskId,
                             busy = task.id in busyTaskIds,
+                            running = task.id in runningTaskIds,
                             onClick = { onSelectTask(task.id) },
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -1741,6 +1759,7 @@ private fun StatusKanbanBoard(
     wideThreeCols: Boolean,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
+    runningTaskIds: Set<String> = emptySet(),
     onSelectTask: (String?) -> Unit,
 ) {
     val blockedOrOverdue = tasks.filter { it.status != DirectusTask.STATUS_DONE && isAttentionRisk(it, todayEpochDay) }
@@ -1770,6 +1789,7 @@ private fun StatusKanbanBoard(
                     replyBadges = replyBadges,
                     selectedTaskId = selectedTaskId,
                     busyTaskIds = busyTaskIds,
+                    runningTaskIds = runningTaskIds,
                     onSelectTask = onSelectTask,
                     modifier = Modifier.weight(1f),
                 )
@@ -1785,6 +1805,7 @@ private fun StatusKanbanBoard(
                     replyBadges = replyBadges,
                     selectedTaskId = selectedTaskId,
                     busyTaskIds = busyTaskIds,
+                    runningTaskIds = runningTaskIds,
                     onSelectTask = onSelectTask,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1801,6 +1822,7 @@ private fun KanbanColumnCard(
     replyBadges: Map<String, TaskReplyBadge>,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
+    runningTaskIds: Set<String> = emptySet(),
     onSelectTask: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1841,6 +1863,7 @@ private fun KanbanColumnCard(
                 replyBadge = badge,
                 selected = task.id == selectedTaskId,
                 busy = task.id in busyTaskIds,
+                running = task.id in runningTaskIds,
                 onClick = { onSelectTask(task.id) },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1857,6 +1880,7 @@ private fun ProjectBentoCard(
     expanded: Boolean,
     selectedTaskId: String?,
     busyTaskIds: Set<String>,
+    runningTaskIds: Set<String> = emptySet(),
     onSelectTask: (String?) -> Unit,
     onToggleExpand: () -> Unit,
     onFocusProject: () -> Unit,
@@ -1952,6 +1976,7 @@ private fun ProjectBentoCard(
                     replyBadge = badge,
                     selected = task.id == selectedTaskId,
                     busy = task.id in busyTaskIds,
+                    running = task.id in runningTaskIds,
                     onClick = { onSelectTask(task.id) },
                     modifier = Modifier.fillMaxWidth(),
                     flat = true,
@@ -2004,6 +2029,7 @@ private fun TaskPill(
     modifier: Modifier = Modifier,
     flat: Boolean = false,
     replyBadge: TaskReplyBadge = TaskReplyBadge.NONE,
+    running: Boolean = task.agentState == TaskContext.STATE_RUNNING,
 ) {
     val overdueDays = taskOverdueDays(task, todayEpochDay)
     val dueEpochDay = parseDueEpochDay(task.dueDate)
@@ -2015,40 +2041,24 @@ private fun TaskPill(
     val surfaceColor = Theme[colors][surface]
     val fill = when {
         selected -> Theme[colors][accentSoft].compositeOver(surfaceColor)
-        !flat -> Theme[colors][surface2]
         isWaitingInput -> Theme[colors][dangerSoft].compositeOver(surfaceColor)
-        isUnread -> Theme[colors][accentSoft].compositeOver(surfaceColor)
         isRisk -> Theme[colors][dangerSoft].compositeOver(surfaceColor)
+        isUnread -> Theme[colors][successSoft].compositeOver(surfaceColor)
+        !flat -> Theme[colors][surface2]
         else -> Color.Transparent
     }
-    val edgeStripeColor = if (flat) {
-        when {
-            selected -> Theme[colors][accent]
-            isWaitingInput -> Theme[colors][danger]
-            isUnread -> Theme[colors][accent]
-            isRisk -> Theme[colors][danger]
-            else -> null
-        }
-    } else {
-        null
+    val edgeStripeColor = when {
+        selected && flat -> Theme[colors][accent]
+        selected -> null
+        isWaitingInput -> Theme[colors][danger]
+        isUnread -> Theme[colors][success]
+        flat && isRisk -> Theme[colors][danger]
+        else -> null
     }
     val containerModifier = if (flat) {
         modifier
             .background(fill)
-            .let { base ->
-                if (edgeStripeColor != null) {
-                    base.drawWithContent {
-                        drawContent()
-                        drawRect(
-                            color = edgeStripeColor,
-                            topLeft = Offset.Zero,
-                            size = Size(3.dp.toPx(), size.height),
-                        )
-                    }
-                } else {
-                    base
-                }
-            }
+            .leftEdgeAccentStripe(edgeStripeColor)
             .clickable(role = Role.Button, onClick = onClick)
             .handCursor()
             .padding(horizontal = 12.dp, vertical = 9.dp)
@@ -2057,14 +2067,16 @@ private fun TaskPill(
         val borderColor = when {
             selected -> Theme[colors][accent]
             isWaitingInput -> Theme[colors][danger]
-            isUnread -> Theme[colors][accent]
             isRisk -> Theme[colors][danger].copy(alpha = 0.5f)
+            isUnread -> Theme[colors][success].copy(alpha = 0.6f)
             else -> Theme[colors][stroke]
         }
+        val borderWidth = if (selected) 1.5.dp else 1.dp
         modifier
             .clip(shape)
             .background(fill)
-            .border(1.dp, borderColor, shape)
+            .leftEdgeAccentStripe(edgeStripeColor)
+            .border(borderWidth, borderColor, shape)
             .clickable(role = Role.Button, onClick = onClick)
             .handCursor()
             .padding(horizontal = 10.dp, vertical = 8.dp)
@@ -2076,7 +2088,7 @@ private fun TaskPill(
     val neutralBadgeBg = if (flat) Theme[colors][surface2] else surfaceColor
     val showMatrixBadge = task.status != DirectusTask.STATUS_DONE &&
         (isDoNow || task.impact != null || task.urgency != null)
-    val showRunningBadge = task.agentState == TaskContext.STATE_RUNNING || task.agentState == TaskContext.STATE_QUEUED
+    val showRunningBadge = running || task.agentState == TaskContext.STATE_QUEUED
     val hasMetaBadges = showProjectBadge ||
         showMatrixBadge ||
         showRunningBadge ||
@@ -2094,19 +2106,10 @@ private fun TaskPill(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (busy) {
-                Spinner(Modifier.size(12.dp))
-            } else if (isWaitingInput) {
-                UnreadIndicatorDot(
-                    color = Theme[colors][danger],
-                    ringColor = Theme[colors][dangerSoft],
-                    modifier = Modifier.testTag("task_indicator_${task.id}"),
-                )
-            } else if (isUnread) {
-                UnreadIndicatorDot(
+            if (busy || running) {
+                Spinner(
+                    Modifier.size(14.dp).testTag("task_running_spinner_${task.id}"),
                     color = Theme[colors][accent],
-                    ringColor = Theme[colors][accentSoft],
-                    modifier = Modifier.testTag("task_indicator_${task.id}"),
                 )
             } else {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
@@ -2121,6 +2124,12 @@ private fun TaskPill(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (isWaitingInput || isUnread) {
+                UnreadReviewIndicator(
+                    waitingInput = isWaitingInput,
+                    modifier = Modifier.testTag("task_indicator_${task.id}"),
+                )
+            }
         }
 
         if (hasMetaBadges) {
@@ -2145,10 +2154,9 @@ private fun TaskPill(
                     )
                 }
                 if (showRunningBadge) {
-                    MiniBadge(
-                        text = agentStateLabel(task.agentState),
-                        backgroundColor = Theme[colors][accentSoft],
-                        contentColor = Theme[colors][accentText],
+                    RunningPillBadge(
+                        agentState = task.agentState,
+                        isRunning = running,
                     )
                 }
                 if (task.status != DirectusTask.STATUS_TODO) {
@@ -2442,6 +2450,7 @@ private fun TaskDetailInspector(
     coordinatorPetSprite: PetSprite? = null,
     coordinatorPetState: PetState = PetState.Idle,
     busy: Boolean,
+    running: Boolean = false,
     timeBlocks: List<DispatchTimeBlock> = emptyList(),
     calendarPluginAvailable: Boolean = false,
     calendarTimezone: String = "Asia/Ho_Chi_Minh",
@@ -2567,19 +2576,27 @@ private fun TaskDetailInspector(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(quadrantAccentColor(matrixPos.quadrant)),
-                )
+                if (running) {
+                    Spinner(Modifier.size(12.dp), color = Theme[colors][accent])
+                } else {
+                    Box(
+                        Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(quadrantAccentColor(matrixPos.quadrant)),
+                    )
+                }
                 Text(
                     summaryText,
                     style = Theme[typography][caption],
                     color = Theme[colors][textSecondary],
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
+                if (running || task.agentState == TaskContext.STATE_QUEUED) {
+                    RunningPillBadge(agentState = task.agentState, isRunning = running)
+                }
             }
             Row(
                 Modifier
