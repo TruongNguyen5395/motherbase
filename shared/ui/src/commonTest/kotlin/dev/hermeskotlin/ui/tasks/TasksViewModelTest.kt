@@ -2242,10 +2242,10 @@ class TasksViewModelTest {
         assertTrue(started.last().streaming)
         assertEquals(listOf(img), started.last().generatedImages)
 
-        val option = ReplyInteraction.Choice(
-            prompt = "Choose",
-            options = listOf(ReplyInteraction.Option(id = "ok", label = "Proceed")),
+        val option = ReplyInteraction.Choices(
+            question = "Choose",
             multiSelect = false,
+            options = listOf(ReplyInteraction.Option(label = "Proceed")),
         )
         val merged = mergeChannelToolUpdate(
             messages = started,

@@ -1130,7 +1130,7 @@ class TasksPageUiTest {
                 channels = listOf(channel),
             ),
         )
-        val requests = mutableListOf<String>()
+        val requests = java.util.concurrent.CopyOnWriteArrayList<String>()
         val mediaApi = MediaApi(createHttpClient(MockEngine { request ->
             requests += "${request.url.encodedPath}|${request.url.parameters["path"]}|${request.url.parameters["profile"]}|${request.url.parameters["session_id"]}"
             respond("""{"detail":"Missing"}""", HttpStatusCode.NotFound, headersOf(HttpHeaders.ContentType, "application/json"))
@@ -1205,7 +1205,7 @@ class TasksPageUiTest {
                 channels = listOf(roomChannel),
             ),
         )
-        val requests = mutableListOf<String>()
+        val requests = java.util.concurrent.CopyOnWriteArrayList<String>()
         val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
         val mediaApi = MediaApi(createHttpClient(MockEngine { request ->
             val key = "${request.url.encodedPath}|${request.url.parameters["path"]}|${request.url.parameters["profile"]}|${request.url.parameters["session_id"]}"
