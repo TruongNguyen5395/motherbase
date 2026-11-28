@@ -887,7 +887,7 @@ class TasksViewModel(
                 is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited -> {
                     _state.update { it.copy(completedLoading = false, completedLoadingMore = false, sessionExpired = true) }
                 }
-                is ApiResult.Failed, ApiResult.Unavailable -> {
+                is ApiResult.Failed, is ApiResult.Unavailable -> {
                     _state.update {
                         it.copy(
                             completedLoading = false,

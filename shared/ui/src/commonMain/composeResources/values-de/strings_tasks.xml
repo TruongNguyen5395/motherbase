@@ -164,7 +164,9 @@
     <string name="tasks_completed_count">%1$d erledigt</string>
     <string name="tasks_completed_load_more">Mehr laden</string>
     <string name="tasks_completed_empty">Noch keine erledigten Aufgaben</string>
+    <string name="tasks_completed_empty_body">Als Erledigt bestätigte Aufgaben erscheinen hier mit Arbeitsprotokollen und archivierten Verläufen.</string>
     <string name="tasks_completed_filtered_empty">Keine erledigten Aufgaben entsprechen den Filtern</string>
+    <string name="tasks_completed_filtered_empty_body">Passe die Suche an oder setze die Projekt- und Agentenfilter zurück.</string>
     <string name="tasks_completed_clear_filters">Filter zurücksetzen</string>
     <string name="tasks_completed_retry">Erneut versuchen</string>
     <string name="tasks_completed_at_label">Erledigt %1$s</string>

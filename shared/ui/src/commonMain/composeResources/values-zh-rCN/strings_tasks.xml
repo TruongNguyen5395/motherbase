@@ -164,7 +164,9 @@
     <string name="tasks_completed_count">已完成 %1$d 项</string>
     <string name="tasks_completed_load_more">加载更多</string>
     <string name="tasks_completed_empty">暂无已完成任务</string>
+    <string name="tasks_completed_empty_body">确认完成的任务将显示在这里，并附带工作日志和已归档对话记录。</string>
     <string name="tasks_completed_filtered_empty">没有符合筛选条件的已完成任务</string>
+    <string name="tasks_completed_filtered_empty_body">请尝试调整搜索关键词，或清除项目和智能体筛选条件。</string>
     <string name="tasks_completed_clear_filters">清除筛选</string>
     <string name="tasks_completed_retry">重试</string>
     <string name="tasks_completed_at_label">完成于 %1$s</string>

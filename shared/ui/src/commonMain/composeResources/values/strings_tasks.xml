@@ -164,7 +164,9 @@
     <string name="tasks_completed_count">%1$d completed</string>
     <string name="tasks_completed_load_more">Load more</string>
     <string name="tasks_completed_empty">No completed tasks yet</string>
+    <string name="tasks_completed_empty_body">Tasks confirmed as Done will appear here with their work logs and archived transcripts.</string>
     <string name="tasks_completed_filtered_empty">No completed tasks match your filters</string>
+    <string name="tasks_completed_filtered_empty_body">Try adjusting your search query or clearing the project and agent filters.</string>
     <string name="tasks_completed_clear_filters">Clear filters</string>
     <string name="tasks_completed_retry">Retry</string>
     <string name="tasks_completed_at_label">Completed %1$s</string>

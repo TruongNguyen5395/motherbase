@@ -164,7 +164,9 @@
     <string name="tasks_completed_count">%1$d concluídas</string>
     <string name="tasks_completed_load_more">Carregar mais</string>
     <string name="tasks_completed_empty">Nenhuma tarefa concluída ainda</string>
+    <string name="tasks_completed_empty_body">As tarefas confirmadas como Concluídas aparecerão aqui com seus registros de trabalho e transcrições arquivadas.</string>
     <string name="tasks_completed_filtered_empty">Nenhuma tarefa concluída corresponde aos filtros</string>
+    <string name="tasks_completed_filtered_empty_body">Ajuste a busca ou limpe os filtros de projeto e agente.</string>
     <string name="tasks_completed_clear_filters">Limpar filtros</string>
     <string name="tasks_completed_retry">Tentar novamente</string>
     <string name="tasks_completed_at_label">Concluída %1$s</string>

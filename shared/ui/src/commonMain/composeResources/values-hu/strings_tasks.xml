@@ -164,7 +164,9 @@
     <string name="tasks_completed_count">%1$d befejezett</string>
     <string name="tasks_completed_load_more">Továbbiak betöltése</string>
     <string name="tasks_completed_empty">Még nincs befejezett feladat</string>
+    <string name="tasks_completed_empty_body">A Késznek megerősített feladatok itt jelennek meg a munkanaplókkal és az archivált előzményekkel együtt.</string>
     <string name="tasks_completed_filtered_empty">Nincs a szűrőknek megfelelő befejezett feladat</string>
+    <string name="tasks_completed_filtered_empty_body">Módosítsd a keresést, vagy töröld a projekt- és ügynökszűrőket.</string>
     <string name="tasks_completed_clear_filters">Szűrők törlése</string>
     <string name="tasks_completed_retry">Újra</string>
     <string name="tasks_completed_at_label">Befejezve %1$s</string>

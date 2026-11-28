@@ -1412,6 +1412,7 @@ private fun CompletedTasksBoard(
                         EmptyState(
                             icon = Lucide.Search,
                             title = stringResource(Res.string.tasks_completed_filtered_empty),
+                            body = stringResource(Res.string.tasks_completed_filtered_empty_body),
                             action = {
                                 Button(
                                     text = stringResource(Res.string.tasks_completed_clear_filters),
@@ -1424,6 +1425,7 @@ private fun CompletedTasksBoard(
                         EmptyState(
                             icon = Lucide.CircleCheck,
                             title = stringResource(Res.string.tasks_completed_empty),
+                            body = stringResource(Res.string.tasks_completed_empty_body),
                         )
                     }
                 }

@@ -164,7 +164,9 @@
     <string name="tasks_completed_count">%1$d terminées</string>
     <string name="tasks_completed_load_more">Charger plus</string>
     <string name="tasks_completed_empty">Aucune tâche terminée</string>
+    <string name="tasks_completed_empty_body">Les tâches confirmées comme Terminées apparaîtront ici avec leurs journaux et transcriptions archivées.</string>
     <string name="tasks_completed_filtered_empty">Aucune tâche terminée ne correspond aux filtres</string>
+    <string name="tasks_completed_filtered_empty_body">Modifiez la recherche ou réinitialisez les filtres de projet et d&apos;agent.</string>
     <string name="tasks_completed_clear_filters">Réinitialiser les filtres</string>
     <string name="tasks_completed_retry">Réessayer</string>
     <string name="tasks_completed_at_label">Terminée %1$s</string>
