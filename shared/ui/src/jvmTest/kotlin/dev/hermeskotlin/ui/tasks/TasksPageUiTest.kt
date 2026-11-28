@@ -24,12 +24,16 @@ import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.composeunstyled.theme.ColorScheme
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.ClarifyQuestion
+import dev.hermeskotlin.core.chat.GeneratedImage
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
+import dev.hermeskotlin.core.gateway.GatewayUrl
+import dev.hermeskotlin.core.media.MediaApi
 import dev.hermeskotlin.core.models.ModelCatalog
 import dev.hermeskotlin.core.models.ModelOption
 import dev.hermeskotlin.core.models.ModelProvider
+import dev.hermeskotlin.core.network.createHttpClient
 import dev.hermeskotlin.core.settings.AppSettings
 import dev.hermeskotlin.core.tasks.DirectusConfigStatus
 import dev.hermeskotlin.core.tasks.DirectusProject
@@ -51,6 +55,11 @@ import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.components.ProvideAppWords
 import dev.hermeskotlin.ui.preview.PageSamples
 import dev.hermeskotlin.ui.voice.DictationState
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -1101,5 +1110,175 @@ class TasksPageUiTest {
         waitForIdle()
         onNodeWithTag("matrix_running_spinner_t-run-rev", useUnmergedTree = true).assertIsDisplayed()
         onNodeWithTag("matrix_indicator_t-run-rev", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun dispatchSidebarExtractsMediaPdfCardAndOpensPreviewViewer() = runDesktopComposeUiTest(width = 1280, height = 800) {
+        val today = epochDayFromCivilIso("2026-11-18")!!
+        val proj = DirectusProject(id = "p1", name = "Ops", sort = 1)
+        val channel = TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-ops", label = "Session (@ops)", profile = "ops")
+        val task = DirectusTask(
+            id = "t-media",
+            title = "Share weekly summary",
+            status = DirectusTask.STATUS_IN_PROGRESS,
+            priority = "medium",
+            context = TaskContext(
+                taskId = "t-media",
+                projectId = "p1",
+                impact = "high",
+                urgency = "medium",
+                channels = listOf(channel),
+            ),
+        )
+        val requests = mutableListOf<String>()
+        val mediaApi = MediaApi(createHttpClient(MockEngine { request ->
+            requests += "${request.url.encodedPath}|${request.url.parameters["path"]}|${request.url.parameters["profile"]}|${request.url.parameters["session_id"]}"
+            respond("""{"detail":"Missing"}""", HttpStatusCode.NotFound, headersOf(HttpHeaders.ContentType, "application/json"))
+        }))
+        val state = TasksUiState(
+            config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+            projects = listOf(proj),
+            tasks = listOf(task),
+            selectedTaskId = "t-media",
+            todayEpochDay = today,
+            showPriorityStrip = false,
+            channelMessages = listOf(
+                ChannelChatLine(
+                    key = "a-pdf",
+                    speaker = "ops",
+                    text = "Here is the PDF:\nMEDIA:/opt/data/shared/outputs/weekly/weekly_report.pdf",
+                    fromUser = false,
+                    profile = "ops",
+                ),
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        ProvideChannelMedia(
+                            gateway = GatewayUrl.parse("https://hermes.example"),
+                            activeChannel = channel,
+                            mediaApi = mediaApi,
+                        ) {
+                            TasksBoardContent(
+                                state = state,
+                                actions = TasksBoardActions(),
+                                onBack = {},
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        assertTrue(onAllNodesWithText("MEDIA:", substring = true).fetchSemanticsNodes().isEmpty())
+        onNodeWithText("Here is the PDF:").assertIsDisplayed()
+        onNodeWithText("weekly_report.pdf").assertIsDisplayed()
+        onNodeWithText("PDF").assertIsDisplayed()
+
+        onNodeWithContentDescription("Preview").assertIsDisplayed().performClick()
+        waitUntil(timeoutMillis = 3_000) {
+            requests.any { it == "/api/fs/download|/opt/data/shared/outputs/weekly/weekly_report.pdf|ops|sess-ops" }
+        }
+        onNodeWithContentDescription("Close").assertIsDisplayed().performClick()
+        waitForIdle()
+    }
+
+    @Test
+    fun dispatchSidebarRoomMessagesUseLineProfileAndStripGeneratedEchoes() = runDesktopComposeUiTest(width = 1280, height = 800) {
+        val today = epochDayFromCivilIso("2026-11-18")!!
+        val proj = DirectusProject(id = "p1", name = "Ops", sort = 1)
+        val roomChannel = TaskChannel(type = TaskChannel.TYPE_ROOM, id = "task-room", label = "Room")
+        val task = DirectusTask(
+            id = "t-room",
+            title = "Review room outputs",
+            status = DirectusTask.STATUS_IN_PROGRESS,
+            priority = "medium",
+            context = TaskContext(
+                taskId = "t-room",
+                projectId = "p1",
+                impact = "high",
+                urgency = "medium",
+                channels = listOf(roomChannel),
+            ),
+        )
+        val requests = mutableListOf<String>()
+        val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
+        val mediaApi = MediaApi(createHttpClient(MockEngine { request ->
+            val key = "${request.url.encodedPath}|${request.url.parameters["path"]}|${request.url.parameters["profile"]}|${request.url.parameters["session_id"]}"
+            requests += key
+            when (request.url.encodedPath) {
+                "/api/fs/read-text" -> respond(
+                    """{"binary":false,"byteSize":12,"language":"markdown","text":"# Room Notes","truncated":false}""",
+                    HttpStatusCode.OK,
+                    jsonHeaders,
+                )
+                else -> respond("Not found", HttpStatusCode.NotFound)
+            }
+        }))
+        val state = TasksUiState(
+            config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+            projects = listOf(proj),
+            tasks = listOf(task),
+            selectedTaskId = "t-room",
+            todayEpochDay = today,
+            showPriorityStrip = false,
+            channelMessages = listOf(
+                ChannelChatLine(
+                    key = "r-1",
+                    speaker = "bot-a",
+                    text = "See summary:\nMEDIA:/opt/data/summary.md",
+                    fromUser = false,
+                    profile = "bot-a",
+                ),
+                ChannelChatLine(
+                    key = "r-2",
+                    speaker = "bot-b",
+                    text = "Saved chart at /sandbox/chart.png.",
+                    fromUser = false,
+                    profile = "bot-b",
+                    generatedImages = listOf(
+                        GeneratedImage("/opt/data/chart.png", listOf("/opt/data/chart.png", "/sandbox/chart.png")),
+                    ),
+                ),
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        ProvideChannelMedia(
+                            gateway = GatewayUrl.parse("https://hermes.example"),
+                            activeChannel = roomChannel,
+                            mediaApi = mediaApi,
+                        ) {
+                            TasksBoardContent(
+                                state = state,
+                                actions = TasksBoardActions(),
+                                onBack = {},
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        assertTrue(onAllNodesWithText("/sandbox/chart.png", substring = true).fetchSemanticsNodes().isEmpty())
+        waitUntil(timeoutMillis = 3_000) {
+            requests.any { it == "/api/fs/download|/opt/data/chart.png|bot-b|null" }
+        }
+
+        onNodeWithText("summary.md").assertIsDisplayed()
+        onNodeWithContentDescription("Preview").assertIsDisplayed().performClick()
+        waitUntil(timeoutMillis = 3_000) {
+            requests.any { it == "/api/fs/read-text|/opt/data/summary.md|bot-a|null" } &&
+                onAllNodesWithText("Room Notes").fetchSemanticsNodes().isNotEmpty()
+        }
+        onNodeWithText("Room Notes").assertIsDisplayed()
     }
 }

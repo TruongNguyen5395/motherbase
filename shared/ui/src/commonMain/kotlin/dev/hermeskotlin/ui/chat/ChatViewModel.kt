@@ -89,8 +89,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -889,28 +887,11 @@ class ChatViewModel(
      * The bytes behind a picture or file the chat shows: a gateway path (`@image:` in a stored prompt,
      * `MEDIA:` in a reply), a web URL or a `data:` URL. Cached per source; null when it can't be had.
      */
-    @OptIn(ExperimentalEncodingApi::class)
     override suspend fun loadMedia(source: String): ByteArray? {
         mediaCache[source]?.let { return it }
-        val result = when {
-            source.startsWith("data:") -> runCatching { Base64.decode(source.substringAfter("base64,")) }.getOrNull()
-            source.startsWith("http://") || source.startsWith("https://") -> (media.remote(source) as? ApiResult.Success)?.value
-            else -> {
-                val gateway = target?.gateway?.gatewayUrl ?: return null
-                val cleanPath = source.removePrefix("file://")
-                val profile = target?.profile
-                val preferFs = profile != null || cleanPath.startsWith("/") || cleanPath.startsWith("~/")
-                val primary = if (preferFs) media.download(gateway, cleanPath, profile) else media.file(gateway, cleanPath)
-                val resolved = if (primary is ApiResult.Success) {
-                    primary
-                } else if (preferFs) {
-                    media.file(gateway, cleanPath)
-                } else {
-                    media.download(gateway, cleanPath, profile)
-                }
-                (resolved as? ApiResult.Success)?.value
-            }
-        } ?: return null
+        val owner = target
+        val sessionId = owner?.storedSessionId ?: transcript.value.state.storedSessionId
+        val result = media.loadChatMedia(owner?.gateway?.gatewayUrl, source, owner?.profile, sessionId) ?: return null
         if (mediaCache.size >= MAX_CACHED_MEDIA) mediaCache.remove(mediaCache.keys.first())
         mediaCache[source] = result
         return result
@@ -921,26 +902,9 @@ class ChatViewModel(
         onProgress: ((downloaded: Long, total: Long?) -> Unit)?,
         write: suspend (ByteArray) -> Unit,
     ): FileProblem? {
-        if (source.startsWith("data:") || source.startsWith("http://") || source.startsWith("https://")) {
-            val bytes = loadMedia(source) ?: return FileProblem.CouldNotOpen
-            if (bytes.isNotEmpty()) write(bytes)
-            onProgress?.invoke(bytes.size.toLong(), bytes.size.toLong())
-            return null
-        }
-        val gateway = target?.gateway?.gatewayUrl ?: return FileProblem.NotConnected
-        val cleanPath = source.removePrefix("file://")
-        val profile = target?.profile
-        val res = media.downloadTo(gateway, cleanPath, profile, maxBytes = null, onProgress = onProgress, write = write)
-        if (res is ApiResult.Success) return null
-        if (res is ApiResult.Failed && res.status in setOf(404, 405, 501)) {
-            val legacy = media.file(gateway, cleanPath)
-            if (legacy is ApiResult.Success) {
-                if (legacy.value.isNotEmpty()) write(legacy.value)
-                onProgress?.invoke(legacy.value.size.toLong(), legacy.value.size.toLong())
-                return null
-            }
-        }
-        return fileError(res, whole = true)
+        val owner = target
+        val sessionId = owner?.storedSessionId ?: transcript.value.state.storedSessionId
+        return media.streamChatMedia(owner?.gateway?.gatewayUrl, source, owner?.profile, sessionId, onProgress, write)
     }
 
     /**
@@ -1639,39 +1603,6 @@ class ChatViewModel(
     }
 }
 
-/** The start of gateway [file] for its viewer, read through [profile]; falls back to Range head for > 64 MiB text files. */
-internal suspend fun MediaApi.fileLoad(gateway: GatewayUrl, file: GatewayFile, profile: String?, sessionId: String? = null): FileLoad {
-    val result = readText(gateway, file.path, profile, sessionId)
-    if (result is ApiResult.Success) return FileLoad.Ready(result.value)
-    if (result is ApiResult.Failed && result.status == 413) {
-        val head = readTextHead(gateway, file.path, profile, sessionId)
-        if (head is ApiResult.Success) return FileLoad.Ready(head.value)
-        return FileLoad.Failed(FileProblem.TooLargeToPreview)
-    }
-    return FileLoad.Failed(fileError(result))
-}
-
-/** The whole of gateway [file], read through [profile]: for Save, Share and a linked picture. */
-internal suspend fun MediaApi.fileDownload(gateway: GatewayUrl, file: GatewayFile, profile: String?, sessionId: String? = null): FileDownload =
-    when (val result = download(gateway, file.path, profile, sessionId)) {
-        is ApiResult.Success -> FileDownload.Ready(result.value)
-        else -> FileDownload.Failed(fileError(result, whole = true))
-    }
-
-/** Streams gateway [file] into [write] without holding the file in memory. */
-internal suspend fun MediaApi.fileStream(
-    gateway: GatewayUrl,
-    file: GatewayFile,
-    profile: String?,
-    sessionId: String? = null,
-    maxBytes: Long? = null,
-    onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
-    write: suspend (ByteArray) -> Unit,
-): FileProblem? = when (val result = downloadTo(gateway, file.path, profile, sessionId, maxBytes, onProgress, write)) {
-    is ApiResult.Success -> null
-    else -> fileError(result, whole = true)
-}
-
 /** A notice over the composer, put into words by the chat screen. */
 sealed interface ComposerNotice {
     /** Already in words: a file picker's or a share's own message. */
@@ -1688,29 +1619,4 @@ sealed interface ComposerNotice {
 
     /** [name] is past the per-file limit of [megabytes] MB. */
     data class FileTooLarge(val name: String, val megabytes: Int) : ComposerNotice
-}
-
-/**
- * Why a gateway file couldn't be read, in the words the file viewer shows. [whole] is for the whole file
- * (Save, Share, a linked picture), where too large means past the phone's cap, not the preview's.
- */
-internal fun fileError(result: ApiResult<*>, whole: Boolean = false): FileProblem = when (result) {
-    is ApiResult.Failed -> when (result.status) {
-        404 -> FileProblem.Missing
-        403 -> if (result.message.contains("sensitive", ignoreCase = true)) {
-            FileProblem.Private
-        } else {
-            FileProblem.Refused(result.message)
-        }
-        413 -> when {
-            !whole -> FileProblem.TooLargeToPreview
-            result.message == MediaApi.TOO_LARGE -> FileProblem.Said(MediaApi.TOO_LARGE)
-            else -> FileProblem.TooLargeToHandOver
-        }
-        else -> FileProblem.Said(result.message.trimEnd('.') + ".")
-    }
-    ApiResult.SessionExpired -> FileProblem.SignInAgain
-    ApiResult.RateLimited -> FileProblem.Busy
-    is ApiResult.Unavailable -> FileProblem.Unreachable
-    else -> FileProblem.CouldNotOpen
 }

@@ -115,6 +115,7 @@ import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.media.MediaApi
 import dev.hermeskotlin.core.models.ModelOption
 import dev.hermeskotlin.core.models.ReasoningEffort
 import dev.hermeskotlin.core.pet.PetApi
@@ -330,6 +331,7 @@ internal fun TasksPage(
 ) {
     val state = viewModel.state.collectAsStateWithLifecycle().value
     val settingsStore = koinInject<SettingsStore>()
+    val mediaApi = koinInject<MediaApi>()
     val petApi = koinInject<PetApi>()
     val audioApi = koinInject<AudioApi>()
     val voiceRecorder = koinInject<VoiceRecorder>()
@@ -503,21 +505,27 @@ internal fun TasksPage(
         )
     }
 
-    TasksBoardContent(
-        state = state,
-        actions = actions,
-        onBack = onBack,
-        onToggleSidebar = onToggleSidebar,
-        attachmentPicker = attachmentPicker,
-        petSprite = petSprite,
-        onOpenPetPicker = { targetProfile ->
-            val target = targetProfile.trim().ifEmpty { Bot.DEFAULT }
-            petController.bind(target)
-            petSheetOpen = true
-        },
-        dictation = dictation,
-        onToggleDictation = onToggleDictation,
-    )
+    ProvideChannelMedia(
+        gateway = gateway.gatewayUrl,
+        activeChannel = state.activeChannel,
+        mediaApi = mediaApi,
+    ) {
+        TasksBoardContent(
+            state = state,
+            actions = actions,
+            onBack = onBack,
+            onToggleSidebar = onToggleSidebar,
+            attachmentPicker = attachmentPicker,
+            petSprite = petSprite,
+            onOpenPetPicker = { targetProfile ->
+                val target = targetProfile.trim().ifEmpty { Bot.DEFAULT }
+                petController.bind(target)
+                petSheetOpen = true
+            },
+            dictation = dictation,
+            onToggleDictation = onToggleDictation,
+        )
+    }
 
     PetSheet(
         visible = petSheetOpen,

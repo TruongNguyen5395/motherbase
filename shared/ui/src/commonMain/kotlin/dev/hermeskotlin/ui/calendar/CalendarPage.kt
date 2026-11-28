@@ -108,6 +108,7 @@ import dev.hermeskotlin.core.calendar.plusDays
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.gateway.SavedGateway
+import dev.hermeskotlin.core.media.MediaApi
 import dev.hermeskotlin.core.models.ModelOption
 import dev.hermeskotlin.core.models.ReasoningEffort
 import dev.hermeskotlin.core.pet.PetApi
@@ -221,6 +222,7 @@ import dev.hermeskotlin.ui.resources.cal_view_week
 import dev.hermeskotlin.ui.resources.chat_notice_dictation_mic
 import dev.hermeskotlin.ui.resources.tasks_close_inspector
 import dev.hermeskotlin.ui.tasks.AgentFloatingTrigger
+import dev.hermeskotlin.ui.tasks.ProvideChannelMedia
 import dev.hermeskotlin.ui.tasks.TaskChannelLog
 import dev.hermeskotlin.ui.tasks.TaskChatComposer
 import dev.hermeskotlin.ui.voice.DictationState
@@ -254,6 +256,7 @@ internal fun CalendarPage(
     val viewModel: CalendarViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settingsStore = koinInject<SettingsStore>()
+    val mediaApi = koinInject<MediaApi>()
     val petApi = koinInject<PetApi>()
     val audioApi = koinInject<AudioApi>()
     val voiceRecorder = koinInject<VoiceRecorder>()
@@ -370,84 +373,90 @@ internal fun CalendarPage(
         }
     }
 
-    CalendarPageContent(
-        state = state,
-        initialOpenAgent = initialOpenAgent,
-        onConsumedOpenAgent = onConsumedOpenAgent,
-        attachmentPicker = attachmentPicker,
-        petSprite = petSprite,
-        dictation = dictation,
-        onToggleDictation = onToggleDictation,
-        onOpenPetPicker = { targetProfile ->
-            val target = targetProfile.trim().ifEmpty { Bot.DEFAULT }
-            petController.bind(target)
-            petSheetOpen = true
-        },
-        onBack = onBack,
-        onToggleSidebar = onToggleSidebar,
-        onRefresh = viewModel::refresh,
-        onSyncNow = { viewModel.syncNow() },
-        onSetViewMode = viewModel::setViewMode,
-        onStepPeriod = viewModel::stepPeriod,
-        onGoToday = viewModel::goToday,
-        onSelectDate = viewModel::selectDate,
-        onOpenDay = viewModel::openDay,
-        onToggleWeekends = viewModel::toggleShowWeekends,
-        onToggleDeclined = viewModel::toggleShowDeclined,
-        onToggleCompletedTasks = viewModel::toggleShowCompletedTasks,
-        onToggleCalendarVisible = viewModel::toggleCalendarVisible,
-        onSetTaskTargetCalendar = viewModel::setTaskTargetCalendar,
-        onSelectEvent = viewModel::selectEvent,
-        onSelectTask = viewModel::selectTask,
-        onOpenTaskSession = viewModel::openTaskSession,
-        onOpenCreateEvent = viewModel::openCreateEvent,
-        onOpenEditEvent = viewModel::openEditEvent,
-        onCloseEventEditor = viewModel::closeEventEditor,
-        onSaveEvent = viewModel::saveEvent,
-        onDeleteEvent = viewModel::deleteEvent,
-        onToggleTaskDone = viewModel::toggleTaskDone,
-        onOpenScheduleTask = viewModel::openScheduleTask,
-        onCloseScheduleTask = viewModel::closeScheduleTaskDialog,
-        onRefreshSlots = viewModel::findFreeSlots,
-        onSaveTaskBlock = viewModel::saveTaskBlock,
-        onDeleteTaskBlock = viewModel::deleteTaskBlock,
-        onApplyProposal = viewModel::applyProposal,
-        onDiscardProposal = viewModel::discardProposal,
-        onRevertProposal = { id -> viewModel.revertProposal(id) },
-        onUpdateProposal = viewModel::updateProposal,
-        onRestageProposal = viewModel::restageProposal,
-        onDeleteProposal = viewModel::deleteProposal,
-        onDismissConflict = viewModel::dismissProposalConflict,
-        onForceApplyConflict = viewModel::confirmForceApplyProposal,
-        onOpenConnectDialog = viewModel::openConnectDialog,
-        onCloseConnectDialog = viewModel::closeConnectDialog,
-        onImportHermesGoogle = viewModel::importHermesGoogle,
-        onStartGoogleOAuth = viewModel::startGoogleOAuth,
-        onStartLarkOAuth = viewModel::startLarkOAuth,
-        onStartMicrosoftOAuth = viewModel::startMicrosoftOAuth,
-        onCompleteOAuth = viewModel::completeOAuth,
-        onConnectCalDav = viewModel::connectCalDav,
-        onConnectIcs = viewModel::connectIcs,
-        onOpenSettings = viewModel::openSettingsDialog,
-        onCloseSettings = viewModel::closeSettingsDialog,
-        onSaveSettings = viewModel::saveSettings,
-        onDisconnectAccount = viewModel::disconnectAccount,
-        onAgentPanelOpened = viewModel::onAgentPanelOpened,
-        onAskAgent = viewModel::askAgent,
-        onQuickPlanDay = viewModel::quickPlanDay,
-        onRefreshAgentChat = viewModel::refreshAgentChat,
-        onResetAgentSession = viewModel::resetAgentSession,
-        onOpenAgentFullscreen = viewModel::openAgentFullscreen,
-        onAnswerAgentRequest = viewModel::answerAgentRequest,
-        onRemoveAttachment = viewModel::removeAttachment,
-        onRefreshModels = viewModel::loadModels,
-        onSelectModel = viewModel::selectModel,
-        onDismissModelConfirm = viewModel::dismissModelConfirm,
-        onSelectEffort = { viewModel.setReasoningEffort(it.wire) },
-        onSetFast = viewModel::setFast,
-        onUpdateSettings = settingsStore::update,
-        onClearFeedback = viewModel::clearFeedback,
-    )
+    ProvideChannelMedia(
+        gateway = gateway.gatewayUrl,
+        activeChannel = state.agentChannel,
+        mediaApi = mediaApi,
+    ) {
+        CalendarPageContent(
+            state = state,
+            initialOpenAgent = initialOpenAgent,
+            onConsumedOpenAgent = onConsumedOpenAgent,
+            attachmentPicker = attachmentPicker,
+            petSprite = petSprite,
+            dictation = dictation,
+            onToggleDictation = onToggleDictation,
+            onOpenPetPicker = { targetProfile ->
+                val target = targetProfile.trim().ifEmpty { Bot.DEFAULT }
+                petController.bind(target)
+                petSheetOpen = true
+            },
+            onBack = onBack,
+            onToggleSidebar = onToggleSidebar,
+            onRefresh = viewModel::refresh,
+            onSyncNow = { viewModel.syncNow() },
+            onSetViewMode = viewModel::setViewMode,
+            onStepPeriod = viewModel::stepPeriod,
+            onGoToday = viewModel::goToday,
+            onSelectDate = viewModel::selectDate,
+            onOpenDay = viewModel::openDay,
+            onToggleWeekends = viewModel::toggleShowWeekends,
+            onToggleDeclined = viewModel::toggleShowDeclined,
+            onToggleCompletedTasks = viewModel::toggleShowCompletedTasks,
+            onToggleCalendarVisible = viewModel::toggleCalendarVisible,
+            onSetTaskTargetCalendar = viewModel::setTaskTargetCalendar,
+            onSelectEvent = viewModel::selectEvent,
+            onSelectTask = viewModel::selectTask,
+            onOpenTaskSession = viewModel::openTaskSession,
+            onOpenCreateEvent = viewModel::openCreateEvent,
+            onOpenEditEvent = viewModel::openEditEvent,
+            onCloseEventEditor = viewModel::closeEventEditor,
+            onSaveEvent = viewModel::saveEvent,
+            onDeleteEvent = viewModel::deleteEvent,
+            onToggleTaskDone = viewModel::toggleTaskDone,
+            onOpenScheduleTask = viewModel::openScheduleTask,
+            onCloseScheduleTask = viewModel::closeScheduleTaskDialog,
+            onRefreshSlots = viewModel::findFreeSlots,
+            onSaveTaskBlock = viewModel::saveTaskBlock,
+            onDeleteTaskBlock = viewModel::deleteTaskBlock,
+            onApplyProposal = viewModel::applyProposal,
+            onDiscardProposal = viewModel::discardProposal,
+            onRevertProposal = { id -> viewModel.revertProposal(id) },
+            onUpdateProposal = viewModel::updateProposal,
+            onRestageProposal = viewModel::restageProposal,
+            onDeleteProposal = viewModel::deleteProposal,
+            onDismissConflict = viewModel::dismissProposalConflict,
+            onForceApplyConflict = viewModel::confirmForceApplyProposal,
+            onOpenConnectDialog = viewModel::openConnectDialog,
+            onCloseConnectDialog = viewModel::closeConnectDialog,
+            onImportHermesGoogle = viewModel::importHermesGoogle,
+            onStartGoogleOAuth = viewModel::startGoogleOAuth,
+            onStartLarkOAuth = viewModel::startLarkOAuth,
+            onStartMicrosoftOAuth = viewModel::startMicrosoftOAuth,
+            onCompleteOAuth = viewModel::completeOAuth,
+            onConnectCalDav = viewModel::connectCalDav,
+            onConnectIcs = viewModel::connectIcs,
+            onOpenSettings = viewModel::openSettingsDialog,
+            onCloseSettings = viewModel::closeSettingsDialog,
+            onSaveSettings = viewModel::saveSettings,
+            onDisconnectAccount = viewModel::disconnectAccount,
+            onAgentPanelOpened = viewModel::onAgentPanelOpened,
+            onAskAgent = viewModel::askAgent,
+            onQuickPlanDay = viewModel::quickPlanDay,
+            onRefreshAgentChat = viewModel::refreshAgentChat,
+            onResetAgentSession = viewModel::resetAgentSession,
+            onOpenAgentFullscreen = viewModel::openAgentFullscreen,
+            onAnswerAgentRequest = viewModel::answerAgentRequest,
+            onRemoveAttachment = viewModel::removeAttachment,
+            onRefreshModels = viewModel::loadModels,
+            onSelectModel = viewModel::selectModel,
+            onDismissModelConfirm = viewModel::dismissModelConfirm,
+            onSelectEffort = { viewModel.setReasoningEffort(it.wire) },
+            onSetFast = viewModel::setFast,
+            onUpdateSettings = settingsStore::update,
+            onClearFeedback = viewModel::clearFeedback,
+        )
+    }
 
     PetSheet(
         visible = petSheetOpen,

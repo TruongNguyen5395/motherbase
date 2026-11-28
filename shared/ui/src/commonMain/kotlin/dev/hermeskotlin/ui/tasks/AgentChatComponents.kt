@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +61,10 @@ import dev.hermeskotlin.core.calendar.ScheduleProposal
 import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.OutgoingAttachment
+import dev.hermeskotlin.core.chat.asMedia
+import dev.hermeskotlin.core.chat.extractReplyMedia
+import dev.hermeskotlin.core.chat.linkFileUris
+import dev.hermeskotlin.core.gateway.GatewayUrl
 import dev.hermeskotlin.core.pet.PetSprite
 import dev.hermeskotlin.core.pet.PetState
 import dev.hermeskotlin.core.tasks.TaskChannel
@@ -70,6 +75,7 @@ import dev.hermeskotlin.designsystem.bodySmall
 import dev.hermeskotlin.designsystem.caption
 import dev.hermeskotlin.designsystem.colors
 import dev.hermeskotlin.designsystem.components.IconButton
+import dev.hermeskotlin.designsystem.components.LocalFileLinks
 import dev.hermeskotlin.designsystem.components.MarkdownText
 import dev.hermeskotlin.designsystem.components.MinTouchTarget
 import dev.hermeskotlin.designsystem.components.Spinner
@@ -104,15 +110,24 @@ import dev.hermeskotlin.ui.chat.ComposerTextInput
 import dev.hermeskotlin.ui.chat.ComposerTray
 import dev.hermeskotlin.ui.chat.DictationButton
 import dev.hermeskotlin.ui.chat.DockShadow
+import dev.hermeskotlin.ui.chat.FileProblem
+import dev.hermeskotlin.ui.chat.LocalMediaLoader
+import dev.hermeskotlin.ui.chat.LocalMediaStreamer
 import dev.hermeskotlin.ui.chat.LocalModelPillBounds
+import dev.hermeskotlin.ui.chat.LocalOpenImage
+import dev.hermeskotlin.ui.chat.LocalWidgetFiles
+import dev.hermeskotlin.ui.chat.MediaByteSink
+import dev.hermeskotlin.ui.chat.MediaProgress
 import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.chat.ModelPill
 import dev.hermeskotlin.ui.chat.ModelSelection
 import dev.hermeskotlin.ui.chat.ReplyInteractionCard
+import dev.hermeskotlin.ui.chat.ReplyMediaList
 import dev.hermeskotlin.ui.chat.SendButton
 import dev.hermeskotlin.ui.chat.SendIcon
 import dev.hermeskotlin.ui.chat.SentAttachments
 import dev.hermeskotlin.ui.chat.Snug
+import dev.hermeskotlin.ui.chat.ViewerImage
 import dev.hermeskotlin.ui.chat.bubbleGlow
 import dev.hermeskotlin.ui.chat.composerKey
 import dev.hermeskotlin.ui.chat.fileDrop
@@ -244,8 +259,18 @@ internal fun TaskChannelLog(
 ) {
     val scrollState = rememberScrollState()
     val lastTextLen = messages.lastOrNull()?.text?.length ?: 0
+    val lastGeneratedCount = messages.lastOrNull()?.generatedImages?.size ?: 0
     val botByName = remember(bots) { bots.associateBy { it.name } }
-    LaunchedEffect(activeChannel?.id, messages.size, lastTextLen, turnRunning) {
+    val mediaHandler = LocalChannelMediaHandler.current
+    val gatewayUrl = LocalChannelGateway.current
+    val unservable = remember(messages) {
+        messages.asSequence()
+            .flatMap { it.generatedImages.asSequence() }
+            .map { it.copy(echoes = it.echoes - it.source) }
+            .filter { it.echoes.isNotEmpty() }
+            .toList()
+    }
+    LaunchedEffect(activeChannel?.id, messages.size, lastTextLen, lastGeneratedCount, turnRunning) {
         if (messages.isNotEmpty() || turnRunning) {
             scrollState.animateScrollTo(scrollState.maxValue)
         }
@@ -361,7 +386,9 @@ internal fun TaskChannelLog(
                         ) {
                             if (line.attachments.isNotEmpty()) {
                                 Box(Modifier.fillMaxWidth(0.86f).wrapContentWidth(Alignment.End)) {
-                                    SentAttachments(line.attachments)
+                                    ProvideLineMediaLocals(mediaHandler, gatewayUrl, activeChannel, line.profile) {
+                                        SentAttachments(line.attachments)
+                                    }
                                 }
                             }
                             if (line.text.isNotBlank()) {
@@ -415,12 +442,23 @@ internal fun TaskChannelLog(
                                     )
                                 }
                             }
-                            if (line.text.isNotBlank()) {
-                                MarkdownText(
-                                    text = line.text,
-                                    streaming = line.streaming,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                            val (text, media) = remember(line.text, line.generatedImages, unservable) {
+                                extractReplyMedia(line.text, line.generatedImages + unservable)
+                            }
+                            ProvideLineMediaLocals(mediaHandler, gatewayUrl, activeChannel, line.profile) {
+                                if (line.generatedImages.isNotEmpty()) {
+                                    ReplyMediaList(remember(line.generatedImages) { line.generatedImages.map { it.asMedia() } })
+                                }
+                                if (text.isNotBlank()) {
+                                    MarkdownText(
+                                        text = remember(text) { linkFileUris(text) },
+                                        streaming = line.streaming,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                                if (media.isNotEmpty()) {
+                                    ReplyMediaList(media)
+                                }
                             }
                             val interaction = line.interaction
                             if (interaction != null) {
@@ -474,6 +512,44 @@ internal fun TaskChannelLog(
             )
         }
     }
+}
+
+@Composable
+private fun ProvideLineMediaLocals(
+    handler: ChannelMediaHandler?,
+    gatewayUrl: GatewayUrl?,
+    activeChannel: TaskChannel?,
+    lineProfile: String?,
+    content: @Composable () -> Unit,
+) {
+    if (handler == null || gatewayUrl == null) {
+        content()
+        return
+    }
+    val owner = remember(gatewayUrl, activeChannel?.id, activeChannel?.type, activeChannel?.profile, lineProfile) {
+        resolveChannelMediaOwner(gatewayUrl, activeChannel, lineProfile)
+    }
+    val loader = remember<suspend (String) -> ByteArray?>(handler, owner) {
+        { source -> handler.loadMedia(owner, source) }
+    }
+    val streamer = remember<suspend (String, MediaProgress?, MediaByteSink) -> FileProblem?>(handler, owner) {
+        { source, onProgress, write -> handler.streamMedia(owner, source, onProgress, write) }
+    }
+    val widgetFiles = remember(handler, owner) { handler.widgetFiles(owner) }
+    val openImage = remember<(ViewerImage) -> Unit>(handler, owner) {
+        { image -> handler.openImage(owner, image) }
+    }
+    val fileLinks = remember<(String) -> Unit>(handler, owner) {
+        { link -> handler.openFile(owner, link) }
+    }
+    CompositionLocalProvider(
+        LocalMediaLoader provides loader,
+        LocalMediaStreamer provides streamer,
+        LocalWidgetFiles provides widgetFiles,
+        LocalOpenImage provides openImage,
+        LocalFileLinks provides fileLinks,
+        content = content,
+    )
 }
 
 @Composable

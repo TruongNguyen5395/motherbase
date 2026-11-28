@@ -77,7 +77,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Stable
 import dev.hermeskotlin.core.chat.linkFileUris
-import dev.hermeskotlin.core.media.FileText
 import dev.hermeskotlin.core.media.GatewayFile
 import dev.hermeskotlin.core.media.LinkPreview
 import dev.hermeskotlin.designsystem.components.CodeArtifact
@@ -4960,20 +4959,9 @@ private sealed interface PreviewTarget {
         override val dockedEligible: Boolean get() = file.kind != GatewayFileKind.Image
     }
 
-    data class Artifact(val artifact: CodeArtifact, val id: Long) : PreviewTarget {
-        private val ext: String
-            get() = when (artifact.language) {
-                "html" -> "html"
-                "svg" -> "svg"
-                "mermaid" -> "mmd"
-                else -> "txt"
-            }
+    data class Artifact(val preview: ArtifactPreview) : PreviewTarget {
+        constructor(artifact: CodeArtifact, id: Long) : this(ArtifactPreview(artifact, id))
 
-        val bytes: ByteArray by lazy { artifact.content.encodeToByteArray() }
-        val file: GatewayFile = GatewayFile("Chat artifact/artifact-$id.$ext")
-        val load: FileLoad.Ready by lazy {
-            FileLoad.Ready(FileText(artifact.content, bytes.size.toLong(), truncated = false, binary = false, language = artifact.language))
-        }
         override val dockedEligible: Boolean get() = true
     }
 }
@@ -5012,12 +5000,12 @@ private fun PreviewTargetViewer(
             )
         }
         is PreviewTarget.Artifact -> FileViewer(
-            current.file,
+            current.preview.file,
             onDismiss = onDismiss,
-            load = { current.load },
-            download = { FileDownload.Ready(current.bytes) },
+            load = { current.preview.load },
+            download = { FileDownload.Ready(current.preview.bytes) },
             docked = docked,
-            preset = current.load,
+            preset = current.preview.load,
             expanded = expanded,
             onToggleExpand = onToggleExpand,
             onFileOpened = onFileOpened,

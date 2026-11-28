@@ -21,6 +21,8 @@ import dev.hermeskotlin.core.calendar.plusDays
 import dev.hermeskotlin.core.chat.AttachmentKind
 import dev.hermeskotlin.core.chat.AttentionTracker
 import dev.hermeskotlin.core.chat.ChatState
+import dev.hermeskotlin.core.chat.GeneratedImage
+import dev.hermeskotlin.core.chat.IMAGE_GENERATE_TOOL
 import dev.hermeskotlin.core.chat.IMAGE_ONLY_FALLBACK_PROMPT
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
@@ -29,6 +31,7 @@ import dev.hermeskotlin.core.chat.ShownAttachment
 import dev.hermeskotlin.core.chat.attachToSession
 import dev.hermeskotlin.core.chat.detachSessionImages
 import dev.hermeskotlin.core.chat.splitAttachmentRefs
+import dev.hermeskotlin.core.chat.storedToolName
 import dev.hermeskotlin.core.chat.formatActionCardReply
 import dev.hermeskotlin.core.chat.formatActionCardSummary
 import dev.hermeskotlin.core.connection.ConnectionState
@@ -125,6 +128,7 @@ data class ChannelChatLine(
     val streaming: Boolean = false,
     val attachments: List<ShownAttachment> = emptyList(),
     val interaction: ReplyInteraction? = null,
+    val generatedImages: List<GeneratedImage> = emptyList(),
 )
 
 data class TasksUiState(
@@ -2720,32 +2724,27 @@ class TasksViewModel(
             "tool.start", "tool.complete", "tool.result" -> {
                 lastStreamEventAtMs = nowMs()
                 val toolName = payload.str("name") ?: payload.str("tool") ?: "tool"
+                val toolArgs = payload?.get("arguments") ?: payload?.get("args")
+                val toolResult = payload?.get("result") ?: payload?.get("output") ?: payload?.get("result_text")
                 val interaction = ReplyInteraction.from(
                     toolName = toolName,
-                    args = payload?.get("arguments") ?: payload?.get("args"),
-                    result = payload?.get("result") ?: payload?.get("output"),
+                    args = toolArgs,
+                    result = toolResult,
                 )
+                val generatedImage = if (event.type != "tool.start" && storedToolName(toolName, toolArgs) == IMAGE_GENERATE_TOOL) {
+                    GeneratedImage.from(toolResult)
+                } else {
+                    null
+                }
                 _state.update { cur ->
-                    val nextMsgs = if (interaction != null) {
-                        val msgs = cur.channelMessages
-                        val last = msgs.lastOrNull()
-                        val botLabel = cur.activeChannel?.profile ?: "Hermes"
-                        if (last != null && !last.fromUser) {
-                            msgs.dropLast(1) + last.copy(interaction = interaction)
-                        } else {
-                            msgs + ChannelChatLine(
-                                key = "stream-${cur.selectedTaskId ?: "coord"}-${msgs.size}",
-                                speaker = botLabel,
-                                text = "",
-                                fromUser = false,
-                                profile = cur.activeChannel?.profile,
-                                streaming = true,
-                                interaction = interaction,
-                            )
-                        }
-                    } else {
-                        cur.channelMessages
-                    }
+                    val nextMsgs = mergeChannelToolUpdate(
+                        messages = cur.channelMessages,
+                        speaker = cur.activeChannel?.profile ?: "Hermes",
+                        profile = cur.activeChannel?.profile,
+                        keyPrefix = "stream-${cur.selectedTaskId ?: "coord"}",
+                        interaction = interaction,
+                        generatedImage = generatedImage,
+                    )
                     cur.copy(
                         channelTurnRunning = true,
                         channelTurnStatus = if (event.type == "tool.start") toolName else cur.channelTurnStatus,
@@ -3376,17 +3375,67 @@ internal fun parseSessionChatLines(
             } else {
                 null
             }
-            if (cleanText.isEmpty() && attachments.isEmpty() && interaction == null) null else ChannelChatLine(
-                key = key,
-                speaker = if (isUser) null else botLabel,
-                text = cleanText,
-                fromUser = isUser,
-                profile = profile,
-                attachments = attachments,
-                interaction = interaction,
-            )
+            val generatedImages = if (!isUser) {
+                msg.storedToolCalls.mapNotNull { call ->
+                    if (storedToolName(call.name, call.arguments) == IMAGE_GENERATE_TOOL) {
+                        GeneratedImage.from(toolResults[call.id])
+                    } else {
+                        null
+                    }
+                }.distinctBy { it.source }
+            } else {
+                emptyList()
+            }
+            if (cleanText.isEmpty() && attachments.isEmpty() && interaction == null && generatedImages.isEmpty()) {
+                null
+            } else {
+                ChannelChatLine(
+                    key = key,
+                    speaker = if (isUser) null else botLabel,
+                    text = cleanText,
+                    fromUser = isUser,
+                    profile = profile,
+                    attachments = attachments,
+                    interaction = interaction,
+                    generatedImages = generatedImages,
+                )
+            }
         }
         .takeLast(limit)
+}
+
+internal fun mergeChannelToolUpdate(
+    messages: List<ChannelChatLine>,
+    speaker: String,
+    profile: String?,
+    keyPrefix: String,
+    interaction: ReplyInteraction? = null,
+    generatedImage: GeneratedImage? = null,
+): List<ChannelChatLine> {
+    if (interaction == null && generatedImage == null) return messages
+    val last = messages.lastOrNull()
+    return if (last != null && !last.fromUser && last.streaming) {
+        val nextImages = if (generatedImage != null && last.generatedImages.none { it.source == generatedImage.source }) {
+            last.generatedImages + generatedImage
+        } else {
+            last.generatedImages
+        }
+        messages.dropLast(1) + last.copy(
+            interaction = interaction ?: last.interaction,
+            generatedImages = nextImages,
+        )
+    } else {
+        messages + ChannelChatLine(
+            key = "$keyPrefix-${messages.size}",
+            speaker = speaker,
+            text = "",
+            fromUser = false,
+            profile = profile,
+            streaming = true,
+            interaction = interaction,
+            generatedImages = listOfNotNull(generatedImage),
+        )
+    }
 }
 
 private fun JsonObject?.str(key: String): String? = (this?.get(key) as? JsonPrimitive)?.contentOrNull

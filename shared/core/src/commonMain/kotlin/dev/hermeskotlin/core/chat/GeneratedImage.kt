@@ -15,7 +15,7 @@ const val IMAGE_GENERATE_TOOL = "image_generate"
  * (tools/tool_search.py) and the tool it invoked is in its arguments, `{"calls":[{"name":…}]}` or
  * the older `{"name":…}`. A single local entry runs as that tool, so its result is that tool's.
  */
-internal fun storedToolName(name: String, arguments: JsonElement?): String {
+fun storedToolName(name: String, arguments: JsonElement?): String {
     if (name != "tool_call") return name
     val args = when (arguments) {
         is JsonObject -> arguments

@@ -4,11 +4,13 @@ import dev.hermeskotlin.core.auth.AuthApi
 import dev.hermeskotlin.core.auth.PersistentCookiesStorage
 import dev.hermeskotlin.core.bots.BotsApi
 import dev.hermeskotlin.core.chat.AttachmentKind
+import dev.hermeskotlin.core.chat.GeneratedImage
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
+import dev.hermeskotlin.core.gateway.GatewayUrl
 import dev.hermeskotlin.core.gateway.SavedGateway
 import dev.hermeskotlin.core.models.ModelOption
 import dev.hermeskotlin.core.models.ModelsApi
@@ -16,6 +18,7 @@ import dev.hermeskotlin.core.network.createHttpClient
 import dev.hermeskotlin.core.projects.ProjectsApi
 import dev.hermeskotlin.core.rooms.RoomsApi
 import dev.hermeskotlin.core.rpc.RpcTransport
+import dev.hermeskotlin.core.sessions.SessionMessage
 import dev.hermeskotlin.core.sessions.SessionsApi
 import dev.hermeskotlin.core.storage.InMemoryKeyValueStore
 import dev.hermeskotlin.core.tasks.DirectusTask
@@ -53,6 +56,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -2199,5 +2203,84 @@ class TasksViewModelTest {
         } finally {
             h.connection.stop()
         }
+    }
+
+    @Test
+    fun parseSessionChatLinesExtractsGeneratedImagesAndMergeChannelToolUpdateRespectsStreaming() {
+        val deferredCalls = Json.parseToJsonElement(
+            """[{"id":"c1","function":{"name":"tool_call","arguments":"{\"calls\":[{\"name\":\"image_generate\"}]}"}}]""",
+        )
+        val rows = listOf(
+            SessionMessage(id = 1, role = "user", content = JsonPrimitive("Draw chart")),
+            SessionMessage(id = 2, role = "assistant", content = JsonPrimitive(""), toolCalls = deferredCalls),
+            SessionMessage(
+                id = 3,
+                role = "tool",
+                toolCallId = "c1",
+                content = JsonPrimitive("""{"success":true,"host_image":"/opt/data/out/chart.png","agent_visible_image":"/sandbox/chart.png"}"""),
+            ),
+            SessionMessage(id = 4, role = "assistant", content = JsonPrimitive("Done.\nMEDIA:/opt/data/out/report.pdf")),
+        )
+
+        val parsed = parseSessionChatLines(rows, profile = "ops")
+        assertEquals(3, parsed.size)
+        assertEquals(
+            listOf(GeneratedImage("/opt/data/out/chart.png", listOf("/opt/data/out/chart.png", "/sandbox/chart.png"))),
+            parsed[1].generatedImages,
+        )
+        assertEquals("Done.\nMEDIA:/opt/data/out/report.pdf", parsed[2].text)
+
+        val img = GeneratedImage("/opt/data/out/live.png", listOf("/opt/data/out/live.png"))
+        val started = mergeChannelToolUpdate(
+            messages = parsed,
+            speaker = "ops",
+            profile = "ops",
+            keyPrefix = "stream-t1",
+            generatedImage = img,
+        )
+        assertEquals(4, started.size)
+        assertTrue(started.last().streaming)
+        assertEquals(listOf(img), started.last().generatedImages)
+
+        val option = ReplyInteraction.Choice(
+            prompt = "Choose",
+            options = listOf(ReplyInteraction.Option(id = "ok", label = "Proceed")),
+            multiSelect = false,
+        )
+        val merged = mergeChannelToolUpdate(
+            messages = started,
+            speaker = "ops",
+            profile = "ops",
+            keyPrefix = "stream-t1",
+            interaction = option,
+            generatedImage = img,
+        )
+        assertEquals(4, merged.size)
+        assertEquals(option, merged.last().interaction)
+        assertEquals(listOf(img), merged.last().generatedImages)
+    }
+
+    @Test
+    fun resolveChannelMediaOwnerScopesSessionAndRoomLines() {
+        val url = GatewayUrl.parse("https://hermes.example")
+        val sessionChannel = TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-42", label = "Session (@ops)", profile = "ops")
+        val defaultSession = TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-def", label = "Session (@default)", profile = null)
+        val roomChannel = TaskChannel(type = TaskChannel.TYPE_ROOM, id = "task-room", label = "Room")
+
+        val sessionOwner = resolveChannelMediaOwner(url, sessionChannel, lineProfile = null)
+        assertEquals(ChannelMediaOwner(url, profile = "ops", sessionId = "sess-42", requireProfile = false), sessionOwner)
+        assertTrue(sessionOwner.canAccessGatewayFiles)
+
+        val defaultOwner = resolveChannelMediaOwner(url, defaultSession, lineProfile = null)
+        assertEquals(ChannelMediaOwner(url, profile = null, sessionId = "sess-def", requireProfile = false), defaultOwner)
+        assertTrue(defaultOwner.canAccessGatewayFiles)
+
+        val roomBotOwner = resolveChannelMediaOwner(url, roomChannel, lineProfile = "scribe")
+        assertEquals(ChannelMediaOwner(url, profile = "scribe", sessionId = null, requireProfile = true), roomBotOwner)
+        assertTrue(roomBotOwner.canAccessGatewayFiles)
+
+        val roomUnknownOwner = resolveChannelMediaOwner(url, roomChannel, lineProfile = null)
+        assertEquals(ChannelMediaOwner(url, profile = null, sessionId = null, requireProfile = true), roomUnknownOwner)
+        assertFalse(roomUnknownOwner.canAccessGatewayFiles)
     }
 }

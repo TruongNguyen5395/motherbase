@@ -46,12 +46,15 @@ import dev.hermeskotlin.core.calendar.formatClock24
 import dev.hermeskotlin.core.calendar.plusDays
 import dev.hermeskotlin.core.chat.AttachmentKind
 import dev.hermeskotlin.core.chat.ChatState
+import dev.hermeskotlin.core.chat.GeneratedImage
+import dev.hermeskotlin.core.chat.IMAGE_GENERATE_TOOL
 import dev.hermeskotlin.core.chat.IMAGE_ONLY_FALLBACK_PROMPT
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.core.chat.attachToSession
 import dev.hermeskotlin.core.chat.detachSessionImages
+import dev.hermeskotlin.core.chat.storedToolName
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
 import dev.hermeskotlin.core.gateway.GatewayUrl
@@ -71,6 +74,7 @@ import dev.hermeskotlin.core.tasks.UpsertContextRequest
 import dev.hermeskotlin.ui.chat.ModelPickerState
 import dev.hermeskotlin.ui.chat.PendingSwitch
 import dev.hermeskotlin.ui.tasks.ChannelChatLine
+import dev.hermeskotlin.ui.tasks.mergeChannelToolUpdate
 import dev.hermeskotlin.ui.tasks.parseSessionChatLines
 import dev.hermeskotlin.ui.tasks.withChannelInfo
 import kotlinx.coroutines.CancellationException
@@ -2188,30 +2192,27 @@ class CalendarViewModel(
             "tool.start", "tool.complete", "tool.result" -> {
                 lastStreamEventAtMs = nowMs()
                 val toolName = payload.str("name") ?: payload.str("tool") ?: "tool"
+                val toolArgs = payload?.get("arguments") ?: payload?.get("args")
+                val toolResult = payload?.get("result") ?: payload?.get("output") ?: payload?.get("result_text")
                 val interaction = ReplyInteraction.from(
                     toolName = toolName,
-                    args = payload?.get("arguments") ?: payload?.get("args"),
-                    result = payload?.get("result") ?: payload?.get("output"),
+                    args = toolArgs,
+                    result = toolResult,
                 )
+                val generatedImage = if (event.type != "tool.start" && storedToolName(toolName, toolArgs) == IMAGE_GENERATE_TOOL) {
+                    GeneratedImage.from(toolResult)
+                } else {
+                    null
+                }
                 _state.update { cur ->
-                    val nextMsgs = if (interaction != null) {
-                        val last = cur.agentMessages.lastOrNull()
-                        if (last != null && !last.fromUser) {
-                            cur.agentMessages.dropLast(1) + last.copy(interaction = interaction)
-                        } else {
-                            cur.agentMessages + ChannelChatLine(
-                                key = "cal-stream-${cur.agentMessages.size}",
-                                speaker = cur.agentProfile,
-                                text = "",
-                                fromUser = false,
-                                profile = cur.agentProfile,
-                                streaming = true,
-                                interaction = interaction,
-                            )
-                        }
-                    } else {
-                        cur.agentMessages
-                    }
+                    val nextMsgs = mergeChannelToolUpdate(
+                        messages = cur.agentMessages,
+                        speaker = cur.agentProfile,
+                        profile = cur.agentProfile,
+                        keyPrefix = "cal-stream",
+                        interaction = interaction,
+                        generatedImage = generatedImage,
+                    )
                     cur.copy(
                         agentTurnRunning = true,
                         agentTurnStatus = if (event.type == "tool.start") toolName else cur.agentTurnStatus,
