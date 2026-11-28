@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -54,6 +55,7 @@ import com.composables.icons.lucide.Calendar
 import com.composables.icons.lucide.CalendarClock
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronUp
+import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.CircleDot
 import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.ExternalLink
@@ -64,6 +66,7 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.MessageSquareReply
 import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.ShieldAlert
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.Trash2
@@ -84,6 +87,7 @@ import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.MatrixLevel
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
+import dev.hermeskotlin.core.tasks.TaskWorkLog
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.designsystem.accent
 import dev.hermeskotlin.designsystem.accentSoft
@@ -134,6 +138,8 @@ import dev.hermeskotlin.ui.calendar.ScheduleTaskBlockDialog
 import dev.hermeskotlin.ui.chat.DockShadow
 import dev.hermeskotlin.ui.chat.ParameterizedActionContent
 import dev.hermeskotlin.ui.clearOfWindowControls
+import dev.hermeskotlin.ui.components.rememberTimeWords
+import dev.hermeskotlin.ui.components.uses24HourClock
 import dev.hermeskotlin.ui.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -330,6 +336,171 @@ internal fun TaskDescriptionCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (expanded) Modifier else Modifier.heightIn(max = 96.dp).clipToBounds()),
+        )
+    }
+}
+
+@Composable
+internal fun TaskCompletedBanner(
+    task: DirectusTask,
+    onReopen: () -> Unit,
+    busy: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    if (task.status != DirectusTask.STATUS_DONE) return
+    val use24Hour = uses24HourClock()
+    val timeWords = rememberTimeWords()
+    val completedLabel = remember(task.completedAt, task.statusChangedAt, use24Hour, timeWords) {
+        formatCompletedTimestamp(task.completedAt ?: task.statusChangedAt, use24Hour = use24Hour, words = timeWords)
+    }
+    val hasManagedSession = task.channels.any { it.isAutoManagedSession }
+    val shape = RoundedCornerShape(Theme[radii][radiusMedium])
+    Row(
+        modifier
+            .fillMaxWidth()
+            .testTag("task_completed_banner")
+            .clip(shape)
+            .background(Theme[colors][successSoft])
+            .border(1.dp, Theme[colors][success].copy(alpha = 0.35f), shape)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        UnstyledIcon(
+            Lucide.CircleCheck,
+            contentDescription = null,
+            tint = Theme[colors][success],
+            modifier = Modifier.size(16.dp),
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                stringResource(
+                    if (hasManagedSession) Res.string.tasks_completed_banner else Res.string.tasks_completed_banner_simple,
+                ),
+                style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                color = Theme[colors][textColor],
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (completedLabel != null) {
+                Text(
+                    stringResource(Res.string.tasks_completed_at_label, completedLabel),
+                    style = Theme[typography][caption],
+                    color = Theme[colors][textSecondary],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Button(
+            text = stringResource(Res.string.tasks_reopen_task),
+            onClick = onReopen,
+            enabled = !busy,
+            size = ButtonSize.Small,
+            variant = ButtonVariant.Secondary,
+            leadingIcon = Lucide.RotateCcw,
+            modifier = Modifier.testTag("inspector_reopen_task_button"),
+        )
+    }
+}
+
+@Composable
+internal fun TaskWorkLogsSection(
+    workLogs: List<TaskWorkLog>,
+    modifier: Modifier = Modifier,
+) {
+    if (workLogs.isEmpty()) return
+    val use24Hour = uses24HourClock()
+    val timeWords = rememberTimeWords()
+    val reversed = remember(workLogs) { workLogs.asReversed() }
+    val itemShape = RoundedCornerShape(Theme[radii][radiusMedium])
+
+    Column(
+        modifier.fillMaxWidth().testTag("task_work_logs_section"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            stringResource(Res.string.tasks_work_logs_title, workLogs.size).uppercase(),
+            style = Theme[typography][eyebrow],
+            color = Theme[colors][textTertiary],
+        )
+        reversed.forEachIndexed { idx, entry ->
+            val tsLabel = remember(entry.loggedAt, use24Hour, timeWords) {
+                formatCompletedTimestamp(entry.loggedAt, use24Hour = use24Hour, words = timeWords)
+            }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(itemShape)
+                    .background(Theme[colors][surface])
+                    .border(1.dp, Theme[colors][stroke], itemShape)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (entry.status != null || tsLabel != null) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        entry.status?.takeIf { it.isNotBlank() }?.let { st ->
+                            val isDone = st == DirectusTask.STATUS_DONE
+                            MiniBadge(
+                                text = taskStatusLabel(st),
+                                backgroundColor = if (isDone) Theme[colors][successSoft] else Theme[colors][surface2],
+                                contentColor = if (isDone) Theme[colors][success] else Theme[colors][textSecondary],
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        if (tsLabel != null) {
+                            Text(
+                                tsLabel,
+                                style = Theme[typography][caption],
+                                color = Theme[colors][textTertiary],
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+                if (entry.content.isNotBlank()) {
+                    MarkdownText(
+                        text = entry.content,
+                        textStyle = Theme[typography][bodySmall].copy(color = Theme[colors][textColor]),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ConfirmCloseTaskDialog(
+    taskTitle: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    Dialog(
+        visible = true,
+        onDismissRequest = onDismiss,
+        title = stringResource(Res.string.tasks_close_confirm_title),
+        actions = {
+            Button(
+                text = stringResource(Res.string.common_cancel),
+                onClick = onDismiss,
+                variant = ButtonVariant.Ghost,
+            )
+            Button(
+                text = stringResource(Res.string.tasks_close_confirm_action),
+                onClick = onConfirm,
+                modifier = Modifier.testTag("confirm_close_task_button"),
+            )
+        },
+    ) {
+        Text(
+            stringResource(Res.string.tasks_close_confirm_body, taskTitle),
+            style = Theme[typography][bodySmall],
+            color = Theme[colors][textSecondary],
         )
     }
 }
@@ -1352,6 +1523,7 @@ internal fun DispatchTaskSidePanel(
     var pickSessionFor by remember(task?.id) { mutableStateOf<PickChannelTarget?>(null) }
     var pickRoomFor by remember(task?.id) { mutableStateOf<PickChannelTarget?>(null) }
     var matrixPadOpen by remember(task?.id) { mutableStateOf(false) }
+    var confirmCloseOpen by remember(task?.id) { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize().testTag("dispatch_task_panel")) {
         Row(
@@ -1401,7 +1573,10 @@ internal fun DispatchTaskSidePanel(
         val busy = task.id in state.busyTaskIds
         val matrixPos = remember(task, state.todayEpochDay) { resolveTaskMatrix(task, state.todayEpochDay) }
         val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
-        val currentProjectLabel = state.projects.firstOrNull { it.id == task.projectId }?.name ?: unassignedLabel
+        val allProjects = remember(state.projects, state.completedProjects) {
+            (state.projects + state.completedProjects).distinctBy { it.id }
+        }
+        val currentProjectLabel = allProjects.firstOrNull { it.id == task.projectId }?.name ?: unassignedLabel
         val activeChannel = activeChannelId?.let { cid -> task.channels.firstOrNull { it.id == cid } } ?: state.activeChannel
         val activeChannelIdx = activeChannel?.let { ch -> task.channels.indexOfFirst { it.id == ch.id }.takeIf { it >= 0 } }
             ?: state.activeChannelIdx
@@ -1470,6 +1645,14 @@ internal fun DispatchTaskSidePanel(
                     onSwitchToAssignedAgent = { onSwitchToAssignedAgent(task) },
                 )
 
+                if (task.status == DirectusTask.STATUS_DONE) {
+                    TaskCompletedBanner(
+                        task = task,
+                        busy = busy,
+                        onReopen = { onUpdateStatus(DirectusTask.STATUS_IN_PROGRESS) },
+                    )
+                }
+
                 if (!task.description.isNullOrBlank()) {
                     TaskDescriptionCard(
                         description = task.description.orEmpty(),
@@ -1478,15 +1661,25 @@ internal fun DispatchTaskSidePanel(
                     )
                 }
 
+                if (task.workLogs.isNotEmpty()) {
+                    TaskWorkLogsSection(workLogs = task.workLogs)
+                }
+
                 TaskMetadataPickers(
                     currentProjectId = task.projectId,
                     currentProjectLabel = currentProjectLabel,
-                    projects = state.projects,
+                    projects = allProjects,
                     unassignedLabel = unassignedLabel,
                     currentStatus = task.status,
                     matrixPosition = matrixPos,
                     onAssignProject = onAssignProject,
-                    onUpdateStatus = onUpdateStatus,
+                    onUpdateStatus = { st ->
+                        if (st == DirectusTask.STATUS_DONE && task.status != DirectusTask.STATUS_DONE) {
+                            confirmCloseOpen = true
+                        } else {
+                            onUpdateStatus(st)
+                        }
+                    },
                     onOpenMatrixPad = { matrixPadOpen = true },
                 )
 
@@ -1571,6 +1764,17 @@ internal fun DispatchTaskSidePanel(
             todayEpochDay = state.todayEpochDay,
             onDismiss = { matrixPadOpen = false },
             onApply = onUpdateMatrix,
+        )
+    }
+
+    if (confirmCloseOpen && task != null) {
+        ConfirmCloseTaskDialog(
+            taskTitle = task.title,
+            onDismiss = { confirmCloseOpen = false },
+            onConfirm = {
+                confirmCloseOpen = false
+                onUpdateStatus(DirectusTask.STATUS_DONE)
+            },
         )
     }
 

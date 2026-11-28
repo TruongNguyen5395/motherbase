@@ -157,4 +157,25 @@
     <string name="tasks_unread_empty">Nincs olvasatlan válaszú feladat</string>
     <string name="tasks_panel_title">Feladat</string>
     <string name="tasks_unread_empty_body">Minden ügynökválaszt elolvastál.</string>
+    <string name="tasks_view_completed">Befejezett</string>
+    <string name="tasks_completed_search_placeholder">Keresés a befejezett feladatok, naplók, projektek között…</string>
+    <string name="tasks_completed_filter_all_projects">Minden projekt</string>
+    <string name="tasks_completed_filter_all_agents">Minden ügynök</string>
+    <string name="tasks_completed_count">%1$d befejezett</string>
+    <string name="tasks_completed_load_more">Továbbiak betöltése</string>
+    <string name="tasks_completed_empty">Még nincs befejezett feladat</string>
+    <string name="tasks_completed_filtered_empty">Nincs a szűrőknek megfelelő befejezett feladat</string>
+    <string name="tasks_completed_clear_filters">Szűrők törlése</string>
+    <string name="tasks_completed_retry">Újra</string>
+    <string name="tasks_completed_at_label">Befejezve %1$s</string>
+    <string name="tasks_completed_banner">Befejezve · Kezelt munkamenet archiválva</string>
+    <string name="tasks_completed_banner_simple">Befejezve</string>
+    <string name="tasks_completed_archived_project_badge">Archivált</string>
+    <string name="tasks_reopen_task">Újranyitás</string>
+    <string name="tasks_close_task">Feladat lezárása</string>
+    <string name="tasks_close_confirm_title">Lezárod ezt a feladatot?</string>
+    <string name="tasks_close_confirm_body">Készre állítja a(z) „%1$s” feladatot, és archiválja a csak ehhez kapcsolt kezelt ügynök-munkameneteket.</string>
+    <string name="tasks_close_confirm_action">Lezárás megerősítése</string>
+    <string name="tasks_work_logs_title">Munkanaplók (%1$d)</string>
+    <string name="tasks_work_logs_empty">Nincs rögzített munkanapló</string>
 </resources>

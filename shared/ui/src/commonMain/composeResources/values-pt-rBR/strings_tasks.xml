@@ -157,4 +157,25 @@
     <string name="tasks_unread_empty">Sem tarefas com respostas não lidas</string>
     <string name="tasks_panel_title">Tarefa</string>
     <string name="tasks_unread_empty_body">Você está em dia com todas as respostas dos agentes.</string>
+    <string name="tasks_view_completed">Concluídas</string>
+    <string name="tasks_completed_search_placeholder">Buscar tarefas concluídas, registros, projetos…</string>
+    <string name="tasks_completed_filter_all_projects">Todos os projetos</string>
+    <string name="tasks_completed_filter_all_agents">Todos os agentes</string>
+    <string name="tasks_completed_count">%1$d concluídas</string>
+    <string name="tasks_completed_load_more">Carregar mais</string>
+    <string name="tasks_completed_empty">Nenhuma tarefa concluída ainda</string>
+    <string name="tasks_completed_filtered_empty">Nenhuma tarefa concluída corresponde aos filtros</string>
+    <string name="tasks_completed_clear_filters">Limpar filtros</string>
+    <string name="tasks_completed_retry">Tentar novamente</string>
+    <string name="tasks_completed_at_label">Concluída %1$s</string>
+    <string name="tasks_completed_banner">Concluída · Sessão gerenciada arquivada</string>
+    <string name="tasks_completed_banner_simple">Concluída</string>
+    <string name="tasks_completed_archived_project_badge">Arquivado</string>
+    <string name="tasks_reopen_task">Reabrir</string>
+    <string name="tasks_close_task">Concluir tarefa</string>
+    <string name="tasks_close_confirm_title">Fechar esta tarefa?</string>
+    <string name="tasks_close_confirm_body">Marca “%1$s” como Concluída e arquiva qualquer sessão gerenciada de agente vinculada apenas a esta tarefa.</string>
+    <string name="tasks_close_confirm_action">Confirmar fechamento</string>
+    <string name="tasks_work_logs_title">Registros de trabalho (%1$d)</string>
+    <string name="tasks_work_logs_empty">Nenhum registro de trabalho</string>
 </resources>

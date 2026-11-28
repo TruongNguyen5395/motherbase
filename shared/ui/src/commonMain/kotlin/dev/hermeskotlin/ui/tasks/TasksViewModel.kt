@@ -108,6 +108,9 @@ import kotlin.time.ExperimentalTime
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
+private const val COMPLETED_PAGE_SIZE = 50
+private const val COMPLETED_SEARCH_DEBOUNCE_MS = 250L
+
 sealed interface TasksNavEvent {
     data class OpenSession(val sessionId: String, val title: String, val profile: String?) : TasksNavEvent
     data class OpenRoom(val room: Room) : TasksNavEvent
@@ -141,6 +144,16 @@ data class TasksUiState(
     val configError: String? = null,
     val projects: List<DirectusProject> = emptyList(),
     val tasks: List<DirectusTask> = emptyList(),
+    val completedTasks: List<DirectusTask> = emptyList(),
+    val completedProjects: List<DirectusProject> = emptyList(),
+    val completedTotal: Int = 0,
+    val completedHasMore: Boolean = false,
+    val completedLoading: Boolean = false,
+    val completedLoadingMore: Boolean = false,
+    val completedError: String? = null,
+    val completedQuery: String = "",
+    val completedProjectFilter: String? = null,
+    val completedBotFilter: String? = null,
     val hermesProjects: List<Project> = emptyList(),
     val bots: List<Bot> = emptyList(),
     val botAvatars: Map<String, ByteArray> = emptyMap(),
@@ -191,8 +204,11 @@ data class TasksUiState(
     val busyProposalIds: Set<String> = emptySet(),
     val pendingProposalConflict: PendingProposalConflict? = null,
 ) {
+    internal fun findTask(taskId: String): DirectusTask? =
+        tasks.firstOrNull { it.id == taskId } ?: completedTasks.firstOrNull { it.id == taskId }
+
     val selectedTask: DirectusTask?
-        get() = selectedTaskId?.let { id -> tasks.firstOrNull { it.id == id } }
+        get() = selectedTaskId?.let(::findTask)
 
     val coordinatorConfig: DispatchCoordinatorConfig
         get() = config?.coordinator ?: DispatchCoordinatorConfig()
@@ -293,6 +309,9 @@ class TasksViewModel(
     private var modelsLoadJob: Job? = null
     private var roomSeenJob: Job? = null
     private var refreshJob: Job? = null
+    private var completedLoadJob: Job? = null
+    private var completedQueryDebounceJob: Job? = null
+    private val reconciledClosedTaskIds = HashSet<String>()
     private var fetchingBoard: Boolean = false
     private var pageVisible: Boolean = false
     private var hasObservedVisibility: Boolean = false
@@ -387,6 +406,8 @@ class TasksViewModel(
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
         roomSeenJob?.cancel()
+        completedLoadJob?.cancel()
+        completedQueryDebounceJob?.cancel()
     }
 
     fun bind(gateway: SavedGateway) {
@@ -399,6 +420,9 @@ class TasksViewModel(
         turnPollJob?.cancel()
         modelsLoadJob?.cancel()
         roomSeenJob?.cancel()
+        completedLoadJob?.cancel()
+        completedQueryDebounceJob?.cancel()
+        reconciledClosedTaskIds.clear()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
         runningTaskSessions.clear()
@@ -531,31 +555,50 @@ class TasksViewModel(
             is ApiResult.Success -> {
                 val board = boardResult.value
                 val pending = pendingExternalOpen?.takeIf { it.gateway == gateway.gatewayUrl }
-                val pendingTask = pending?.let { p -> board.tasks.firstOrNull { it.id == p.taskId } }
-                if (pending != null && pendingTask == null) {
+                var resolvedTask = pending?.let { p -> board.tasks.firstOrNull { it.id == p.taskId } }
+                var resolvedFromCompleted = false
+                if (pending != null && resolvedTask == null) {
                     if (!includeDone) {
                         _state.update { it.copy(includeDone = true) }
                         loadBoardAndMetadata(gateway)
                         return
                     } else {
                         pendingExternalOpen = null
+                        val fetched = (directusApi.getTask(gateway.gatewayUrl, pending.taskId) as? ApiResult.Success)?.value
+                        if (boundGateway != gateway) return
+                        if (fetched != null) {
+                            resolvedTask = fetched
+                            resolvedFromCompleted = fetched.status == DirectusTask.STATUS_DONE
+                        }
                     }
-                } else if (pendingTask != null) {
+                } else if (resolvedTask != null) {
                     pendingExternalOpen = null
                 }
 
+                val reconcileSnapshot = captureReconcileSnapshot(gateway)
                 val today = currentLocalEpochDay()
                 _state.update { cur ->
                     val mergedConfig = board.coordinator?.let { coord ->
                         cur.config?.copy(coordinator = coord) ?: DirectusConfigStatus(configured = board.configured, coordinator = coord)
                     } ?: cur.config
-                    val keptSelected = when {
-                        pendingTask != null -> pendingTask.id
-                        else -> cur.selectedTaskId?.takeIf { sid -> board.tasks.any { it.id == sid } }
+                    val nextCompleted = if (resolvedFromCompleted && resolvedTask != null) {
+                        listOf(resolvedTask) + cur.completedTasks.filterNot { it.id == resolvedTask.id }
+                    } else {
+                        cur.completedTasks
                     }
-                    val selectedObj = keptSelected?.let { sid -> board.tasks.firstOrNull { it.id == sid } }
+                    val keptSelected = when {
+                        resolvedTask != null -> resolvedTask.id
+                        else -> cur.selectedTaskId?.takeIf { sid ->
+                            board.tasks.any { it.id == sid } ||
+                                (cur.boardViewMode == TasksBoardViewMode.COMPLETED && nextCompleted.any { it.id == sid })
+                        }
+                    }
+                    val selectedObj = keptSelected?.let { sid ->
+                        board.tasks.firstOrNull { it.id == sid }
+                            ?: nextCompleted.firstOrNull { it.id == sid }
+                    }
                     val safeChannelIdx = when {
-                        pendingTask != null -> preferredChannelIndex(pendingTask, pending.channelId)
+                        resolvedTask != null -> preferredChannelIndex(resolvedTask, pending?.channelId)
                         selectedObj != null && cur.activeChannelIdx < selectedObj.channels.size -> cur.activeChannelIdx
                         else -> 0
                     }
@@ -579,10 +622,12 @@ class TasksViewModel(
                         config = mergedConfig,
                         projects = board.projects,
                         tasks = board.tasks,
+                        completedTasks = nextCompleted,
+                        boardViewMode = if (resolvedFromCompleted) TasksBoardViewMode.COMPLETED else cur.boardViewMode,
                         todayEpochDay = today,
-                        focusedProjectId = keptFocused,
-                        selectedTaskId = if (cur.coordinatorOpen && pendingTask == null) null else keptSelected,
-                        coordinatorOpen = if (pendingTask != null) false else cur.coordinatorOpen,
+                        focusedProjectId = if (resolvedFromCompleted) null else keptFocused,
+                        selectedTaskId = if (cur.coordinatorOpen && resolvedTask == null) null else keptSelected,
+                        coordinatorOpen = if (resolvedTask != null) false else cur.coordinatorOpen,
                         activeChannelIdx = safeChannelIdx,
                         localReadAtByTaskId = keptLocalRead,
                         localUnreadTaskIds = emptySet(),
@@ -593,6 +638,13 @@ class TasksViewModel(
                     dispatchStore?.syncCoordinator(gateway.gatewayUrl, coord)
                 }
                 dispatchStore?.syncBoard(gateway.gatewayUrl, board.tasks, includeDone = includeDone)
+                if (resolvedFromCompleted && resolvedTask != null) {
+                    dispatchStore?.syncTask(gateway.gatewayUrl, resolvedTask)
+                }
+                scheduleExternallyClosedReconciliation(gateway, reconcileSnapshot, board.tasks)
+                if (_state.value.boardViewMode == TasksBoardViewMode.COMPLETED && board.configured && !_state.value.completedLoading) {
+                    loadCompletedTasks(reset = true)
+                }
                 refreshCheckinEligibility()
                 maybeRunAutoCheckin()
                 if (_state.value.coordinatorOpen && !_state.value.channelTurnRunning) {
@@ -729,7 +781,123 @@ class TasksViewModel(
     }
 
     fun setBoardViewMode(mode: TasksBoardViewMode) {
-        _state.update { it.copy(boardViewMode = mode) }
+        _state.update { cur ->
+            cur.copy(
+                boardViewMode = mode,
+                focusedProjectId = if (mode == TasksBoardViewMode.COMPLETED) null else cur.focusedProjectId,
+            )
+        }
+        if (mode == TasksBoardViewMode.COMPLETED && _state.value.config?.configured != false) {
+            loadCompletedTasks(reset = true)
+        }
+    }
+
+    fun refreshCompletedTasks() {
+        loadCompletedTasks(reset = true)
+    }
+
+    fun loadMoreCompletedTasks() {
+        loadCompletedTasks(reset = false)
+    }
+
+    fun setCompletedQuery(query: String) {
+        _state.update { it.copy(completedQuery = query) }
+        completedQueryDebounceJob?.cancel()
+        if (query.isBlank()) {
+            loadCompletedTasks(reset = true)
+        } else {
+            completedQueryDebounceJob = viewModelScope.launch {
+                delay(COMPLETED_SEARCH_DEBOUNCE_MS)
+                loadCompletedTasks(reset = true)
+            }
+        }
+    }
+
+    fun setCompletedProjectFilter(projectId: String?) {
+        val clean = projectId?.trim()?.takeIf { it.isNotEmpty() }
+        _state.update { it.copy(completedProjectFilter = clean) }
+        loadCompletedTasks(reset = true)
+    }
+
+    fun setCompletedBotFilter(bot: String?) {
+        val clean = bot?.trim()?.removePrefix("@")?.takeIf { it.isNotEmpty() }
+        _state.update { it.copy(completedBotFilter = clean) }
+        loadCompletedTasks(reset = true)
+    }
+
+    fun clearCompletedFilters() {
+        completedQueryDebounceJob?.cancel()
+        _state.update { cur ->
+            cur.copy(
+                completedQuery = "",
+                completedProjectFilter = null,
+                completedBotFilter = null,
+            )
+        }
+        loadCompletedTasks(reset = true)
+    }
+
+    private fun loadCompletedTasks(reset: Boolean) {
+        val gateway = boundGateway ?: return
+        val cur = _state.value
+        if (!reset && (cur.completedLoading || cur.completedLoadingMore || !cur.completedHasMore)) return
+        val offset = if (reset) 0 else cur.completedTasks.size
+        completedLoadJob?.cancel()
+        _state.update {
+            if (reset) {
+                it.copy(completedLoading = true, completedLoadingMore = false, completedError = null)
+            } else {
+                it.copy(completedLoadingMore = true, completedError = null)
+            }
+        }
+        completedLoadJob = viewModelScope.launch {
+            val res = directusApi.fetchCompletedTasks(
+                url = gateway.gatewayUrl,
+                query = cur.completedQuery,
+                projectId = cur.completedProjectFilter,
+                bot = cur.completedBotFilter,
+                limit = COMPLETED_PAGE_SIZE,
+                offset = offset,
+            )
+            if (boundGateway != gateway) return@launch
+            when (res) {
+                is ApiResult.Success -> {
+                    val payload = res.value
+                    _state.update { latest ->
+                        val merged = if (reset) {
+                            payload.tasks
+                        } else {
+                            val seen = HashSet<String>(latest.completedTasks.size + payload.tasks.size)
+                            val out = ArrayList<DirectusTask>(latest.completedTasks.size + payload.tasks.size)
+                            for (t in latest.completedTasks) if (seen.add(t.id)) out.add(t)
+                            for (t in payload.tasks) if (seen.add(t.id)) out.add(t)
+                            out
+                        }
+                        latest.copy(
+                            completedTasks = merged,
+                            completedProjects = payload.projects,
+                            completedTotal = payload.total,
+                            completedHasMore = payload.hasMore,
+                            completedLoading = false,
+                            completedLoadingMore = false,
+                            completedError = null,
+                        )
+                    }
+                }
+                is ApiResult.SessionExpired, ApiResult.InvalidCredentials, ApiResult.RateLimited -> {
+                    _state.update { it.copy(completedLoading = false, completedLoadingMore = false, sessionExpired = true) }
+                }
+                is ApiResult.Failed, ApiResult.Unavailable -> {
+                    _state.update {
+                        it.copy(
+                            completedLoading = false,
+                            completedLoadingMore = false,
+                            completedError = res.errorMessage,
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun toggleIncludeDone() {
@@ -772,7 +940,7 @@ class TasksViewModel(
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
-        val targetTask = taskId?.let { id -> _state.value.tasks.firstOrNull { it.id == id } }
+        val targetTask = taskId?.let { id -> _state.value.findTask(id) }
         val preferredChannelIdx = targetTask?.let { preferredChannelIndex(it, preferredChannelId) } ?: 0
         _state.update {
             it.copy(
@@ -808,7 +976,7 @@ class TasksViewModel(
         modelsLoadJob?.cancel()
         activeRuntimeSessionId = null
         activeRuntimeChannelId = null
-        val loaded = _state.value.tasks.firstOrNull { it.id == taskId }
+        val loaded = _state.value.findTask(taskId)
         if (loaded != null) {
             val idx = preferredChannelIndex(loaded, channelId)
             val watermark = readWatermarkFor(loaded)
@@ -881,6 +1049,12 @@ class TasksViewModel(
         val loaded = _state.value.tasks.firstOrNull { it.id == taskId }
         if (loaded != null) {
             selectTask(loaded.id, preferredChannelId = channelId)
+            return
+        }
+        val loadedCompleted = _state.value.completedTasks.firstOrNull { it.id == taskId }
+        if (loadedCompleted != null) {
+            _state.update { it.copy(boardViewMode = TasksBoardViewMode.COMPLETED, focusedProjectId = null) }
+            selectTask(loadedCompleted.id, preferredChannelId = channelId)
             return
         }
         val knownDone = dispatchStore?.let { store ->
@@ -1713,21 +1887,41 @@ class TasksViewModel(
         }
     }
 
+    fun confirmCloseTask(taskId: String) {
+        updateTaskStatus(taskId, DirectusTask.STATUS_DONE)
+    }
+
+    fun reopenTask(taskId: String) {
+        updateTaskStatus(taskId, DirectusTask.STATUS_IN_PROGRESS)
+    }
+
     fun updateTaskStatus(taskId: String, status: String) {
         val gateway = boundGateway ?: return
         val previousTask = _state.value.tasks.firstOrNull { it.id == taskId }
+            ?: _state.value.completedTasks.firstOrNull { it.id == taskId }
         viewModelScope.launch {
             val res = directusApi.updateTask(gateway.gatewayUrl, taskId, UpdateTaskRequest(status = status))
             if (res is ApiResult.Success && boundGateway == gateway) {
                 val updated = res.value
-                if (updated.status == DirectusTask.STATUS_DONE && !_state.value.includeDone) {
-                    _state.update { cur ->
-                        cur.copy(
-                            tasks = cur.tasks.filterNot { it.id == taskId },
-                            selectedTaskId = if (cur.selectedTaskId == taskId) null else cur.selectedTaskId,
-                        )
+                if (updated.status == DirectusTask.STATUS_DONE) {
+                    reconciledClosedTaskIds += updated.id
+                    if (!_state.value.includeDone) {
+                        _state.update { cur ->
+                            cur.copy(
+                                tasks = cur.tasks.filterNot { it.id == taskId },
+                                selectedTaskId = if (cur.selectedTaskId == taskId && cur.boardViewMode != TasksBoardViewMode.COMPLETED) {
+                                    null
+                                } else {
+                                    cur.selectedTaskId
+                                },
+                            )
+                        }
+                    } else {
+                        replaceTask(updated)
                     }
+                    upsertCompletedTaskFromTransition(updated)
                 } else {
+                    reconciledClosedTaskIds.remove(updated.id)
                     replaceTask(updated)
                 }
                 syncSessionLifecycleOnStatusChange(gateway, previousTask, updated)
@@ -1739,7 +1933,7 @@ class TasksViewModel(
 
     fun updateTaskMatrix(taskId: String, impact: MatrixLevel, urgency: MatrixLevel) {
         val gateway = boundGateway ?: return
-        val previous = _state.value.tasks.firstOrNull { it.id == taskId } ?: return
+        val previous = _state.value.findTask(taskId) ?: return
         val syncedPriority = matrixSyncedPriority(impact, urgency)
         val optimistic = previous.copy(
             priority = syncedPriority,
@@ -2219,12 +2413,14 @@ class TasksViewModel(
             selectedParams["bot"] ?: selectedParams["agent"] ?: selectedParams["owner"],
         )
         val nextBots = if (chosenBot != null) (listOf(chosenBot) + task.assignedBots).distinct() else task.assignedBots
+        val closingTask = normalizedStatus == DirectusTask.STATUS_DONE
+        val targetAgentState = if (closingTask) TaskContext.STATE_IDLE else TaskContext.STATE_RUNNING
 
         // Optimistic UI update (< 0.2s) before network round-trip.
         val optimistic = task.copy(
             status = normalizedStatus ?: task.status,
             context = (task.context ?: TaskContext(taskId = task.id)).copy(
-                agentState = TaskContext.STATE_RUNNING,
+                agentState = targetAgentState,
                 assignedBots = nextBots,
             ),
         )
@@ -2236,11 +2432,15 @@ class TasksViewModel(
             try {
                 val currentActive = _state.value.activeChannel?.takeIf { task.channels.any { ch -> ch.id == it.id } }
                 val targetBot = chosenBot ?: nextBots.firstOrNull()?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() }
-                val active = when {
-                    currentActive == null -> createSessionChannel(gateway, optimistic, targetBot)?.second
-                    !currentActive.isRoom && targetBot != null && !effectiveChannelProfile(currentActive).equals(targetBot, ignoreCase = true) ->
-                        ensureAgentSessionChannel(gateway, optimistic, targetBot)?.second ?: currentActive
-                    else -> currentActive
+                val active = if (closingTask) {
+                    currentActive
+                } else {
+                    when {
+                        currentActive == null -> createSessionChannel(gateway, optimistic, targetBot)?.second
+                        !currentActive.isRoom && targetBot != null && !effectiveChannelProfile(currentActive).equals(targetBot, ignoreCase = true) ->
+                            ensureAgentSessionChannel(gateway, optimistic, targetBot)?.second ?: currentActive
+                        else -> currentActive
+                    }
                 }
 
                 val approveRes = directusApi.approveTask(
@@ -2251,7 +2451,7 @@ class TasksViewModel(
                         chosenOption = option.label,
                         tweaks = tweaks,
                         newStatus = normalizedStatus,
-                        newAgentState = TaskContext.STATE_RUNNING,
+                        newAgentState = targetAgentState,
                         projectId = task.projectId,
                         assignedBots = nextBots,
                         channel = active,
@@ -2260,19 +2460,30 @@ class TasksViewModel(
                 )
                 if (approveRes is ApiResult.Success && boundGateway == gateway) {
                     val approved = approveRes.value
-                    if (approved.status == DirectusTask.STATUS_DONE && !_state.value.includeDone) {
-                        _state.update { cur ->
-                            cur.copy(
-                                tasks = cur.tasks.filterNot { it.id == task.id },
-                                selectedTaskId = if (cur.selectedTaskId == task.id) null else cur.selectedTaskId,
-                            )
+                    if (approved.status == DirectusTask.STATUS_DONE) {
+                        reconciledClosedTaskIds += approved.id
+                        if (!_state.value.includeDone) {
+                            _state.update { cur ->
+                                cur.copy(
+                                    tasks = cur.tasks.filterNot { it.id == task.id },
+                                    selectedTaskId = if (cur.selectedTaskId == task.id && cur.boardViewMode != TasksBoardViewMode.COMPLETED) {
+                                        null
+                                    } else {
+                                        cur.selectedTaskId
+                                    },
+                                )
+                            }
+                        } else {
+                            replaceTask(approved)
                         }
+                        upsertCompletedTaskFromTransition(approved)
                     } else {
+                        reconciledClosedTaskIds.remove(approved.id)
                         replaceTask(approved)
                     }
                 }
 
-                if (active != null) {
+                if (!closingTask && active != null) {
                     val latest = _state.value.tasks.firstOrNull { it.id == task.id }
                         ?: (approveRes as? ApiResult.Success)?.value
                         ?: optimistic
@@ -2347,7 +2558,13 @@ class TasksViewModel(
     }
 
     fun openChannelFullscreen(task: DirectusTask, channel: TaskChannel) {
-        viewModelScope.launch { emitOpenChannelNav(task, channel) }
+        val gateway = boundGateway
+        viewModelScope.launch {
+            if (gateway != null) {
+                dispatchStore?.syncTask(gateway.gatewayUrl, task)
+            }
+            emitOpenChannelNav(task, channel)
+        }
     }
 
     private suspend fun emitOpenChannelNav(task: DirectusTask, channel: TaskChannel) {
@@ -2751,7 +2968,8 @@ class TasksViewModel(
                         channelMessages = nextMsgs,
                     )
                 }
-                if (event.type != "tool.start" && toolName.startsWith("directus_")) {
+                val resolvedToolName = storedToolName(toolName, toolArgs) ?: toolName
+                if (event.type != "tool.start" && resolvedToolName.startsWith("directus_")) {
                     boundGateway?.let { gw -> viewModelScope.launch { refreshBoardSilently(gw) } }
                 }
             }
@@ -2845,6 +3063,7 @@ class TasksViewModel(
         val res = directusApi.fetchBoard(gateway.gatewayUrl, includeDone = includeDone)
         if (res !is ApiResult.Success || boundGateway != gateway) return
         val board = res.value
+        val reconcileSnapshot = captureReconcileSnapshot(gateway)
         _state.update { cur ->
             val serverById = board.tasks.associateBy { it.id }
             val keptLocalRead = keptLocalReadAt(cur.localReadAtByTaskId, board.tasks)
@@ -2866,6 +3085,113 @@ class TasksViewModel(
             )
         }
         dispatchStore?.syncBoard(gateway.gatewayUrl, board.tasks, includeDone = includeDone)
+        scheduleExternallyClosedReconciliation(gateway, reconcileSnapshot, board.tasks)
+    }
+
+    private data class ReconcileSnapshot(
+        val prevActiveById: Map<String, DirectusTask>,
+        val prevStoreManagedTaskIds: Set<String>,
+    )
+
+    private fun captureReconcileSnapshot(gateway: SavedGateway): ReconcileSnapshot {
+        val prevActiveById = _state.value.tasks
+            .filter { it.status != DirectusTask.STATUS_DONE }
+            .associateBy { it.id }
+        val prevStoreManagedTaskIds = dispatchStore?.byGateway?.value?.get(gateway.gatewayUrl)?.values
+            ?.filter {
+                it.taskStatus != DirectusTask.STATUS_DONE &&
+                    it.taskId != DispatchSessionsStore.COORDINATOR_TASK_ID &&
+                    it.managed
+            }
+            ?.mapTo(HashSet()) { it.taskId }
+            .orEmpty()
+        return ReconcileSnapshot(prevActiveById, prevStoreManagedTaskIds)
+    }
+
+    /**
+     * Auto-archives managed sessions when an agent closes a task directly on the server
+     * (`directus_log_context(status="done", confirm_close=true)`) and keeps [TasksUiState.completedTasks] aligned.
+     */
+    private fun scheduleExternallyClosedReconciliation(
+        gateway: SavedGateway,
+        snapshot: ReconcileSnapshot,
+        boardTasks: List<DirectusTask>,
+    ) {
+        val boardById = boardTasks.associateBy { it.id }
+        for (task in boardTasks) {
+            if (task.status != DirectusTask.STATUS_DONE) {
+                reconciledClosedTaskIds.remove(task.id)
+            }
+        }
+        val transitionedInBoard = boardTasks.filter { task ->
+            task.status == DirectusTask.STATUS_DONE &&
+                snapshot.prevActiveById[task.id]?.status != DirectusTask.STATUS_DONE &&
+                task.id !in reconciledClosedTaskIds &&
+                (task.channels.any { it.isAutoManagedSession } || snapshot.prevActiveById[task.id]?.channels?.any { it.isAutoManagedSession } == true)
+        }
+        val missingCandidates = LinkedHashSet<String>()
+        for ((tid, prev) in snapshot.prevActiveById) {
+            if (tid !in boardById && tid !in reconciledClosedTaskIds && prev.channels.any { it.isAutoManagedSession }) {
+                missingCandidates += tid
+            }
+        }
+        for (tid in snapshot.prevStoreManagedTaskIds) {
+            if (tid !in boardById && tid !in reconciledClosedTaskIds) {
+                missingCandidates += tid
+            }
+        }
+        if (transitionedInBoard.isEmpty() && missingCandidates.isEmpty()) return
+
+        viewModelScope.launch {
+            if (boundGateway != gateway) return@launch
+            for (doneTask in transitionedInBoard) {
+                if (boundGateway != gateway) return@launch
+                if (reconciledClosedTaskIds.add(doneTask.id)) {
+                    syncSessionLifecycleOnStatusChange(gateway, snapshot.prevActiveById[doneTask.id], doneTask)
+                    upsertCompletedTaskFromTransition(doneTask)
+                }
+            }
+            for (tid in missingCandidates) {
+                if (boundGateway != gateway) return@launch
+                if (tid in reconciledClosedTaskIds) continue
+                when (val taskRes = directusApi.getTask(gateway.gatewayUrl, tid)) {
+                    is ApiResult.Success -> {
+                        if (boundGateway != gateway) return@launch
+                        val fetched = taskRes.value
+                        if (fetched.status == DirectusTask.STATUS_DONE) {
+                            reconciledClosedTaskIds += tid
+                            syncSessionLifecycleOnStatusChange(gateway, snapshot.prevActiveById[tid], fetched)
+                            upsertCompletedTaskFromTransition(fetched)
+                        }
+                    }
+                    is ApiResult.Failed -> {
+                        if (taskRes.status == 404) {
+                            reconciledClosedTaskIds += tid
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    private fun upsertCompletedTaskFromTransition(task: DirectusTask) {
+        if (task.status != DirectusTask.STATUS_DONE) return
+        _state.update { cur ->
+            val exists = cur.completedTasks.any { it.id == task.id }
+            val noActiveFilters = cur.completedQuery.isBlank() &&
+                cur.completedProjectFilter == null &&
+                cur.completedBotFilter == null
+            val shouldInclude = exists || (noActiveFilters && (cur.completedTasks.isNotEmpty() || cur.selectedTaskId == task.id || cur.boardViewMode == TasksBoardViewMode.COMPLETED))
+            if (!shouldInclude) return@update cur
+            val nextCompleted = if (exists) {
+                cur.completedTasks.map { if (it.id == task.id) task else it }
+            } else {
+                listOf(task) + cur.completedTasks
+            }
+            val nextTotal = if (exists) cur.completedTotal else (cur.completedTotal + 1)
+            cur.copy(completedTasks = nextCompleted, completedTotal = nextTotal)
+        }
     }
 
     /**
@@ -3092,7 +3418,9 @@ class TasksViewModel(
     }
 
     private fun resolveOwningTaskId(sessionId: String): String? {
-        _state.value.tasks.firstOrNull { t -> t.channels.any { !it.isRoom && it.id == sessionId } }?.id?.let { return it }
+        (_state.value.tasks.firstOrNull { t -> t.channels.any { !it.isRoom && it.id == sessionId } }
+            ?: _state.value.completedTasks.firstOrNull { t -> t.channels.any { !it.isRoom && it.id == sessionId } })
+            ?.id?.let { return it }
         val gwUrl = boundGateway?.gatewayUrl ?: return null
         return dispatchStore?.byGateway?.value?.get(gwUrl)?.get(sessionId)?.taskId
     }
@@ -3114,7 +3442,7 @@ class TasksViewModel(
 
     private fun markTaskTurnSettled(taskId: String?, sessionId: String?) {
         val cleanSession = sessionId?.trim()?.takeIf { it.isNotEmpty() }
-        val owningTask = taskId?.let { tid -> _state.value.tasks.firstOrNull { it.id == tid } }
+        val owningTask = taskId?.let { tid -> _state.value.findTask(tid) }
         val sessionIdsToClear = buildSet {
             if (cleanSession != null) add(cleanSession)
             owningTask?.channels?.forEach { ch ->
@@ -3137,9 +3465,26 @@ class TasksViewModel(
 
     private fun replaceTask(updated: DirectusTask) {
         _state.update { cur ->
-            val exists = cur.tasks.any { it.id == updated.id }
-            val next = if (exists) cur.tasks.map { if (it.id == updated.id) updated else it } else listOf(updated) + cur.tasks
-            cur.copy(tasks = next)
+            val existsInTasks = cur.tasks.any { it.id == updated.id }
+            val nextTasks = when {
+                updated.status == DirectusTask.STATUS_DONE && !cur.includeDone ->
+                    cur.tasks.filterNot { it.id == updated.id }
+                existsInTasks ->
+                    cur.tasks.map { if (it.id == updated.id) updated else it }
+                else ->
+                    listOf(updated) + cur.tasks
+            }
+            val existsInCompleted = cur.completedTasks.any { it.id == updated.id }
+            val (nextCompleted, nextTotal) = if (existsInCompleted) {
+                if (updated.status == DirectusTask.STATUS_DONE) {
+                    cur.completedTasks.map { if (it.id == updated.id) updated else it } to cur.completedTotal
+                } else {
+                    cur.completedTasks.filterNot { it.id == updated.id } to (cur.completedTotal - 1).coerceAtLeast(0)
+                }
+            } else {
+                cur.completedTasks to cur.completedTotal
+            }
+            cur.copy(tasks = nextTasks, completedTasks = nextCompleted, completedTotal = nextTotal)
         }
     }
 

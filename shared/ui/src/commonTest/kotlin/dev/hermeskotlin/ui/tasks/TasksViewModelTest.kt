@@ -26,6 +26,9 @@ import dev.hermeskotlin.core.tasks.DirectusTasksApi
 import dev.hermeskotlin.core.tasks.DispatchCoordinatorConfig
 import dev.hermeskotlin.core.tasks.DispatchSessionsStore
 import dev.hermeskotlin.core.tasks.MatrixLevel
+import dev.hermeskotlin.core.tasks.PlanAction
+import dev.hermeskotlin.core.tasks.PlanParam
+import dev.hermeskotlin.core.tasks.StagedPlan
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
@@ -37,6 +40,7 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Parameters
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CoroutineScope
@@ -125,7 +129,12 @@ class TasksViewModelTest {
         }
     }
 
-    private data class RecordedHttp(val method: HttpMethod, val path: String, val body: String?)
+    private data class RecordedHttp(
+        val method: HttpMethod,
+        val path: String,
+        val body: String?,
+        val query: Parameters = Parameters.Empty,
+    )
 
     private data class Harness(
         val vm: TasksViewModel,
@@ -158,7 +167,7 @@ class TasksViewModelTest {
                     respond("""{"ticket":"T","ttl_seconds":30}""", HttpStatusCode.OK, jsonHeaders)
                 } else {
                     val bodyText = (req.body as? TextContent)?.text
-                    val rec = RecordedHttp(req.method, path, bodyText)
+                    val rec = RecordedHttp(req.method, path, bodyText, req.url.parameters)
                     requests += rec
                     val (code, json) = httpRespond(rec)
                     respond(json, code, jsonHeaders)
@@ -2282,5 +2291,377 @@ class TasksViewModelTest {
         val roomUnknownOwner = resolveChannelMediaOwner(url, roomChannel, lineProfile = null)
         assertEquals(ChannelMediaOwner(url, profile = null, sessionId = null, requireProfile = true), roomUnknownOwner)
         assertFalse(roomUnknownOwner.canAccessGatewayFiles)
+    }
+
+    @Test
+    fun completedViewLoadsSearchesFiltersPaginatesAndReopensUnarchivingManagedSession() = runTest(dispatcher) {
+        val completedRequests = mutableListOf<RecordedHttp>()
+        val sessionPatches = mutableListOf<Pair<String, String>>()
+        val task1Json = """
+            {
+              "id":"t-done-1",
+              "title":"Research timber mill workflow",
+              "status":"done",
+              "priority":"medium",
+              "completed_at":"2026-11-28T06:05:50",
+              "work_logs":[
+                {"logged_at":"2026-11-28T06:05:50+00:00","content":"Summary report uploaded","status":"done"}
+              ],
+              "context":{
+                "id":"ctx-done-1",
+                "task_id":"t-done-1",
+                "project_id":"proj-arch",
+                "assigned_bots":["ops"],
+                "channels":[{"type":"session","id":"sess-done-1","label":"Session (@ops)","profile":"ops","managed":true}],
+                "agent_state":"idle"
+              }
+            }
+        """.trimIndent()
+        val task2Json = """
+            {
+              "id":"t-done-2",
+              "title":"Verify kiln schedule",
+              "status":"done",
+              "priority":"low",
+              "completed_at":"2026-11-27T09:00:00",
+              "work_logs":[],
+              "context":{
+                "id":"ctx-done-2",
+                "task_id":"t-done-2",
+                "project_id":null,
+                "assigned_bots":["scribe"],
+                "channels":[],
+                "agent_state":"idle"
+              }
+            }
+        """.trimIndent()
+        val reopenedTask1Json = """
+            {
+              "id":"t-done-1",
+              "title":"Research timber mill workflow",
+              "status":"in_progress",
+              "priority":"medium",
+              "completed_at":null,
+              "work_logs":[
+                {"logged_at":"2026-11-28T06:05:50+00:00","content":"Summary report uploaded","status":"done"}
+              ],
+              "context":{
+                "id":"ctx-done-1",
+                "task_id":"t-done-1",
+                "project_id":"proj-arch",
+                "assigned_bots":["ops"],
+                "channels":[{"type":"session","id":"sess-done-1","label":"Session (@ops)","profile":"ops","managed":true}],
+                "agent_state":"idle"
+              }
+            }
+        """.trimIndent()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to """{"configured":true,"projects":[{"id":"proj-1","name":"Active Ops","archived":false}],"tasks":[{"id":"t-open","title":"Open task","status":"todo"}]}"""
+                    rec.path == "/api/plugins/directus-tasks/tasks/completed" -> {
+                        completedRequests += rec
+                        val q = rec.query["q"]
+                        val pid = rec.query["project_id"]
+                        val bot = rec.query["bot"]
+                        val offset = rec.query["offset"]?.toIntOrNull() ?: 0
+                        when {
+                            q != null || pid != null || bot != null -> HttpStatusCode.OK to """
+                                {
+                                  "configured": true,
+                                  "projects": [{"id":"proj-arch","name":"Archived Research","archived":true}],
+                                  "tasks": [$task1Json],
+                                  "total": 1,
+                                  "limit": 50,
+                                  "offset": 0,
+                                  "has_more": false
+                                }
+                            """.trimIndent()
+                            offset == 0 -> HttpStatusCode.OK to """
+                                {
+                                  "configured": true,
+                                  "projects": [
+                                    {"id":"proj-1","name":"Active Ops","archived":false},
+                                    {"id":"proj-arch","name":"Archived Research","archived":true}
+                                  ],
+                                  "tasks": [$task1Json],
+                                  "total": 2,
+                                  "limit": 1,
+                                  "offset": 0,
+                                  "has_more": true
+                                }
+                            """.trimIndent()
+                            else -> HttpStatusCode.OK to """
+                                {
+                                  "configured": true,
+                                  "projects": [
+                                    {"id":"proj-1","name":"Active Ops","archived":false},
+                                    {"id":"proj-arch","name":"Archived Research","archived":true}
+                                  ],
+                                  "tasks": [$task2Json],
+                                  "total": 2,
+                                  "limit": 1,
+                                  "offset": 1,
+                                  "has_more": false
+                                }
+                            """.trimIndent()
+                        }
+                    }
+                    rec.method == HttpMethod.Patch && rec.path == "/api/plugins/directus-tasks/tasks/t-done-1" ->
+                        HttpStatusCode.OK to """{"task":$reopenedTask1Json}"""
+                    rec.path == "/api/sessions/sess-done-1/messages" ->
+                        HttpStatusCode.OK to """{"messages":[{"id":1,"role":"assistant","content":"Done researching."}]}"""
+                    rec.method == HttpMethod.Patch && rec.path == "/api/sessions/sess-done-1" -> {
+                        sessionPatches += "sess-done-1" to rec.body.orEmpty()
+                        HttpStatusCode.OK to "{}"
+                    }
+                    rec.path.endsWith("/mutation-snapshot") ->
+                        HttpStatusCode.NotFound to """{"detail":"Not Found"}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.size == 1 } }
+
+            h.vm.setBoardViewMode(TasksBoardViewMode.COMPLETED)
+            val page1 = withTimeout(5_000) {
+                h.vm.state.first { it.boardViewMode == TasksBoardViewMode.COMPLETED && !it.completedLoading && it.completedTasks.size == 1 }
+            }
+            assertTrue(page1.completedHasMore)
+            assertEquals(2, page1.completedTotal)
+            assertTrue(page1.completedProjects.any { it.id == "proj-arch" && it.archived })
+
+            h.vm.loadMoreCompletedTasks()
+            val page2 = withTimeout(5_000) {
+                h.vm.state.first { !it.completedLoadingMore && it.completedTasks.size == 2 }
+            }
+            assertFalse(page2.completedHasMore)
+            assertEquals(listOf("t-done-1", "t-done-2"), page2.completedTasks.map { it.id })
+
+            h.vm.setCompletedProjectFilter("proj-arch")
+            withTimeout(5_000) { h.vm.state.first { !it.completedLoading && it.completedProjectFilter == "proj-arch" } }
+            h.vm.setCompletedBotFilter("@ops")
+            withTimeout(5_000) { h.vm.state.first { !it.completedLoading && it.completedBotFilter == "ops" } }
+
+            val callsBeforeQuery = completedRequests.size
+            h.vm.setCompletedQuery("timber")
+            testScheduler.advanceTimeBy(300)
+            withTimeout(5_000) {
+                h.vm.state.first { !it.completedLoading && completedRequests.size > callsBeforeQuery }
+            }
+            val queryReq = completedRequests.last()
+            assertEquals("timber", queryReq.query["q"])
+            assertEquals("proj-arch", queryReq.query["project_id"])
+            assertEquals("ops", queryReq.query["bot"])
+
+            h.vm.selectTask("t-done-1")
+            withTimeout(5_000) { h.vm.state.first { it.selectedTask?.id == "t-done-1" && !it.channelLoading } }
+
+            h.vm.reopenTask("t-done-1")
+            val reopened = withTimeout(5_000) {
+                h.vm.state.first { st ->
+                    st.tasks.any { it.id == "t-done-1" && it.status == DirectusTask.STATUS_IN_PROGRESS } &&
+                        st.completedTasks.none { it.id == "t-done-1" } &&
+                        sessionPatches.any { it.first == "sess-done-1" && it.second.contains(""""archived":false""") }
+                }
+            }
+            assertEquals(1, reopened.completedTotal)
+
+            h.vm.clearCompletedFilters()
+            withTimeout(5_000) { h.vm.state.first { !it.completedLoading && it.completedQuery.isEmpty() && it.completedProjectFilter == null && it.completedBotFilter == null } }
+        } finally {
+            h.vm.selectTask(null)
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun approveStagedPlanWithDoneStatusMarksIdleSkipsPromptAndArchivesSession() = runTest(dispatcher) {
+        val confirmBoardJson = """
+            {
+              "configured": true,
+              "projects": [{"id":"proj-1","name":"Homelab","archived":false}],
+              "tasks": [
+                {
+                  "id":"t-confirm",
+                  "title":"Review final findings",
+                  "status":"in_progress",
+                  "priority":"medium",
+                  "context":{
+                    "id":"ctx-confirm",
+                    "task_id":"t-confirm",
+                    "project_id":"proj-1",
+                    "assigned_bots":["ops"],
+                    "channels":[{"type":"session","id":"sess-confirm","label":"Session (@ops)","profile":"ops","managed":true}],
+                    "agent_state":"needs_you",
+                    "staged_plan":{
+                      "summary":"Ready to close once approved.",
+                      "params":[{"key":"status","label":"Target status","options":["done","in_progress"],"default":"done"}],
+                      "actions":[{"label":"Confirm close","instruction":"Mark task done"}]
+                    }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        var approveBody = ""
+        val sessionPatches = mutableListOf<Pair<String, String>>()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to confirmBoardJson
+                    rec.path == "/api/plugins/directus-tasks/tasks/t-confirm/approve" -> {
+                        approveBody = rec.body.orEmpty()
+                        HttpStatusCode.OK to """
+                            {
+                              "task":{
+                                "id":"t-confirm",
+                                "title":"Review final findings",
+                                "status":"done",
+                                "priority":"medium",
+                                "completed_at":"2026-11-28T07:00:00",
+                                "context":{
+                                  "id":"ctx-confirm",
+                                  "task_id":"t-confirm",
+                                  "project_id":"proj-1",
+                                  "assigned_bots":["ops"],
+                                  "channels":[{"type":"session","id":"sess-confirm","label":"Session (@ops)","profile":"ops","managed":true}],
+                                  "agent_state":"idle"
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    }
+                    rec.method == HttpMethod.Patch && rec.path == "/api/sessions/sess-confirm" -> {
+                        sessionPatches += "sess-confirm" to rec.body.orEmpty()
+                        HttpStatusCode.OK to "{}"
+                    }
+                    rec.path.endsWith("/mutation-snapshot") ->
+                        HttpStatusCode.NotFound to """{"detail":"Not Found"}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+        )
+        try {
+            h.vm.bind(gateway)
+            val loaded = withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.size == 1 } }
+            val task = loaded.tasks.single()
+
+            h.vm.approveStagedPlan(
+                task = task,
+                option = ReplyInteraction.Option(label = "Confirm close"),
+                selectedParams = mapOf("status" to "done"),
+                tweaks = emptyList(),
+            )
+            withTimeout(5_000) {
+                h.vm.state.first {
+                    it.tasks.none { t -> t.id == "t-confirm" } &&
+                        sessionPatches.any { p -> p.first == "sess-confirm" && p.second.contains(""""archived":true""") }
+                }
+            }
+            assertTrue(approveBody.contains(""""new_status":"done""""))
+            assertTrue(approveBody.contains(""""new_agent_state":"idle""""))
+            assertFalse(h.socket.calls.any { it.first == "prompt.submit" || it.first == "sessions.send" })
+        } finally {
+            h.connection.stop()
+        }
+    }
+
+    @Test
+    fun reconcileExternallyClosedTaskAutoArchivesManagedSessionWhenAgentClosesOnServer() = runTest(dispatcher) {
+        var closedOnServer = false
+        val openBoard = """
+            {
+              "configured": true,
+              "projects": [{"id":"proj-1","name":"Ops","archived":false}],
+              "tasks": [
+                {
+                  "id":"t-ext",
+                  "title":"Monitor batch run",
+                  "status":"in_progress",
+                  "priority":"medium",
+                  "context":{
+                    "id":"ctx-ext",
+                    "task_id":"t-ext",
+                    "project_id":"proj-1",
+                    "assigned_bots":["ops"],
+                    "channels":[{"type":"session","id":"sess-ext","label":"Session (@ops)","profile":"ops","managed":true}],
+                    "agent_state":"running"
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val closedBoard = """{"configured":true,"projects":[{"id":"proj-1","name":"Ops","archived":false}],"tasks":[]}"""
+        val archivedPaths = mutableListOf<String>()
+        val h = buildHarness(
+            httpRespond = { rec ->
+                when {
+                    rec.path == "/api/plugins/directus-tasks/config" ->
+                        HttpStatusCode.OK to """{"configured":true,"url":"https://directus.example.com","token_set":true}"""
+                    rec.path == "/api/plugins/directus-tasks/board" ->
+                        HttpStatusCode.OK to (if (closedOnServer) closedBoard else openBoard)
+                    rec.method == HttpMethod.Get && rec.path == "/api/plugins/directus-tasks/tasks/t-ext" ->
+                        HttpStatusCode.OK to """
+                            {
+                              "task":{
+                                "id":"t-ext",
+                                "title":"Monitor batch run",
+                                "status":"done",
+                                "priority":"medium",
+                                "completed_at":"2026-11-28T07:15:00",
+                                "work_logs":[{"logged_at":"2026-11-28T07:15:00+00:00","content":"Confirmed closed","status":"done"}],
+                                "context":{
+                                  "id":"ctx-ext",
+                                  "task_id":"t-ext",
+                                  "project_id":"proj-1",
+                                  "assigned_bots":["ops"],
+                                  "channels":[{"type":"session","id":"sess-ext","label":"Session (@ops)","profile":"ops","managed":true}],
+                                  "agent_state":"idle"
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    rec.method == HttpMethod.Patch && rec.path == "/api/sessions/sess-ext" -> {
+                        if (rec.body.orEmpty().contains(""""archived":true""")) {
+                            archivedPaths += rec.path
+                        }
+                        HttpStatusCode.OK to "{}"
+                    }
+                    rec.path.endsWith("/mutation-snapshot") ->
+                        HttpStatusCode.NotFound to """{"detail":"Not Found"}"""
+                    else -> HttpStatusCode.NotFound to "{}"
+                }
+            },
+        )
+        try {
+            val lifecycleEvents = mutableListOf<dev.hermeskotlin.core.tasks.SessionLifecycleChange>()
+            backgroundScope.launch { h.dispatchStore.lifecycleChanges.collect { lifecycleEvents += it } }
+
+            h.vm.bind(gateway)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.tasks.size == 1 } }
+
+            closedOnServer = true
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"session_id":"sess-ext","type":"message.complete","payload":{}}}""")
+
+            withTimeout(5_000) {
+                h.vm.state.first {
+                    it.tasks.isEmpty() &&
+                        archivedPaths.contains("/api/sessions/sess-ext") &&
+                        lifecycleEvents.any { ev -> "sess-ext" in ev.archivedIds }
+                }
+            }
+            assertTrue(archivedPaths.contains("/api/sessions/sess-ext"))
+        } finally {
+            h.connection.stop()
+        }
     }
 }

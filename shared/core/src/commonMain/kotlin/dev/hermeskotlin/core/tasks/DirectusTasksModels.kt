@@ -435,6 +435,23 @@ data class DirectusBoardResponse(
     val coordinator: DispatchCoordinatorConfig? = null,
 )
 
+/** Paginated response from `GET /api/plugins/directus-tasks/tasks/completed`. */
+@Serializable
+data class CompletedTasksResponse(
+    val configured: Boolean = false,
+    val projects: List<DirectusProject> = emptyList(),
+    val tasks: List<DirectusTask> = emptyList(),
+    val total: Int = 0,
+    val limit: Int = 50,
+    val offset: Int = 0,
+    @SerialName("has_more") val hasMore: Boolean = false,
+) {
+    companion object {
+        /** Sentinel `project_id` query value matching completed tasks not linked to an active or archived project. */
+        const val UNASSIGNED_PROJECT_FILTER = "__unassigned__"
+    }
+}
+
 @Serializable
 data class CreateTaskRequest(
     val title: String,

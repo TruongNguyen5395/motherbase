@@ -252,4 +252,94 @@ class DirectusTasksApiTest {
         // Manual check-in at 15:10 (50m before 16:00) claims the upcoming 16:00 slot.
         assertEquals("2026-11-20@16:00", coord.activeOrUpcomingCheckinSlotId("2026-11-20", 15 * 60 + 10))
     }
+
+    @Test
+    fun fetchesCompletedTasksWithFiltersPaginationAndSingleTaskById() = runTest {
+        val requests = mutableListOf<String>()
+        val api = DirectusTasksApi(
+            createHttpClient(
+                MockEngine { req ->
+                    requests += "${req.method.value} ${req.url.encodedPath}?${req.url.encodedQuery}"
+                    when (req.url.encodedPath) {
+                        "/api/plugins/directus-tasks/tasks/completed" -> {
+                            assertEquals("mill", req.url.parameters["q"])
+                            assertEquals("proj-arch", req.url.parameters["project_id"])
+                            assertEquals("ops", req.url.parameters["bot"])
+                            assertEquals("20", req.url.parameters["limit"])
+                            assertEquals("40", req.url.parameters["offset"])
+                            respond(
+                                """{
+                                    "configured": true,
+                                    "projects": [
+                                        {"id": "proj-arch", "name": "Legacy Mill", "archived": true}
+                                    ],
+                                    "tasks": [
+                                        {
+                                            "id": "t-42",
+                                            "title": "Audit operations",
+                                            "status": "done",
+                                            "completed_at": "2026-11-28T06:05:50",
+                                            "work_logs": [
+                                                {"logged_at": "2026-11-28T06:05:50+00:00", "content": "Report ready", "status": "done"}
+                                            ],
+                                            "context": {
+                                                "task_id": "t-42",
+                                                "project_id": "proj-arch",
+                                                "assigned_bots": ["ops"],
+                                                "channels": [{"type": "session", "id": "sess-42", "label": "Session (@ops)", "profile": "ops", "managed": true}],
+                                                "agent_state": "idle"
+                                            }
+                                        }
+                                    ],
+                                    "total": 41,
+                                    "limit": 20,
+                                    "offset": 40,
+                                    "has_more": false
+                                }""",
+                                HttpStatusCode.OK,
+                                jsonHeaders,
+                            )
+                        }
+                        "/api/plugins/directus-tasks/tasks/t-42" -> respond(
+                            """{
+                                "task": {
+                                    "id": "t-42",
+                                    "title": "Audit operations",
+                                    "status": "done",
+                                    "completed_at": "2026-11-28T06:05:50"
+                                }
+                            }""",
+                            HttpStatusCode.OK,
+                            jsonHeaders,
+                        )
+                        else -> respond("{}", HttpStatusCode.NotFound, jsonHeaders)
+                    }
+                },
+            ),
+        )
+
+        val completed = assertIs<ApiResult.Success<CompletedTasksResponse>>(
+            api.fetchCompletedTasks(
+                gatewayUrl,
+                query = "mill",
+                projectId = "proj-arch",
+                bot = "ops",
+                limit = 20,
+                offset = 40,
+            ),
+        ).value
+        assertTrue(completed.configured)
+        assertEquals(41, completed.total)
+        assertEquals(20, completed.limit)
+        assertEquals(40, completed.offset)
+        assertFalse(completed.hasMore)
+        assertTrue(completed.projects.single().archived)
+        assertEquals("t-42", completed.tasks.single().id)
+        assertEquals("Report ready", completed.tasks.single().workLogs.single().content)
+
+        val single = assertIs<ApiResult.Success<DirectusTask>>(api.getTask(gatewayUrl, "t-42")).value
+        assertEquals("t-42", single.id)
+        assertEquals("done", single.status)
+        assertEquals("2026-11-28T06:05:50", single.completedAt)
+    }
 }

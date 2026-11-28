@@ -41,10 +41,12 @@ import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DispatchCheckinSchedule
 import dev.hermeskotlin.core.tasks.MatrixLevel
 import dev.hermeskotlin.core.tasks.PlanAction
+import dev.hermeskotlin.core.tasks.PlanParam
 import dev.hermeskotlin.core.tasks.StagedPlan
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TaskReplyStatus
+import dev.hermeskotlin.core.tasks.TaskWorkLog
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
 import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
@@ -1280,5 +1282,133 @@ class TasksPageUiTest {
                 onAllNodesWithText("Room Notes").fetchSemanticsNodes().isNotEmpty()
         }
         onNodeWithText("Room Notes").assertIsDisplayed()
+    }
+
+    @Test
+    fun completedViewRendersArchivedProjectsWorkLogsAndReopenAction() = runDesktopComposeUiTest(width = 1280, height = 800) {
+        val archivedProj = DirectusProject(id = "proj-arch", name = "Archive Ops", sort = 1, archived = true)
+        val doneTask = DirectusTask(
+            id = "t-done-ui",
+            title = "Research sawmill management",
+            status = DirectusTask.STATUS_DONE,
+            priority = "medium",
+            completedAt = "2026-11-28T06:05:50",
+            workLogs = listOf(
+                TaskWorkLog(loggedAt = "2026-11-28T05:10:00+00:00", content = "Step 1: Audited mill", status = DirectusTask.STATUS_IN_PROGRESS),
+                TaskWorkLog(loggedAt = "2026-11-28T06:05:50+00:00", content = "Final research report ready", status = DirectusTask.STATUS_DONE),
+            ),
+            context = TaskContext(
+                taskId = "t-done-ui",
+                projectId = "proj-arch",
+                assignedBots = listOf("ops"),
+                channels = listOf(
+                    TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-arch", label = "Session (@ops)", profile = "ops", managed = true),
+                ),
+                agentState = TaskContext.STATE_IDLE,
+            ),
+        )
+        var selectedId by mutableStateOf<String?>(null)
+        var reopenedId by mutableStateOf<String?>(null)
+
+        setContent {
+            val state = TasksUiState(
+                config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+                completedProjects = listOf(archivedProj),
+                completedTasks = listOf(doneTask),
+                completedTotal = 1,
+                boardViewMode = TasksBoardViewMode.COMPLETED,
+                selectedTaskId = selectedId,
+                channelMessages = listOf(
+                    ChannelChatLine(key = "m1", speaker = "ops", text = "Archived deliverable transcript", fromUser = false, profile = "ops"),
+                ),
+            )
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onSelectTask = { selectedId = it },
+                                onReopenTask = { reopenedId = it },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithTag("board_view_completed").assertIsDisplayed()
+        onNodeWithTag("completed_search_field").assertIsDisplayed()
+        onAllNodesWithText("Archive Ops (Archived)")[0].assertIsDisplayed()
+        onNodeWithTag("completed_task_t-done-ui").assertIsDisplayed()
+        onNodeWithText("Final research report ready").assertIsDisplayed()
+
+        onNodeWithTag("completed_task_t-done-ui").performClick()
+        waitForIdle()
+
+        onNodeWithTag("task_completed_banner").assertIsDisplayed()
+        onNodeWithText("Completed · Managed session archived").assertIsDisplayed()
+        onNodeWithTag("task_work_logs_section").assertIsDisplayed()
+        onNodeWithText("WORK LOGS (2)").assertIsDisplayed()
+        onNodeWithText("Step 1: Audited mill", substring = true).assertIsDisplayed()
+
+        onNodeWithTag("inspector_reopen_task_button").performClick()
+        waitForIdle()
+        assertEquals("t-done-ui", reopenedId)
+    }
+
+    @Test
+    fun inspectorCloseTaskRequiresConfirmationBeforeClosing() = runDesktopComposeUiTest(width = 1280, height = 800) {
+        val proj = DirectusProject(id = "p1", name = "Ops", sort = 1)
+        val openTask = DirectusTask(
+            id = "t-open-ui",
+            title = "Prepare handoff summary",
+            status = DirectusTask.STATUS_IN_PROGRESS,
+            priority = "medium",
+            context = TaskContext(
+                taskId = "t-open-ui",
+                projectId = "p1",
+                channels = listOf(
+                    TaskChannel(type = TaskChannel.TYPE_SESSION, id = "sess-open", label = "Session (@ops)", profile = "ops", managed = true),
+                ),
+            ),
+        )
+        var confirmedCloseId by mutableStateOf<String?>(null)
+
+        setContent {
+            val state = TasksUiState(
+                config = DirectusConfigStatus(configured = true, url = "https://directus.example.com", tokenSet = true),
+                projects = listOf(proj),
+                tasks = listOf(openTask),
+                selectedTaskId = "t-open-ui",
+                showPriorityStrip = false,
+            )
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        TasksBoardContent(
+                            state = state,
+                            actions = TasksBoardActions(
+                                onConfirmCloseTask = { confirmedCloseId = it },
+                            ),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithTag("inspector_close_task_button").assertIsDisplayed().performClick()
+        waitForIdle()
+
+        onNodeWithText("Close this task?").assertIsDisplayed()
+        assertEquals(null, confirmedCloseId)
+
+        onNodeWithTag("confirm_close_task_button").assertIsDisplayed().performClick()
+        waitForIdle()
+        assertEquals("t-open-ui", confirmedCloseId)
     }
 }

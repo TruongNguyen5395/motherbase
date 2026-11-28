@@ -78,6 +78,27 @@ class DirectusTasksApi(private val client: HttpClient) {
         }
     }.map { lenientJson.decodeFromString<DirectusBoardResponse>(it.bodyAsText()) }
 
+    suspend fun fetchCompletedTasks(
+        url: GatewayUrl,
+        query: String? = null,
+        projectId: String? = null,
+        bot: String? = null,
+        limit: Int = 50,
+        offset: Int = 0,
+    ): ApiResult<CompletedTasksResponse> = apiCall {
+        client.get(url.resolve("api/plugins/$PLUGIN/tasks/completed")) {
+            query?.trim()?.takeIf { it.isNotEmpty() }?.let { parameter("q", it) }
+            projectId?.trim()?.takeIf { it.isNotEmpty() }?.let { parameter("project_id", it) }
+            bot?.trim()?.takeIf { it.isNotEmpty() }?.let { parameter("bot", it) }
+            parameter("limit", limit)
+            parameter("offset", offset)
+        }
+    }.map { lenientJson.decodeFromString<CompletedTasksResponse>(it.bodyAsText()) }
+
+    suspend fun getTask(url: GatewayUrl, taskId: String): ApiResult<DirectusTask> = apiCall {
+        client.get(url.resolve("api/plugins/$PLUGIN/tasks/${taskId.encodeURLPathPart()}"))
+    }.map { lenientJson.decodeFromString<TaskEnvelope>(it.bodyAsText()).task }
+
     suspend fun listProjects(url: GatewayUrl, includeArchived: Boolean = false): ApiResult<List<DirectusProject>> = apiCall {
         client.get(url.resolve("api/plugins/$PLUGIN/projects")) {
             if (includeArchived) parameter("include_archived", true)

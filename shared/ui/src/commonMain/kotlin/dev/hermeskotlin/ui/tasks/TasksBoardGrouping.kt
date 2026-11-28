@@ -9,6 +9,7 @@ import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.ui.components.TimeWords
 import dev.hermeskotlin.ui.components.fill
 import dev.hermeskotlin.ui.components.localMoment
+import dev.hermeskotlin.ui.components.messageTime
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
@@ -18,7 +19,7 @@ internal const val DEFAULT_ATTENTION_PRIORITY_LIMIT = 6
 internal const val UNASSIGNED_PROJECT_BUCKET_ID = "__unassigned__"
 internal const val STANDALONE_WORKSTREAM_KEY = "__standalone__"
 
-enum class TasksBoardViewMode { PROJECTS, MATRIX }
+enum class TasksBoardViewMode { PROJECTS, MATRIX, COMPLETED }
 
 enum class TaskFocusGrouping { WORKSTREAM, STATUS, MATRIX }
 
@@ -61,6 +62,38 @@ internal data class AttentionSplit(
 }
 
 private val EXPLICIT_TZ_OFFSET_RE = Regex("""[+-]\d{2}:?\d{2}$""")
+
+/**
+ * Parses an ISO-8601 datetime (`2026-11-28T06:05:50Z`, `...+00:00`, or bare Directus UTC
+ * `2026-11-28T06:05:50` / `2026-11-28 06:05:50`) into epoch milliseconds. Returns null on blank
+ * or non-datetime strings.
+ */
+@OptIn(ExperimentalTime::class)
+internal fun parseUtcOrOffsetIsoMillis(raw: String?): Long? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty()) return null
+    val isoLike = if ('T' !in trimmed && ' ' in trimmed) trimmed.replaceFirst(' ', 'T') else trimmed
+    val timePart = isoLike.substringAfter('T', "")
+    if (timePart.isEmpty()) return null
+    val hasExplicitTz = timePart.endsWith("Z", ignoreCase = true) || EXPLICIT_TZ_OFFSET_RE.containsMatchIn(timePart)
+    val normalized = if (hasExplicitTz) isoLike else "${isoLike}Z"
+    return runCatching { Instant.parse(normalized).toEpochMilliseconds() }.getOrNull()
+}
+
+/** Formats a Directus UTC or offset datetime into a concise local clock/date label using [messageTime]. */
+@OptIn(ExperimentalTime::class)
+internal fun formatCompletedTimestamp(
+    raw: String?,
+    use24Hour: Boolean = true,
+    nowMillis: Long = Clock.System.now().toEpochMilliseconds(),
+    words: TimeWords = TimeWords.current,
+): String? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty()) return null
+    val millis = parseUtcOrOffsetIsoMillis(trimmed)
+        ?: return trimmed.takeIf { it.length >= 10 && epochDayFromCivilIso(it) != null }?.take(10)
+    return messageTime(localMoment(millis), localMoment(nowMillis), use24Hour, words)
+}
 
 internal fun currentLocalEpochDay(): Long =
     localMoment(Clock.System.now().toEpochMilliseconds()).epochDay

@@ -157,4 +157,25 @@
     <string name="tasks_unread_empty">No tasks with unread replies</string>
     <string name="tasks_panel_title">Task</string>
     <string name="tasks_unread_empty_body">You are caught up on all agent replies.</string>
+    <string name="tasks_view_completed">Completed</string>
+    <string name="tasks_completed_search_placeholder">Search completed tasks, work logs, projects…</string>
+    <string name="tasks_completed_filter_all_projects">All projects</string>
+    <string name="tasks_completed_filter_all_agents">All agents</string>
+    <string name="tasks_completed_count">%1$d completed</string>
+    <string name="tasks_completed_load_more">Load more</string>
+    <string name="tasks_completed_empty">No completed tasks yet</string>
+    <string name="tasks_completed_filtered_empty">No completed tasks match your filters</string>
+    <string name="tasks_completed_clear_filters">Clear filters</string>
+    <string name="tasks_completed_retry">Retry</string>
+    <string name="tasks_completed_at_label">Completed %1$s</string>
+    <string name="tasks_completed_banner">Completed · Managed session archived</string>
+    <string name="tasks_completed_banner_simple">Completed</string>
+    <string name="tasks_completed_archived_project_badge">Archived</string>
+    <string name="tasks_reopen_task">Reopen</string>
+    <string name="tasks_close_task">Close task</string>
+    <string name="tasks_close_confirm_title">Close this task?</string>
+    <string name="tasks_close_confirm_body">Marks “%1$s” as Done and archives any managed agent session linked only to this task.</string>
+    <string name="tasks_close_confirm_action">Confirm close</string>
+    <string name="tasks_work_logs_title">Work logs (%1$d)</string>
+    <string name="tasks_work_logs_empty">No work logs recorded</string>
 </resources>

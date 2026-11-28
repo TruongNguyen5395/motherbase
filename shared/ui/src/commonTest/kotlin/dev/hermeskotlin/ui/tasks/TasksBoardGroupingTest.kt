@@ -7,11 +7,16 @@ import dev.hermeskotlin.core.tasks.MatrixLevel
 import dev.hermeskotlin.core.tasks.TaskChannel
 import dev.hermeskotlin.core.tasks.TaskContext
 import dev.hermeskotlin.core.tasks.TaskReplyStatus
+import dev.hermeskotlin.ui.components.TimeWords
+import dev.hermeskotlin.ui.components.localMoment
+import dev.hermeskotlin.ui.components.messageTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 class TasksBoardGroupingTest {
 
@@ -259,5 +264,27 @@ class TasksBoardGroupingTest {
             ),
         )
         assertFalse(isTaskActivelyRunning(doneTask, runningSessionIds = setOf("sess-live"), activeTurnOverride = true))
+    }
+
+    @OptIn(ExperimentalTime::class)
+    @Test
+    fun parseUtcOrOffsetIsoMillisAndFormatCompletedTimestampHandleDirectusUtcAndOffsets() {
+        val expectedMillis = Instant.parse("2026-11-28T06:05:50Z").toEpochMilliseconds()
+        assertEquals(expectedMillis, parseUtcOrOffsetIsoMillis("2026-11-28T06:05:50Z"))
+        assertEquals(expectedMillis, parseUtcOrOffsetIsoMillis("2026-11-28T06:05:50+00:00"))
+        assertEquals(expectedMillis, parseUtcOrOffsetIsoMillis("2026-11-28T06:05:50"))
+        assertEquals(expectedMillis, parseUtcOrOffsetIsoMillis("2026-11-28 06:05:50"))
+        assertNull(parseUtcOrOffsetIsoMillis("2026-11-28"))
+        assertNull(parseUtcOrOffsetIsoMillis("  "))
+        assertNull(parseUtcOrOffsetIsoMillis(null))
+
+        val words = TimeWords()
+        val sameDayNow = Instant.parse("2026-11-28T10:00:00Z").toEpochMilliseconds()
+        assertEquals(
+            messageTime(localMoment(expectedMillis), localMoment(sameDayNow), true, words),
+            formatCompletedTimestamp("2026-11-28T06:05:50", use24Hour = true, nowMillis = sameDayNow, words = words),
+        )
+        assertEquals("2026-11-28", formatCompletedTimestamp("2026-11-28", use24Hour = true, nowMillis = sameDayNow, words = words))
+        assertNull(formatCompletedTimestamp(null, words = words))
     }
 }

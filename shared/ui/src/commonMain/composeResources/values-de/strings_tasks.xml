@@ -157,4 +157,25 @@
     <string name="tasks_unread_empty">Keine Aufgaben mit ungelesenen Antworten</string>
     <string name="tasks_panel_title">Aufgabe</string>
     <string name="tasks_unread_empty_body">Alle Agent-Antworten wurden gelesen.</string>
+    <string name="tasks_view_completed">Erledigt</string>
+    <string name="tasks_completed_search_placeholder">Erledigte Aufgaben, Arbeitsprotokolle, Projekte durchsuchen…</string>
+    <string name="tasks_completed_filter_all_projects">Alle Projekte</string>
+    <string name="tasks_completed_filter_all_agents">Alle Agenten</string>
+    <string name="tasks_completed_count">%1$d erledigt</string>
+    <string name="tasks_completed_load_more">Mehr laden</string>
+    <string name="tasks_completed_empty">Noch keine erledigten Aufgaben</string>
+    <string name="tasks_completed_filtered_empty">Keine erledigten Aufgaben entsprechen den Filtern</string>
+    <string name="tasks_completed_clear_filters">Filter zurücksetzen</string>
+    <string name="tasks_completed_retry">Erneut versuchen</string>
+    <string name="tasks_completed_at_label">Erledigt %1$s</string>
+    <string name="tasks_completed_banner">Erledigt · Verwaltete Sitzung archiviert</string>
+    <string name="tasks_completed_banner_simple">Erledigt</string>
+    <string name="tasks_completed_archived_project_badge">Archiviert</string>
+    <string name="tasks_reopen_task">Wieder öffnen</string>
+    <string name="tasks_close_task">Aufgabe schließen</string>
+    <string name="tasks_close_confirm_title">Diese Aufgabe schließen?</string>
+    <string name="tasks_close_confirm_body">Markiert „%1$s“ als Erledigt und archiviert alle verwalteten Agent-Sitzungen, die nur mit dieser Aufgabe verknüpft sind.</string>
+    <string name="tasks_close_confirm_action">Schließen bestätigen</string>
+    <string name="tasks_work_logs_title">Arbeitsprotokolle (%1$d)</string>
+    <string name="tasks_work_logs_empty">Keine Arbeitsprotokolle erfasst</string>
 </resources>

@@ -157,4 +157,25 @@
     <string name="tasks_unread_empty">暂无未读回复的任务</string>
     <string name="tasks_panel_title">任务</string>
     <string name="tasks_unread_empty_body">所有智能体回复都已查看。</string>
+    <string name="tasks_view_completed">已完成</string>
+    <string name="tasks_completed_search_placeholder">搜索已完成任务、工作日志、项目…</string>
+    <string name="tasks_completed_filter_all_projects">全部项目</string>
+    <string name="tasks_completed_filter_all_agents">全部智能体</string>
+    <string name="tasks_completed_count">已完成 %1$d 项</string>
+    <string name="tasks_completed_load_more">加载更多</string>
+    <string name="tasks_completed_empty">暂无已完成任务</string>
+    <string name="tasks_completed_filtered_empty">没有符合筛选条件的已完成任务</string>
+    <string name="tasks_completed_clear_filters">清除筛选</string>
+    <string name="tasks_completed_retry">重试</string>
+    <string name="tasks_completed_at_label">完成于 %1$s</string>
+    <string name="tasks_completed_banner">已完成 · 受管会话已归档</string>
+    <string name="tasks_completed_banner_simple">已完成</string>
+    <string name="tasks_completed_archived_project_badge">已归档</string>
+    <string name="tasks_reopen_task">重新打开</string>
+    <string name="tasks_close_task">关闭任务</string>
+    <string name="tasks_close_confirm_title">关闭此任务？</string>
+    <string name="tasks_close_confirm_body">将“%1$s”标记为已完成，并归档仅关联此任务的受管智能体会话。</string>
+    <string name="tasks_close_confirm_action">确认关闭</string>
+    <string name="tasks_work_logs_title">工作日志 (%1$d)</string>
+    <string name="tasks_work_logs_empty">暂无工作日志</string>
 </resources>

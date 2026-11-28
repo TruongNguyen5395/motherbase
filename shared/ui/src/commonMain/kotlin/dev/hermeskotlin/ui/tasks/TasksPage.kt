@@ -54,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,6 +85,7 @@ import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.ChevronUp
+import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.Folder
@@ -97,6 +99,7 @@ import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
 import com.composables.icons.lucide.RotateCcw
+import com.composables.icons.lucide.Search
 import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.Target
@@ -126,6 +129,7 @@ import dev.hermeskotlin.core.projects.Project
 import dev.hermeskotlin.core.rooms.Room
 import dev.hermeskotlin.core.settings.AppSettings
 import dev.hermeskotlin.core.settings.SettingsStore
+import dev.hermeskotlin.core.tasks.CompletedTasksResponse
 import dev.hermeskotlin.core.tasks.DirectusProject
 import dev.hermeskotlin.core.tasks.DirectusTask
 import dev.hermeskotlin.core.tasks.DispatchCheckinSchedule
@@ -154,8 +158,10 @@ import dev.hermeskotlin.designsystem.components.ButtonSize
 import dev.hermeskotlin.designsystem.components.ButtonVariant
 import dev.hermeskotlin.designsystem.components.Chip
 import dev.hermeskotlin.designsystem.components.Dialog
+import dev.hermeskotlin.designsystem.components.DropdownMenu
 import dev.hermeskotlin.designsystem.components.IconButton
 import dev.hermeskotlin.designsystem.components.MarkdownText
+import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.MinTouchTarget
 import dev.hermeskotlin.designsystem.components.Spinner
 import dev.hermeskotlin.designsystem.components.Switch
@@ -229,6 +235,8 @@ import dev.hermeskotlin.ui.chat.userBubbleShape
 import dev.hermeskotlin.ui.clearOfWindowControls
 import dev.hermeskotlin.ui.components.EmptyState
 import dev.hermeskotlin.ui.components.ListSkeleton
+import dev.hermeskotlin.ui.components.rememberTimeWords
+import dev.hermeskotlin.ui.components.uses24HourClock
 import dev.hermeskotlin.ui.enterSends
 import dev.hermeskotlin.ui.hasVoice
 import dev.hermeskotlin.ui.imeVisible
@@ -306,6 +314,14 @@ internal data class TasksBoardActions(
     val onUpdateProposal: (String, UpdateProposalRequest) -> Unit = { _, _ -> },
     val onRestageProposal: (String) -> Unit = {},
     val onDeleteProposal: (String) -> Unit = {},
+    val onRefreshCompleted: () -> Unit = {},
+    val onLoadMoreCompleted: () -> Unit = {},
+    val onSetCompletedQuery: (String) -> Unit = {},
+    val onSetCompletedProjectFilter: (String?) -> Unit = {},
+    val onSetCompletedBotFilter: (String?) -> Unit = {},
+    val onClearCompletedFilters: () -> Unit = {},
+    val onReopenTask: (String) -> Unit = {},
+    val onConfirmCloseTask: (String) -> Unit = {},
 )
 
 private val DEFAULT_DISPATCH_RAIL_WIDTH = 460.dp
@@ -502,6 +518,14 @@ internal fun TasksPage(
             onUpdateProposal = viewModel::updateScheduleProposal,
             onRestageProposal = viewModel::restageScheduleProposal,
             onDeleteProposal = viewModel::deleteScheduleProposal,
+            onRefreshCompleted = viewModel::refreshCompletedTasks,
+            onLoadMoreCompleted = viewModel::loadMoreCompletedTasks,
+            onSetCompletedQuery = viewModel::setCompletedQuery,
+            onSetCompletedProjectFilter = viewModel::setCompletedProjectFilter,
+            onSetCompletedBotFilter = viewModel::setCompletedBotFilter,
+            onClearCompletedFilters = viewModel::clearCompletedFilters,
+            onReopenTask = viewModel::reopenTask,
+            onConfirmCloseTask = viewModel::confirmCloseTask,
         )
     }
 
@@ -688,9 +712,12 @@ internal fun TasksBoardContent(
                     onDeleteProposal = actions.onDeleteProposal,
                 )
             } else if (selected != null) {
+                val inspectorProjects = remember(state.projects, state.completedProjects) {
+                    (state.projects + state.completedProjects).distinctBy { it.id }
+                }
                 TaskDetailInspector(
                     task = selected,
-                    projects = state.projects,
+                    projects = inspectorProjects,
                     bots = state.bots,
                     botAvatars = state.botAvatars,
                     todayEpochDay = state.todayEpochDay,
@@ -721,6 +748,8 @@ internal fun TasksBoardContent(
                     onClose = { actions.onSelectTask(null) },
                     onAssignProject = { pid -> actions.onAssignProject(selected.id, pid) },
                     onUpdateStatus = { status -> actions.onUpdateStatus(selected.id, status) },
+                    onConfirmClose = { actions.onConfirmCloseTask(selected.id) },
+                    onReopen = { actions.onReopenTask(selected.id) },
                     onUpdateMatrix = { imp, urg -> actions.onUpdateTaskMatrix(selected.id, imp, urg) },
                     onSelectChannel = actions.onSelectChannel,
                     onRefreshChannel = actions.onRefreshChannel,
@@ -839,6 +868,16 @@ internal fun TasksBoardContent(
                         saving = state.savingConfig,
                         error = state.configError,
                         onSave = actions.onSaveConfigAndCoordinator,
+                    )
+                    state.boardViewMode == TasksBoardViewMode.COMPLETED -> CompletedTasksBoard(
+                        state = state,
+                        onSelectTask = selectAndOpen,
+                        onQueryChange = actions.onSetCompletedQuery,
+                        onSelectProjectFilter = actions.onSetCompletedProjectFilter,
+                        onSelectBotFilter = actions.onSetCompletedBotFilter,
+                        onClearFilters = actions.onClearCompletedFilters,
+                        onRefresh = actions.onRefreshCompleted,
+                        onLoadMore = actions.onLoadMoreCompleted,
                     )
                     state.error != null && state.tasks.isEmpty() -> EmptyState(
                         icon = Lucide.TriangleAlert,
@@ -1014,6 +1053,7 @@ private fun BoardControlsBar(
         buildProjectBuckets(state.projects, state.tasks, state.todayEpochDay, state.replyBadges)
     }
     val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
+    val isCompletedMode = state.boardViewMode == TasksBoardViewMode.COMPLETED
 
     Column(
         Modifier.fillMaxWidth().padding(bottom = 4.dp),
@@ -1025,35 +1065,46 @@ private fun BoardControlsBar(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier
-                    .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
-                    .background(Theme[colors][surface])
-                    .border(1.dp, Theme[colors][stroke], RoundedCornerShape(Theme[radii][radiusMedium]))
-                    .toggleable(value = state.showPriorityStrip, role = Role.Switch, onValueChange = onTogglePriorityStrip)
-                    .handCursor()
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    stringResource(Res.string.tasks_priority_toggle),
-                    style = Theme[typography][labelStyle],
-                    color = Theme[colors][textColor],
-                )
-                Switch(checked = state.showPriorityStrip)
+            if (!isCompletedMode) {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(Theme[radii][radiusMedium]))
+                        .background(Theme[colors][surface])
+                        .border(1.dp, Theme[colors][stroke], RoundedCornerShape(Theme[radii][radiusMedium]))
+                        .toggleable(value = state.showPriorityStrip, role = Role.Switch, onValueChange = onTogglePriorityStrip)
+                        .handCursor()
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(Res.string.tasks_priority_toggle),
+                        style = Theme[typography][labelStyle],
+                        color = Theme[colors][textColor],
+                    )
+                    Switch(checked = state.showPriorityStrip)
+                }
             }
 
-            if (state.focusedProjectId == null) {
+            if (state.focusedProjectId == null || isCompletedMode) {
                 Chip(
                     text = stringResource(Res.string.tasks_view_projects),
                     selected = state.boardViewMode == TasksBoardViewMode.PROJECTS,
                     onClick = { onSetBoardViewMode(TasksBoardViewMode.PROJECTS) },
+                    modifier = Modifier.testTag("board_view_projects"),
                 )
                 Chip(
                     text = stringResource(Res.string.tasks_view_matrix),
                     selected = state.boardViewMode == TasksBoardViewMode.MATRIX,
                     onClick = { onSetBoardViewMode(TasksBoardViewMode.MATRIX) },
+                    modifier = Modifier.testTag("board_view_matrix"),
+                )
+                Chip(
+                    text = stringResource(Res.string.tasks_view_completed),
+                    count = state.completedTotal.takeIf { it > 0 },
+                    selected = isCompletedMode,
+                    onClick = { onSetBoardViewMode(TasksBoardViewMode.COMPLETED) },
+                    modifier = Modifier.testTag("board_view_completed"),
                 )
             } else {
                 Chip(
@@ -1073,23 +1124,25 @@ private fun BoardControlsBar(
                 )
             }
 
-            Chip(
-                text = stringResource(Res.string.tasks_filter_unread),
-                count = state.unreadCount.takeIf { it > 0 },
-                countColor = Theme[colors][success],
-                selected = state.unreadOnly,
-                onClick = onToggleUnreadOnly,
-                modifier = Modifier.testTag("board_filter_unread"),
-            )
+            if (!isCompletedMode) {
+                Chip(
+                    text = stringResource(Res.string.tasks_filter_unread),
+                    count = state.unreadCount.takeIf { it > 0 },
+                    countColor = Theme[colors][success],
+                    selected = state.unreadOnly,
+                    onClick = onToggleUnreadOnly,
+                    modifier = Modifier.testTag("board_filter_unread"),
+                )
 
-            Chip(
-                text = stringResource(if (state.includeDone) Res.string.tasks_hide_done else Res.string.tasks_show_done),
-                selected = state.includeDone,
-                onClick = onToggleIncludeDone,
-            )
+                Chip(
+                    text = stringResource(if (state.includeDone) Res.string.tasks_hide_done else Res.string.tasks_show_done),
+                    selected = state.includeDone,
+                    onClick = onToggleIncludeDone,
+                )
+            }
         }
 
-        if (buckets.isNotEmpty()) {
+        if (!isCompletedMode && buckets.isNotEmpty()) {
             LazyRow(
                 Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
@@ -1180,6 +1233,351 @@ private fun DirectusSetupPanel(
                 loading = saving,
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CompletedTasksBoard(
+    state: TasksUiState,
+    onSelectTask: (String?) -> Unit,
+    onQueryChange: (String) -> Unit,
+    onSelectProjectFilter: (String?) -> Unit,
+    onSelectBotFilter: (String?) -> Unit,
+    onClearFilters: () -> Unit,
+    onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
+) {
+    val searchState = rememberTextFieldState(state.completedQuery)
+    val latestStateQuery by rememberUpdatedState(state.completedQuery)
+    LaunchedEffect(state.completedQuery) {
+        if (searchState.text.toString() != state.completedQuery) {
+            searchState.setTextAndPlaceCursorAtEnd(state.completedQuery)
+        }
+    }
+    LaunchedEffect(searchState) {
+        snapshotFlow { searchState.text.toString() }.collect { typed ->
+            if (typed != latestStateQuery) {
+                onQueryChange(typed)
+            }
+        }
+    }
+
+    val allProjects = remember(state.completedProjects, state.projects) {
+        (state.completedProjects + state.projects).distinctBy { it.id }
+    }
+    val projectById = remember(allProjects) { allProjects.associateBy { it.id } }
+    val botChoices = remember(state.bots, state.completedTasks) {
+        (
+            state.bots.filterNot { it.meta.hidden }.map { it.name } +
+                state.completedTasks.flatMap { it.assignedBots }
+            )
+            .map { it.trim().removePrefix("@") }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+    }
+    val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
+    val archivedLabel = stringResource(Res.string.tasks_completed_archived_project_badge)
+    var botMenuOpen by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextField(
+                state = searchState,
+                placeholder = stringResource(Res.string.tasks_completed_search_placeholder),
+                leadingIcon = Lucide.Search,
+                clearable = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("completed_search_field"),
+            )
+
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
+                DropdownMenu(
+                    expanded = botMenuOpen,
+                    onExpandedChange = { botMenuOpen = it },
+                    items = {
+                        MenuChoice(
+                            text = stringResource(Res.string.tasks_completed_filter_all_agents),
+                            icon = Lucide.Bot,
+                            selected = state.completedBotFilter == null,
+                            onClick = {
+                                botMenuOpen = false
+                                onSelectBotFilter(null)
+                            },
+                        )
+                        botChoices.forEach { botName ->
+                            MenuChoice(
+                                text = "@$botName",
+                                icon = Lucide.Bot,
+                                selected = state.completedBotFilter.equals(botName, ignoreCase = true),
+                                onClick = {
+                                    botMenuOpen = false
+                                    onSelectBotFilter(botName)
+                                },
+                            )
+                        }
+                    },
+                ) {
+                    PickerPill(
+                        icon = Lucide.Bot,
+                        label = state.completedBotFilter?.let { "@$it" }
+                            ?: stringResource(Res.string.tasks_completed_filter_all_agents),
+                        onClick = { botMenuOpen = true },
+                    )
+                }
+
+                if (state.completedTotal > 0) {
+                    Text(
+                        stringResource(Res.string.tasks_completed_count, state.completedTotal),
+                        style = Theme[typography][caption],
+                        color = Theme[colors][textSecondary],
+                    )
+                }
+            }
+        }
+
+        if (allProjects.isNotEmpty() || state.completedProjectFilter != null) {
+            LazyRow(
+                Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item(key = "completed-proj-all") {
+                    Chip(
+                        text = stringResource(Res.string.tasks_completed_filter_all_projects),
+                        selected = state.completedProjectFilter == null,
+                        onClick = { onSelectProjectFilter(null) },
+                    )
+                }
+                item(key = "completed-proj-unassigned") {
+                    val active = state.completedProjectFilter == CompletedTasksResponse.UNASSIGNED_PROJECT_FILTER
+                    Chip(
+                        text = unassignedLabel,
+                        selected = active,
+                        onClick = {
+                            onSelectProjectFilter(
+                                if (active) null else CompletedTasksResponse.UNASSIGNED_PROJECT_FILTER,
+                            )
+                        },
+                    )
+                }
+                items(allProjects.size, key = { idx -> "completed-proj-${allProjects[idx].id}" }) { idx ->
+                    val proj = allProjects[idx]
+                    val active = state.completedProjectFilter == proj.id
+                    val label = if (proj.archived) "${proj.name} ($archivedLabel)" else proj.name
+                    Chip(
+                        text = label,
+                        selected = active,
+                        onClick = { onSelectProjectFilter(if (active) null else proj.id) },
+                    )
+                }
+            }
+        }
+
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                state.completedLoading && state.completedTasks.isEmpty() -> ListSkeleton()
+                state.completedError != null && state.completedTasks.isEmpty() -> EmptyState(
+                    icon = Lucide.TriangleAlert,
+                    title = stringResource(Res.string.tasks_error_load),
+                    body = state.completedError,
+                    error = true,
+                    action = {
+                        Button(
+                            text = stringResource(Res.string.tasks_completed_retry),
+                            onClick = onRefresh,
+                            variant = ButtonVariant.Secondary,
+                            leadingIcon = Lucide.RefreshCw,
+                        )
+                    },
+                )
+                state.completedTasks.isEmpty() -> {
+                    val hasFilters = state.completedQuery.isNotBlank() ||
+                        state.completedProjectFilter != null ||
+                        state.completedBotFilter != null
+                    if (hasFilters) {
+                        EmptyState(
+                            icon = Lucide.Search,
+                            title = stringResource(Res.string.tasks_completed_filtered_empty),
+                            action = {
+                                Button(
+                                    text = stringResource(Res.string.tasks_completed_clear_filters),
+                                    onClick = onClearFilters,
+                                    variant = ButtonVariant.Secondary,
+                                )
+                            },
+                        )
+                    } else {
+                        EmptyState(
+                            icon = Lucide.CircleCheck,
+                            title = stringResource(Res.string.tasks_completed_empty),
+                        )
+                    }
+                }
+                else -> LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(state.completedTasks.size, key = { idx -> state.completedTasks[idx].id }) { idx ->
+                        val task = state.completedTasks[idx]
+                        CompletedTaskCard(
+                            task = task,
+                            project = task.projectId?.let { pid -> projectById[pid] },
+                            unassignedLabel = unassignedLabel,
+                            archivedLabel = archivedLabel,
+                            selected = state.selectedTaskId == task.id,
+                            onClick = { onSelectTask(task.id) },
+                        )
+                    }
+                    if (state.completedHasMore) {
+                        item(key = "completed-load-more") {
+                            Box(
+                                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Button(
+                                    text = stringResource(Res.string.tasks_completed_load_more),
+                                    onClick = onLoadMore,
+                                    loading = state.completedLoadingMore,
+                                    variant = ButtonVariant.Secondary,
+                                    modifier = Modifier.testTag("completed_load_more_button"),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CompletedTaskCard(
+    task: DirectusTask,
+    project: DirectusProject?,
+    unassignedLabel: String,
+    archivedLabel: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val use24Hour = uses24HourClock()
+    val timeWords = rememberTimeWords()
+    val completedLabel = remember(task.completedAt, task.statusChangedAt, use24Hour, timeWords) {
+        formatCompletedTimestamp(task.completedAt ?: task.statusChangedAt, use24Hour = use24Hour, words = timeWords)
+    }
+    val latestLog = remember(task.workLogs) {
+        task.workLogs.lastOrNull()?.content?.trim()?.takeIf { it.isNotEmpty() }
+    }
+    val shape = RoundedCornerShape(Theme[radii][radiusLarge])
+    val borderColor = if (selected) Theme[colors][accent] else Theme[colors][stroke]
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .testTag("completed_task_${task.id}")
+            .clip(shape)
+            .background(if (selected) Theme[colors][accentSoft].copy(alpha = 0.45f) else Theme[colors][surface])
+            .border(if (selected) 1.5.dp else 1.dp, borderColor, shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .handCursor()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            UnstyledIcon(
+                Lucide.CircleCheck,
+                contentDescription = null,
+                tint = Theme[colors][success],
+                modifier = Modifier.padding(top = 2.dp).size(16.dp),
+            )
+            Text(
+                task.title,
+                style = Theme[typography][body].copy(fontWeight = FontWeight.Medium),
+                color = Theme[colors][textColor],
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (completedLabel != null) {
+                MiniBadge(
+                    text = stringResource(Res.string.tasks_completed_at_label, completedLabel),
+                    backgroundColor = Theme[colors][successSoft],
+                    contentColor = Theme[colors][success],
+                )
+            }
+        }
+
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val projectText = when {
+                project == null -> unassignedLabel
+                project.archived -> "${project.name} ($archivedLabel)"
+                else -> project.name
+            }
+            MiniBadge(
+                text = projectText,
+                backgroundColor = Theme[colors][surface2],
+                contentColor = if (project?.archived == true) Theme[colors][textTertiary] else Theme[colors][textSecondary],
+            )
+            task.assignedBots.forEach { bot ->
+                val clean = bot.trim().removePrefix("@")
+                if (clean.isNotEmpty()) {
+                    MiniBadge(
+                        text = "@$clean",
+                        backgroundColor = Theme[colors][accentSoft],
+                        contentColor = Theme[colors][accentText],
+                    )
+                }
+            }
+            task.channels.forEach { ch ->
+                val label = ch.label.trim().ifEmpty { ch.id }
+                MiniBadge(
+                    text = label,
+                    backgroundColor = Theme[colors][surface2],
+                    contentColor = Theme[colors][textSecondary],
+                )
+            }
+        }
+
+        if (latestLog != null) {
+            val logShape = RoundedCornerShape(Theme[radii][radiusSmall])
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(logShape)
+                    .background(Theme[colors][surface2])
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            ) {
+                Text(
+                    latestLog,
+                    style = Theme[typography][bodySmall],
+                    color = Theme[colors][textSecondary],
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -2481,6 +2879,8 @@ private fun TaskDetailInspector(
     onClose: () -> Unit,
     onAssignProject: (String?) -> Unit,
     onUpdateStatus: (String) -> Unit,
+    onConfirmClose: () -> Unit = { onUpdateStatus(DirectusTask.STATUS_DONE) },
+    onReopen: () -> Unit = { onUpdateStatus(DirectusTask.STATUS_IN_PROGRESS) },
     onUpdateMatrix: (MatrixLevel, MatrixLevel) -> Unit,
     onSelectChannel: (Int) -> Unit,
     onRefreshChannel: () -> Unit,
@@ -2513,9 +2913,10 @@ private fun TaskDetailInspector(
 ) {
     val steerState = rememberTextFieldState("")
     LaunchedEffect(task.id) { steerState.clearText() }
-    var detailsExpanded by remember(task.id) { mutableStateOf(false) }
+    var detailsExpanded by remember(task.id) { mutableStateOf(task.status == DirectusTask.STATUS_DONE && task.workLogs.isNotEmpty()) }
     var descExpanded by remember(task.id) { mutableStateOf(false) }
     var matrixPadOpen by remember(task.id) { mutableStateOf(false) }
+    var confirmCloseOpen by remember(task.id) { mutableStateOf(false) }
     val matrixPos = remember(task, todayEpochDay) { resolveTaskMatrix(task, todayEpochDay) }
     val unassignedLabel = stringResource(Res.string.tasks_unassigned_project)
     val currentProjectLabel = projects.firstOrNull { it.id == task.projectId }?.name ?: unassignedLabel
@@ -2606,6 +3007,33 @@ private fun TaskDetailInspector(
                     RunningPillBadge(agentState = task.agentState, isRunning = running)
                 }
             }
+            if (task.status != DirectusTask.STATUS_DONE) {
+                Row(
+                    Modifier
+                        .testTag("inspector_close_task_button")
+                        .clip(toggleShape)
+                        .background(Theme[colors][surface])
+                        .border(1.dp, Theme[colors][strokeStrong], toggleShape)
+                        .clickable(enabled = !busy, role = Role.Button) { confirmCloseOpen = true }
+                        .handCursor(enabled = !busy)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UnstyledIcon(
+                        Lucide.Check,
+                        contentDescription = null,
+                        tint = Theme[colors][success],
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Text(
+                        stringResource(Res.string.tasks_close_task),
+                        style = Theme[typography][caption].copy(fontWeight = FontWeight.Medium),
+                        color = Theme[colors][textColor],
+                        maxLines = 1,
+                    )
+                }
+            }
             Row(
                 Modifier
                     .testTag("task_inspector_details_toggle")
@@ -2646,6 +3074,15 @@ private fun TaskDetailInspector(
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
         )
 
+        if (task.status == DirectusTask.STATUS_DONE) {
+            TaskCompletedBanner(
+                task = task,
+                busy = busy,
+                onReopen = onReopen,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+            )
+        }
+
         AnimatedVisibility(
             visible = detailsExpanded,
             enter = expandVertically() + fadeIn(),
@@ -2668,6 +3105,10 @@ private fun TaskDetailInspector(
                     )
                 }
 
+                if (task.workLogs.isNotEmpty()) {
+                    TaskWorkLogsSection(workLogs = task.workLogs)
+                }
+
                 TaskMetadataPickers(
                     currentProjectId = task.projectId,
                     currentProjectLabel = currentProjectLabel,
@@ -2676,7 +3117,13 @@ private fun TaskDetailInspector(
                     currentStatus = task.status,
                     matrixPosition = matrixPos,
                     onAssignProject = onAssignProject,
-                    onUpdateStatus = onUpdateStatus,
+                    onUpdateStatus = { st ->
+                        if (st == DirectusTask.STATUS_DONE && task.status != DirectusTask.STATUS_DONE) {
+                            confirmCloseOpen = true
+                        } else {
+                            onUpdateStatus(st)
+                        }
+                    },
                     onOpenMatrixPad = { matrixPadOpen = true },
                 )
 
@@ -2805,43 +3252,45 @@ private fun TaskDetailInspector(
             }
         }
 
-        // Docked plan bar directly above the composer: triggers plan prep or toggles the slide-up drawer.
-        TaskPlanDockBar(
-            hasPlan = plan != null,
-            pendingApproval = plan != null && plan.approvedAt == null,
-            expanded = plan != null && planSheetOpen,
-            busy = busy,
-            onClick = {
-                if (plan == null) {
-                    triggerPreparePlan()
-                } else {
-                    planSheetOpen = !planSheetOpen
-                }
-            },
-        )
+        if (task.status != DirectusTask.STATUS_DONE) {
+            // Docked plan bar directly above the composer: triggers plan prep or toggles the slide-up drawer.
+            TaskPlanDockBar(
+                hasPlan = plan != null,
+                pendingApproval = plan != null && plan.approvedAt == null,
+                expanded = plan != null && planSheetOpen,
+                busy = busy,
+                onClick = {
+                    if (plan == null) {
+                        triggerPreparePlan()
+                    } else {
+                        planSheetOpen = !planSheetOpen
+                    }
+                },
+            )
 
-        // Two-row floating composer matching normal chat (+ attachments, model picker, voice dictation, multiline input, send).
-        TaskChatComposer(
-            state = steerState,
-            connected = gatewayConnected,
-            attachments = channelAttachments,
-            channelChatState = channelChatState,
-            modelPicker = modelPicker,
-            showModelPicker = activeChannel?.isRoom != true,
-            attachmentPicker = attachmentPicker,
-            dictation = dictation,
-            onToggleDictation = onToggleDictation,
-            onRemoveAttachment = onRemoveAttachment,
-            onAttach = onAttach,
-            onOpenModels = onOpenModels,
-            onSend = {
-                val txt = steerState.text.toString().trim()
-                if (txt.isNotEmpty() || channelAttachments.isNotEmpty()) {
-                    onSendToChannel(txt)
-                    steerState.clearText()
-                }
-            },
-        )
+            // Two-row floating composer matching normal chat (+ attachments, model picker, voice dictation, multiline input, send).
+            TaskChatComposer(
+                state = steerState,
+                connected = gatewayConnected,
+                attachments = channelAttachments,
+                channelChatState = channelChatState,
+                modelPicker = modelPicker,
+                showModelPicker = activeChannel?.isRoom != true,
+                attachmentPicker = attachmentPicker,
+                dictation = dictation,
+                onToggleDictation = onToggleDictation,
+                onRemoveAttachment = onRemoveAttachment,
+                onAttach = onAttach,
+                onOpenModels = onOpenModels,
+                onSend = {
+                    val txt = steerState.text.toString().trim()
+                    if (txt.isNotEmpty() || channelAttachments.isNotEmpty()) {
+                        onSendToChannel(txt)
+                        steerState.clearText()
+                    }
+                },
+            )
+        }
     }
 
     if (matrixPadOpen) {
@@ -2850,6 +3299,17 @@ private fun TaskDetailInspector(
             todayEpochDay = todayEpochDay,
             onDismiss = { matrixPadOpen = false },
             onApply = onUpdateMatrix,
+        )
+    }
+
+    if (confirmCloseOpen) {
+        ConfirmCloseTaskDialog(
+            taskTitle = task.title,
+            onDismiss = { confirmCloseOpen = false },
+            onConfirm = {
+                confirmCloseOpen = false
+                onConfirmClose()
+            },
         )
     }
 }
