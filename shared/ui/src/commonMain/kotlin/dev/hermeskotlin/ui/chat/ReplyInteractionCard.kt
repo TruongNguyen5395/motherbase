@@ -701,66 +701,72 @@ internal fun ScheduleProposalContent(
                     .fillMaxWidth()
                     .clip(rowShape)
                     .background(rowBg, rowShape)
-                    .border(1.dp, rowBorder, rowShape)
-                    .then(
-                        when {
-                            isStaged && enabled -> Modifier.handCursor().clickable(role = Role.Checkbox) {
-                                selectedOps[op.opId] = !checked
-                            }
-                            isEditable && enabled -> Modifier.handCursor().clickable(role = Role.Button) {
-                                editingOp = op
-                            }
-                            else -> Modifier
-                        },
-                    )
-                    .padding(start = 10.dp, end = if (isEditable) 4.dp else 10.dp, top = 7.dp, bottom = 7.dp)
-                    .testTag("proposal_op_row_$idx"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .border(1.dp, rowBorder, rowShape),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (isStaged) {
-                    UnstyledIcon(
-                        if (checked) Lucide.SquareCheck else Lucide.Square,
-                        contentDescription = null,
-                        tint = Theme[colors][if (checked) accentText else textTertiary],
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        op.title,
-                        style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
-                        color = Theme[colors][textColor],
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val timeLabel = formatProposalOpWindow(op, use24Hour)
-                    val meta = listOfNotNull(timeLabel, op.calendarName, op.reason).joinToString(" · ")
-                    if (meta.isNotBlank()) {
-                        Text(
-                            meta,
-                            style = Theme[typography][caption],
-                            color = Theme[colors][textSecondary],
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .then(
+                            when {
+                                isStaged && enabled -> Modifier.handCursor().clickable(role = Role.Checkbox) {
+                                    selectedOps[op.opId] = !checked
+                                }
+                                isEditable && enabled -> Modifier.handCursor().clickable(role = Role.Button) {
+                                    editingOp = op
+                                }
+                                else -> Modifier
+                            },
+                        )
+                        .padding(start = 10.dp, end = if (isEditable) 4.dp else 10.dp, top = 7.dp, bottom = 7.dp)
+                        .testTag("proposal_op_row_$idx"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isStaged) {
+                        UnstyledIcon(
+                            if (checked) Lucide.SquareCheck else Lucide.Square,
+                            contentDescription = null,
+                            tint = Theme[colors][if (checked) accentText else textTertiary],
+                            modifier = Modifier.size(16.dp),
                         )
                     }
-                    if (op.conflicts.isNotEmpty()) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            UnstyledIcon(
-                                Lucide.TriangleAlert,
-                                contentDescription = null,
-                                tint = Theme[colors][warning],
-                                modifier = Modifier.size(12.dp),
-                            )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            op.title,
+                            style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.Medium),
+                            color = Theme[colors][textColor],
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val timeLabel = formatProposalOpWindow(op, use24Hour)
+                        val meta = listOfNotNull(timeLabel, op.calendarName, op.reason).joinToString(" · ")
+                        if (meta.isNotBlank()) {
                             Text(
-                                stringResource(Res.string.cal_proposal_conflict_warning, op.conflicts.first().title),
+                                meta,
                                 style = Theme[typography][caption],
-                                color = Theme[colors][warning],
+                                color = Theme[colors][textSecondary],
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                             )
+                        }
+                        if (op.conflicts.isNotEmpty()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                UnstyledIcon(
+                                    Lucide.TriangleAlert,
+                                    contentDescription = null,
+                                    tint = Theme[colors][warning],
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                Text(
+                                    stringResource(Res.string.cal_proposal_conflict_warning, op.conflicts.first().title),
+                                    style = Theme[typography][caption],
+                                    color = Theme[colors][warning],
+                                )
+                            }
                         }
                     }
                 }
@@ -770,7 +776,7 @@ internal fun ScheduleProposalContent(
                         contentDescription = stringResource(Res.string.cal_proposal_edit_item),
                         onClick = { editingOp = op },
                         enabled = enabled,
-                        modifier = Modifier.testTag("proposal_op_edit_$idx"),
+                        modifier = Modifier.padding(end = 2.dp).testTag("proposal_op_edit_$idx"),
                     )
                 }
             }

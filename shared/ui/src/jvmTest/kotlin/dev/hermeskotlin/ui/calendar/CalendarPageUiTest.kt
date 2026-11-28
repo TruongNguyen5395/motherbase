@@ -449,16 +449,21 @@ class CalendarPageUiTest {
         onNodeWithText("Old Reverted Friday").assertDoesNotExist()
         onNodeWithText("Old Reverted Task").assertDoesNotExist()
         onNodeWithTag("calendar_proposals_toggle").assertIsDisplayed()
-        onNodeWithText("Write Release Notes").assertDoesNotExist()
+        onNodeWithText("Saturday Plan").assertDoesNotExist()
+        onNodeWithTag("proposal_apply_button").assertDoesNotExist()
+        assertEquals(1, onAllNodesWithText("Write Release Notes").fetchSemanticsNodes().size)
 
-        // Expanding reveals the staged item; collapsing hides it; delete button clears it cleanly.
+        // Expanding reveals the staged card; collapsing hides it; delete button clears it cleanly.
         onNodeWithTag("calendar_proposals_toggle").performClick()
         waitForIdle()
-        onNodeWithText("Write Release Notes").assertIsDisplayed()
+        onNodeWithText("Saturday Plan").assertIsDisplayed()
+        onNodeWithTag("proposal_apply_button").assertIsDisplayed()
+        assertEquals(2, onAllNodesWithText("Write Release Notes").fetchSemanticsNodes().size)
 
         onNodeWithTag("calendar_proposals_toggle").performClick()
         waitForIdle()
-        onNodeWithText("Write Release Notes").assertDoesNotExist()
+        onNodeWithText("Saturday Plan").assertDoesNotExist()
+        onNodeWithTag("proposal_apply_button").assertDoesNotExist()
 
         onNodeWithTag("calendar_proposals_clear_top").performClick()
         waitForIdle()

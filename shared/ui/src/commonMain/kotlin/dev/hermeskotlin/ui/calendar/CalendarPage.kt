@@ -1976,27 +1976,34 @@ private fun CalendarAgentPanel(
                 Modifier
                     .fillMaxWidth()
                     .background(Theme[colors][surface2])
-                    .clickable(role = Role.Button) { proposalsExpanded = !proposalsExpanded }
-                    .handCursor()
-                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
-                    .testTag("calendar_proposals_toggle"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                UnstyledIcon(
-                    Lucide.Calendar,
-                    contentDescription = null,
-                    tint = Theme[colors][accentText],
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    stringResource(Res.string.cal_proposal_staged_summary, stagedProposals.size),
-                    style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
-                    color = Theme[colors][textColor],
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .clickable(role = Role.Button) { proposalsExpanded = !proposalsExpanded }
+                        .handCursor()
+                        .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp)
+                        .testTag("calendar_proposals_toggle"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UnstyledIcon(
+                        Lucide.Calendar,
+                        contentDescription = null,
+                        tint = Theme[colors][accentText],
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(
+                        stringResource(Res.string.cal_proposal_staged_summary, stagedProposals.size),
+                        style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                        color = Theme[colors][textColor],
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 if (stagedProposals.size == 1) {
                     val onlyId = stagedProposals.first().id
                     IconButton(
