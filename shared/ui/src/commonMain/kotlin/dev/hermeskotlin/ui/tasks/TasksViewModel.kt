@@ -341,12 +341,7 @@ class TasksViewModel(
                     val nextRunning = runningMap.filterValues { it }.keys
                     latestAttentionRunningSessions = nextRunning
                     val ended = prevRunning - nextRunning
-                    val snapshotTasks = _state.value.tasks
-                    val newlyCleared = ended.mapNotNull { sid ->
-                        resolveOwningTaskId(sid)?.takeIf { tid ->
-                            snapshotTasks.firstOrNull { it.id == tid }?.agentState == TaskContext.STATE_RUNNING
-                        }
-                    }.toSet()
+                    val newlyCleared = ended.mapNotNull { sid -> resolveOwningTaskId(sid) }.toSet()
                     val newlyStarted = nextRunning.mapNotNull { resolveOwningTaskId(it) }.toSet()
                     _state.update { cur ->
                         cur.copy(
@@ -3129,11 +3124,10 @@ class TasksViewModel(
         }
         localTurnSessionIds.removeAll(sessionIdsToClear)
         _state.update { cur ->
-            val wasStaleOrRunning = owningTask?.agentState == TaskContext.STATE_RUNNING
             cur.copy(
                 liveRunningSessionIds = latestAttentionRunningSessions + localTurnSessionIds - sessionIdsToClear,
                 liveRunningTaskIds = if (taskId != null) cur.liveRunningTaskIds - taskId else cur.liveRunningTaskIds,
-                clearedStaleRunningTaskIds = if (taskId != null && wasStaleOrRunning) {
+                clearedStaleRunningTaskIds = if (taskId != null) {
                     cur.clearedStaleRunningTaskIds + taskId
                 } else {
                     cur.clearedStaleRunningTaskIds
