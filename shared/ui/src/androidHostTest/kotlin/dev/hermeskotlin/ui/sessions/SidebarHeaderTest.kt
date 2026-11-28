@@ -64,7 +64,7 @@ class SidebarHeaderTest {
         composeRule.onNodeWithText("MotherBase").performClick()
         settle()
         assertEquals(0, accountOpened)
-        composeRule.onNodeWithText("Switch gateway").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Switch or add a gateway").assertIsDisplayed().performClick()
         settle()
         assertEquals(1, gatewaysOpened)
     }

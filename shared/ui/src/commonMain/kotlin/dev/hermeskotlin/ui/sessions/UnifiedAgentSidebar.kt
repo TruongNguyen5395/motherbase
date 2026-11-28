@@ -925,7 +925,7 @@ internal fun UnifiedAgentSidebar(
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().testTag("unified_agent_sidebar_list"),
             contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 96.dp),
         ) {
             item(key = "top") { top() }

@@ -7,7 +7,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.composeunstyled.theme.ColorScheme
 import dev.hermeskotlin.core.bots.Bot
@@ -283,26 +283,31 @@ class UnifiedAgentSidebarTest {
         onNodeWithText("Recent chat 6").assertDoesNotExist()
 
         // Clicking Show all reveals capped recent row; Rooms sits below
+        val list = onNodeWithTag("unified_agent_sidebar_list")
         onNodeWithText("Show all (6)").performClick()
         waitForIdle()
-        onNodeWithText("Recent chat 6").performScrollTo().assertIsDisplayed()
-        onNodeWithText("Architecture Room").performScrollTo().assertIsDisplayed()
+        list.performScrollToKey("agent:coder:recent:r-6")
+        onNodeWithText("Recent chat 6").assertIsDisplayed()
+        list.performScrollToKey("room:room-1")
+        onNodeWithText("Architecture Room").assertIsDisplayed()
 
         // New chat button on Hermes header + expand toggle + agent menu -> Config
+        list.performScrollToKey("agent:default")
         onNodeWithContentDescription("New chat with Hermes").performClick()
         assertEquals("default", newChatBot)
 
         onNodeWithTag("agent_row_default").performClick()
         assertEquals("default", toggledBot)
 
-        onNodeWithContentDescription("Coder actions").performScrollTo().performClick()
+        list.performScrollToKey("agent:coder")
+        onNodeWithContentDescription("Coder actions").performClick()
         waitForIdle()
         onNodeWithText("Config").performClick()
         assertEquals("coder", openedConfigFor)
 
         // Active overview click jumps to Dispatch task
-        onNodeWithText("ACTIVE & NEEDS YOU").performScrollTo()
-        onNodeWithTag("active_item_dispatch:d-1").performScrollTo().performClick()
+        list.performScrollToKey("active:dispatch:d-1")
+        onNodeWithTag("active_item_dispatch:d-1").performClick()
         assertEquals("task-1", openedDispatchTask)
     }
 }
