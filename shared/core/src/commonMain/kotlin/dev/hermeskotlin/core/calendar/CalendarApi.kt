@@ -375,6 +375,24 @@ class CalendarApi(private val client: HttpClient) {
         }
     }.map { lenientJson.decodeFromString<ProposalEnvelope>(it.bodyAsText()).proposal }
 
+    suspend fun updateProposal(
+        url: GatewayUrl,
+        proposalId: String,
+        request: UpdateProposalRequest,
+    ): ApiResult<ScheduleProposal> = apiCall {
+        client.patch(url.resolve("api/plugins/$PLUGIN/proposals/${proposalId.encodeURLPathPart()}")) {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+    }.map { lenientJson.decodeFromString<ProposalEnvelope>(it.bodyAsText()).proposal }
+
+    suspend fun deleteProposal(
+        url: GatewayUrl,
+        proposalId: String,
+    ): ApiResult<Unit> = apiCall {
+        client.delete(url.resolve("api/plugins/$PLUGIN/proposals/${proposalId.encodeURLPathPart()}"))
+    }.map { }
+
     companion object {
         const val PLUGIN = "motherbase-calendar"
         private val lenientJson = Json(HermesJson) { isLenient = true }

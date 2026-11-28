@@ -131,4 +131,14 @@
     <string name="cal_agent_choose_pet">Choose pet</string>
     <string name="cal_agent_session_reset_done">Started a fresh calendar agent session.</string>
     <string name="cal_back_to_calendar">Back to Calendar</string>
+    <string name="cal_proposal_staged_summary">%1$d pending proposal(s)</string>
+    <string name="cal_proposal_show">Show</string>
+    <string name="cal_proposal_hide">Hide</string>
+    <string name="cal_proposal_edit_item">Edit item</string>
+    <string name="cal_proposal_save_item">Save changes</string>
+    <string name="cal_proposal_remove_item">Remove item</string>
+    <string name="cal_proposal_restage">Re-stage</string>
+    <string name="cal_proposal_delete">Delete</string>
+    <string name="cal_proposal_deleted">Deleted</string>
+    <string name="cal_proposal_item_title">Title</string>
 </resources>

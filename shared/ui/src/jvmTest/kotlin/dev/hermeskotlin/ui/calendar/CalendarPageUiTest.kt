@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -17,6 +18,7 @@ import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.composeunstyled.theme.ColorScheme
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.calendar.CalendarAgentConfig
+import dev.hermeskotlin.core.calendar.ScheduleOperation
 import dev.hermeskotlin.core.calendar.ScheduleProposal
 import dev.hermeskotlin.designsystem.HermesTheme
 import dev.hermeskotlin.designsystem.LocalDesktopLayout
@@ -385,5 +387,82 @@ class CalendarPageUiTest {
         onNodeWithText("Save").performClick()
         waitForIdle()
         assertEquals("planner", savedProfile)
+    }
+
+    @Test
+    fun compactAgentSheetHidesRevertedProposalsAndCollapsesStagedStripByDefault() = runDesktopComposeUiTest(width = 760, height = 960) {
+        val base = PageSamples.calendar(CalendarViewMode.FOUR_DAYS)
+        val revertedProposal = ScheduleProposal(
+            id = "prop-reverted",
+            title = "Old Reverted Friday",
+            targetDate = "2026-11-27",
+            status = ScheduleProposal.STATUS_REVERTED,
+            operations = listOf(
+                ScheduleOperation(
+                    opId = "op-rev",
+                    kind = "create_event",
+                    title = "Old Reverted Task",
+                    startAt = "2026-11-27T02:00:00Z",
+                    endAt = "2026-11-27T03:00:00Z",
+                ),
+            ),
+        )
+        val stagedProposal = ScheduleProposal(
+            id = "prop-staged",
+            title = "Saturday Plan",
+            targetDate = "2026-11-28",
+            status = ScheduleProposal.STATUS_STAGED,
+            operations = listOf(
+                ScheduleOperation(
+                    opId = "op-stg",
+                    kind = "create_event",
+                    title = "Write Release Notes",
+                    startAt = "2026-11-28T03:00:00Z",
+                    endAt = "2026-11-28T04:00:00Z",
+                ),
+            ),
+        )
+        var deletedId: String? = null
+        val sample = base.copy(
+            proposals = listOf(revertedProposal, stagedProposal),
+            agentConfig = CalendarAgentConfig(profile = "default", sessionId = "cal-sess-1"),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Light) {
+                CompositionLocalProvider(LocalDesktopLayout provides false) {
+                    ProvideAppWords {
+                        CalendarPageContent(
+                            state = sample,
+                            onDeleteProposal = { id -> deletedId = id },
+                        )
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithTag("calendar_agent_button").assertIsDisplayed().performClick()
+        waitForIdle()
+
+        // Reverted proposals must not clutter the Agent panel header; staged starts collapsed.
+        onNodeWithTag("calendar_chat_composer_input").assertIsDisplayed()
+        onNodeWithText("Old Reverted Friday").assertDoesNotExist()
+        onNodeWithText("Old Reverted Task").assertDoesNotExist()
+        onNodeWithTag("calendar_proposals_toggle").assertIsDisplayed()
+        onNodeWithText("Write Release Notes").assertDoesNotExist()
+
+        // Expanding reveals the staged item; collapsing hides it; delete button clears it cleanly.
+        onNodeWithTag("calendar_proposals_toggle").performClick()
+        waitForIdle()
+        onNodeWithText("Write Release Notes").assertIsDisplayed()
+
+        onNodeWithTag("calendar_proposals_toggle").performClick()
+        waitForIdle()
+        onNodeWithText("Write Release Notes").assertDoesNotExist()
+
+        onNodeWithTag("calendar_proposals_clear_top").performClick()
+        waitForIdle()
+        assertEquals("prop-staged", deletedId)
     }
 }

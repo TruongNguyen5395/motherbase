@@ -56,6 +56,8 @@ import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.bots.Bot
+import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.OutgoingAttachment
 import dev.hermeskotlin.core.pet.PetSprite
@@ -229,9 +231,14 @@ internal fun TaskChannelLog(
     onSelectInteraction: ((String) -> Unit)? = null,
     onFillInteraction: ((String) -> Unit)? = null,
     appliedProposalStatuses: Map<String, String> = emptyMap(),
+    updatedProposals: Map<String, ScheduleProposal> = emptyMap(),
+    deletedProposalIds: Set<String> = emptySet(),
     onApplyProposal: ((String, List<String>, Boolean) -> Unit)? = null,
     onDiscardProposal: ((String) -> Unit)? = null,
     onRevertProposal: ((String) -> Unit)? = null,
+    onUpdateProposal: ((String, UpdateProposalRequest) -> Unit)? = null,
+    onRestageProposal: ((String) -> Unit)? = null,
+    onDeleteProposal: ((String) -> Unit)? = null,
     showHeader: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
@@ -426,7 +433,12 @@ internal fun TaskChannelLog(
                                     onApplyProposal = onApplyProposal,
                                     onDiscardProposal = onDiscardProposal,
                                     onRevertProposal = onRevertProposal,
+                                    onUpdateProposal = onUpdateProposal,
+                                    onRestageProposal = onRestageProposal,
+                                    onDeleteProposal = onDeleteProposal,
                                     appliedProposalStatuses = appliedProposalStatuses,
+                                    updatedProposals = updatedProposals,
+                                    deletedProposalIds = deletedProposalIds,
                                 )
                             }
                         }

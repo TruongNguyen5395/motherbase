@@ -108,6 +108,8 @@ import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
 import dev.hermeskotlin.core.bots.Bot
 import dev.hermeskotlin.core.calendar.DispatchTimeBlock
+import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.InputRequest
 import dev.hermeskotlin.core.chat.OutgoingAttachment
@@ -299,6 +301,9 @@ internal data class TasksBoardActions(
     val onApplyProposal: (String, List<String>, Boolean) -> Unit = { _, _, _ -> },
     val onDiscardProposal: (String) -> Unit = {},
     val onRevertProposal: (String) -> Unit = {},
+    val onUpdateProposal: (String, UpdateProposalRequest) -> Unit = { _, _ -> },
+    val onRestageProposal: (String) -> Unit = {},
+    val onDeleteProposal: (String) -> Unit = {},
 )
 
 private val DEFAULT_DISPATCH_RAIL_WIDTH = 460.dp
@@ -491,6 +496,9 @@ internal fun TasksPage(
             onApplyProposal = viewModel::applyScheduleProposal,
             onDiscardProposal = viewModel::discardScheduleProposal,
             onRevertProposal = viewModel::revertScheduleProposal,
+            onUpdateProposal = viewModel::updateScheduleProposal,
+            onRestageProposal = viewModel::restageScheduleProposal,
+            onDeleteProposal = viewModel::deleteScheduleProposal,
         )
     }
 
@@ -661,9 +669,14 @@ internal fun TasksBoardContent(
                     onOpenModels = { modelsOpen = true },
                     onAnswerRequest = actions.onAnswerRequest,
                     appliedProposalStatuses = state.proposalStatuses,
+                    updatedProposals = state.updatedProposals,
+                    deletedProposalIds = state.deletedProposalIds,
                     onApplyProposal = actions.onApplyProposal,
                     onDiscardProposal = actions.onDiscardProposal,
                     onRevertProposal = actions.onRevertProposal,
+                    onUpdateProposal = actions.onUpdateProposal,
+                    onRestageProposal = actions.onRestageProposal,
+                    onDeleteProposal = actions.onDeleteProposal,
                 )
             } else if (selected != null) {
                 TaskDetailInspector(
@@ -720,9 +733,14 @@ internal fun TasksBoardContent(
                     onOpenModels = { modelsOpen = true },
                     onAnswerRequest = actions.onAnswerRequest,
                     appliedProposalStatuses = state.proposalStatuses,
+                    updatedProposals = state.updatedProposals,
+                    deletedProposalIds = state.deletedProposalIds,
                     onApplyProposal = actions.onApplyProposal,
                     onDiscardProposal = actions.onDiscardProposal,
                     onRevertProposal = actions.onRevertProposal,
+                    onUpdateProposal = actions.onUpdateProposal,
+                    onRestageProposal = actions.onRestageProposal,
+                    onDeleteProposal = actions.onDeleteProposal,
                     onOpenScheduleBlock = { blk -> actions.onOpenScheduleBlock(selected, blk) },
                     onDeleteTimeBlock = actions.onDeleteTimeBlock,
                     onOpenCalendar = actions.onOpenCalendar,
@@ -2235,9 +2253,14 @@ private fun CoordinatorInspector(
     onOpenModels: () -> Unit,
     onAnswerRequest: (InputRequest, JsonObject) -> Unit,
     appliedProposalStatuses: Map<String, String> = emptyMap(),
+    updatedProposals: Map<String, ScheduleProposal> = emptyMap(),
+    deletedProposalIds: Set<String> = emptySet(),
     onApplyProposal: (String, List<String>, Boolean) -> Unit = { _, _, _ -> },
     onDiscardProposal: (String) -> Unit = {},
     onRevertProposal: (String) -> Unit = {},
+    onUpdateProposal: (String, UpdateProposalRequest) -> Unit = { _, _ -> },
+    onRestageProposal: (String) -> Unit = {},
+    onDeleteProposal: (String) -> Unit = {},
 ) {
     val steerState = rememberTextFieldState("")
     val quickScroll = rememberScrollState()
@@ -2329,9 +2352,14 @@ private fun CoordinatorInspector(
             onSelectInteraction = onSendToCoordinator,
             onFillInteraction = { text -> steerState.setTextAndPlaceCursorAtEnd(text) },
             appliedProposalStatuses = appliedProposalStatuses,
+            updatedProposals = updatedProposals,
+            deletedProposalIds = deletedProposalIds,
             onApplyProposal = onApplyProposal,
             onDiscardProposal = onDiscardProposal,
             onRevertProposal = onRevertProposal,
+            onUpdateProposal = onUpdateProposal,
+            onRestageProposal = onRestageProposal,
+            onDeleteProposal = onDeleteProposal,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
 
@@ -2454,9 +2482,14 @@ private fun TaskDetailInspector(
     onOpenModels: () -> Unit,
     onAnswerRequest: (InputRequest, JsonObject) -> Unit,
     appliedProposalStatuses: Map<String, String> = emptyMap(),
+    updatedProposals: Map<String, ScheduleProposal> = emptyMap(),
+    deletedProposalIds: Set<String> = emptySet(),
     onApplyProposal: (String, List<String>, Boolean) -> Unit = { _, _, _ -> },
     onDiscardProposal: (String) -> Unit = {},
     onRevertProposal: (String) -> Unit = {},
+    onUpdateProposal: (String, UpdateProposalRequest) -> Unit = { _, _ -> },
+    onRestageProposal: (String) -> Unit = {},
+    onDeleteProposal: (String) -> Unit = {},
     onOpenScheduleBlock: (DispatchTimeBlock?) -> Unit = {},
     onDeleteTimeBlock: (String) -> Unit = {},
     onOpenCalendar: (() -> Unit)? = null,
@@ -2690,9 +2723,14 @@ private fun TaskDetailInspector(
                 onSelectInteraction = onSendToChannel,
                 onFillInteraction = { text -> steerState.setTextAndPlaceCursorAtEnd(text) },
                 appliedProposalStatuses = appliedProposalStatuses,
+                updatedProposals = updatedProposals,
+                deletedProposalIds = deletedProposalIds,
                 onApplyProposal = onApplyProposal,
                 onDiscardProposal = onDiscardProposal,
                 onRevertProposal = onRevertProposal,
+                onUpdateProposal = onUpdateProposal,
+                onRestageProposal = onRestageProposal,
+                onDeleteProposal = onDeleteProposal,
                 modifier = Modifier.fillMaxSize(),
             )
 

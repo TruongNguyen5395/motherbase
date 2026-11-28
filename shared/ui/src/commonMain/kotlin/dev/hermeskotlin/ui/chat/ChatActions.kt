@@ -1,6 +1,8 @@
 package dev.hermeskotlin.ui.chat
 
 import androidx.compose.foundation.text.input.TextFieldState
+import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.chat.ChatMessage
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.ControlAction
@@ -16,6 +18,8 @@ import kotlinx.serialization.json.JsonObject
 
 private val DefaultRunningSend: StateFlow<RunningSend> = MutableStateFlow(RunningSend.Steer).asStateFlow()
 private val DefaultProposalStatuses: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap<String, String>()).asStateFlow()
+private val DefaultUpdatedProposals: StateFlow<Map<String, ScheduleProposal>> = MutableStateFlow(emptyMap<String, ScheduleProposal>()).asStateFlow()
+private val DefaultDeletedProposalIds: StateFlow<Set<String>> = MutableStateFlow(emptySet<String>()).asStateFlow()
 
 /**
  * What the chat's layout ([ChatView]) asks of whatever runs the chat: [ChatViewModel] in the app,
@@ -77,11 +81,21 @@ interface ChatActions {
     /** Staged calendar proposal status overrides (`proposal_id` -> status). */
     val appliedProposalStatuses: StateFlow<Map<String, String>> get() = DefaultProposalStatuses
 
+    val updatedScheduleProposals: StateFlow<Map<String, ScheduleProposal>> get() = DefaultUpdatedProposals
+
+    val deletedScheduleProposalIds: StateFlow<Set<String>> get() = DefaultDeletedProposalIds
+
     fun applyScheduleProposal(proposalId: String, selectedOpIds: List<String>, force: Boolean = false) {}
 
     fun discardScheduleProposal(proposalId: String) {}
 
     fun revertScheduleProposal(proposalId: String, force: Boolean = true) {}
+
+    fun updateScheduleProposal(proposalId: String, request: UpdateProposalRequest) {}
+
+    fun restageScheduleProposal(proposalId: String) {}
+
+    fun deleteScheduleProposal(proposalId: String) {}
 
     /** Closes the suggested next message. */
     fun dismissSuggestedReply() {}

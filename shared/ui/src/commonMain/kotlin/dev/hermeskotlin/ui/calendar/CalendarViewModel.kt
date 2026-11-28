@@ -35,6 +35,7 @@ import dev.hermeskotlin.core.calendar.MicrosoftExchangeRequest
 import dev.hermeskotlin.core.calendar.ScheduleProposal
 import dev.hermeskotlin.core.calendar.UpdateCalendarRequest
 import dev.hermeskotlin.core.calendar.UpdateEventRequest
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.calendar.UpdateTimeBlockRequest
 import dev.hermeskotlin.core.calendar.calendarAddMonths
 import dev.hermeskotlin.core.calendar.calendarDateFromIso
@@ -192,6 +193,8 @@ data class CalendarUiState(
     val dispatchOverview: DispatchCalendarOverview = DispatchCalendarOverview(),
     val proposals: List<ScheduleProposal> = emptyList(),
     val proposalStatuses: Map<String, String> = emptyMap(),
+    val updatedProposals: Map<String, ScheduleProposal> = emptyMap(),
+    val deletedProposalIds: Set<String> = emptySet(),
     val busyProposalIds: Set<String> = emptySet(),
     val pendingConflict: PendingProposalConflict? = null,
     val freeSlots: List<FreeSlot> = emptyList(),
@@ -311,6 +314,16 @@ class CalendarViewModel(
         viewModelScope.launch {
             proposalCoordinator.statuses.collect { map ->
                 _state.update { it.copy(proposalStatuses = map) }
+            }
+        }
+        viewModelScope.launch {
+            proposalCoordinator.updatedProposals.collect { map ->
+                _state.update { it.copy(updatedProposals = map) }
+            }
+        }
+        viewModelScope.launch {
+            proposalCoordinator.deletedProposalIds.collect { ids ->
+                _state.update { it.copy(deletedProposalIds = ids) }
             }
         }
         viewModelScope.launch {
@@ -1465,6 +1478,21 @@ class CalendarViewModel(
         proposalCoordinator.revert(gw.gatewayUrl, proposalId, force)
     }
 
+    fun updateProposal(proposalId: String, request: UpdateProposalRequest) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.update(gw.gatewayUrl, proposalId, request)
+    }
+
+    fun restageProposal(proposalId: String) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.restage(gw.gatewayUrl, proposalId)
+    }
+
+    fun deleteProposal(proposalId: String) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.delete(gw.gatewayUrl, proposalId)
+    }
+
     fun dismissProposalConflict() = proposalCoordinator.dismissConflict()
 
     fun confirmForceApplyProposal() {
@@ -2136,6 +2164,7 @@ class CalendarViewModel(
                 ScheduleProposalCoordinator.EVENT_CHANGED,
                 ScheduleProposalCoordinator.EVENT_PROPOSAL_STAGED,
                 ScheduleProposalCoordinator.EVENT_PROPOSAL_UPDATED,
+                ScheduleProposalCoordinator.EVENT_PROPOSAL_DELETED,
             )
         ) {
             viewModelScope.launch { refreshWorkspaceSilently(gw) }

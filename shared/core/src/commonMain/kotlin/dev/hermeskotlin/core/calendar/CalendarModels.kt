@@ -428,6 +428,30 @@ data class ApplyProposalRequest(
     val force: Boolean = false,
 )
 
+@Serializable
+data class ProposalOperationPatch(
+    @SerialName("op_id") val opId: String,
+    val kind: String? = null,
+    val title: String? = null,
+    @SerialName("all_day") val allDay: Boolean? = null,
+    @SerialName("start_at") val startAt: String? = null,
+    @SerialName("end_at") val endAt: String? = null,
+    @SerialName("start_date") val startDate: String? = null,
+    @SerialName("end_date") val endDate: String? = null,
+    val timezone: String? = null,
+    @SerialName("calendar_id") val calendarId: String? = null,
+    val reason: String? = null,
+    val selected: Boolean? = null,
+)
+
+@Serializable
+data class UpdateProposalRequest(
+    val title: String? = null,
+    val summary: String? = null,
+    val status: String? = null,
+    val operations: List<ProposalOperationPatch>? = null,
+)
+
 /** Cached local snapshot of calendar workspace for fast offline/cold rendering per gateway. */
 @Serializable
 data class CalendarOfflineSnapshot(

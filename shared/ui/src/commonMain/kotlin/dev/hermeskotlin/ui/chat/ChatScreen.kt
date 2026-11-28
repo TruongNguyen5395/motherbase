@@ -35,6 +35,8 @@ import dev.hermeskotlin.core.chat.screenViews
 import dev.hermeskotlin.core.projects.PathEntry
 import dev.hermeskotlin.core.projects.ProjectsApi
 import dev.hermeskotlin.core.tasks.TweakDeltaInput
+import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.chat.ReplyInteraction
 import dev.hermeskotlin.ui.calendar.ScheduleProposalConflictDialog
 import kotlin.coroutines.cancellation.CancellationException
@@ -2254,6 +2256,8 @@ private fun Messages(
     val lastPrompt = messages.lastOrNull { it is ChatMessage.User }?.key
     val lastReply = messages.lastOrNull { it is ChatMessage.Assistant && it.text.isNotBlank() }?.key
     val appliedProposalStatuses by actions.appliedProposalStatuses.collectAsStateWithLifecycle()
+    val updatedScheduleProposals by actions.updatedScheduleProposals.collectAsStateWithLifecycle()
+    val deletedScheduleProposalIds by actions.deletedScheduleProposalIds.collectAsStateWithLifecycle()
     val activeInteractionReplyKey = if (!running && editing == null) {
         messages.lastOrNull { it is ChatMessage.User || it is ChatMessage.Assistant }?.let { (it as? ChatMessage.Assistant)?.key }
     } else {
@@ -2503,9 +2507,14 @@ private fun Messages(
                                     onInteractionFill = onInteractionFill,
                                     onInteractionTweaks = actions::recordTaskTweaks,
                                     appliedProposalStatuses = appliedProposalStatuses,
+                                    updatedProposals = updatedScheduleProposals,
+                                    deletedProposalIds = deletedScheduleProposalIds,
                                     onApplyProposal = actions::applyScheduleProposal,
                                     onDiscardProposal = actions::discardScheduleProposal,
                                     onRevertProposal = { proposalId -> actions.revertScheduleProposal(proposalId) },
+                                    onUpdateProposal = actions::updateScheduleProposal,
+                                    onRestageProposal = actions::restageScheduleProposal,
+                                    onDeleteProposal = actions::deleteScheduleProposal,
                                 )
                             }
                             // An answer to another bot's message folds under it; never while it's still being written.
@@ -3191,9 +3200,14 @@ internal fun AssistantReply(
     onInteractionFill: ((String) -> Unit)? = null,
     onInteractionTweaks: ((String, String?, String?, String, List<TweakDeltaInput>) -> Unit)? = null,
     appliedProposalStatuses: Map<String, String> = emptyMap(),
+    updatedProposals: Map<String, ScheduleProposal> = emptyMap(),
+    deletedProposalIds: Set<String> = emptySet(),
     onApplyProposal: ((String, List<String>, Boolean) -> Unit)? = null,
     onDiscardProposal: ((String) -> Unit)? = null,
     onRevertProposal: ((String) -> Unit)? = null,
+    onUpdateProposal: ((String, UpdateProposalRequest) -> Unit)? = null,
+    onRestageProposal: ((String) -> Unit)? = null,
+    onDeleteProposal: ((String) -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
     val showReasoning = settings.showReasoning && message.reasoning.isNotBlank()
@@ -3290,7 +3304,12 @@ internal fun AssistantReply(
                 onApplyProposal = onApplyProposal,
                 onDiscardProposal = onDiscardProposal,
                 onRevertProposal = onRevertProposal,
+                onUpdateProposal = onUpdateProposal,
+                onRestageProposal = onRestageProposal,
+                onDeleteProposal = onDeleteProposal,
                 appliedProposalStatuses = appliedProposalStatuses,
+                updatedProposals = updatedProposals,
+                deletedProposalIds = deletedProposalIds,
             )
         }
         when (message.outcome) {

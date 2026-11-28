@@ -7,7 +7,9 @@ import dev.hermeskotlin.core.calendar.CalendarAgentConfig
 import dev.hermeskotlin.core.calendar.CalendarAgentStore
 import dev.hermeskotlin.core.calendar.CalendarApi
 import dev.hermeskotlin.core.calendar.CalendarCacheStore
+import dev.hermeskotlin.core.calendar.ProposalOperationPatch
 import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.calendar.calendarDateFromIso
 import dev.hermeskotlin.core.connection.ConnectionState
 import dev.hermeskotlin.core.connection.GatewayConnection
@@ -45,6 +47,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.AfterTest
@@ -640,6 +643,97 @@ class CalendarViewModelTest {
             h.vm.selectDate(next)
             assertEquals(CalendarViewMode.FOUR_DAYS, h.vm.state.value.viewMode)
             assertEquals(next, h.vm.state.value.anchorDate)
+        } finally {
+            h.connection.stop()
+            h.vm.stopForTest()
+        }
+    }
+
+    @Test
+    fun updateRestageAndDeleteProposalSyncStateAndEmitRequests() = runTest(dispatcher) {
+        var currentProposalJson = """
+            {
+              "id": "prop-1",
+              "title": "Friday Plan",
+              "target_date": "2026-11-27",
+              "status": "reverted",
+              "operations": [
+                {
+                  "op_id": "op-1",
+                  "kind": "create_event",
+                  "title": "Morning review",
+                  "start_at": "2026-11-27T02:00:00Z",
+                  "end_at": "2026-11-27T03:00:00Z",
+                  "selected": true
+                }
+              ]
+            }
+        """.trimIndent()
+        val h = buildHarness({ rec ->
+            when {
+                rec.path.endsWith("/api/plugins/motherbase-calendar/proposals") && rec.method == HttpMethod.Get ->
+                    HttpStatusCode.OK to """{"proposals":[$currentProposalJson]}"""
+                rec.path.endsWith("/api/plugins/motherbase-calendar/proposals/prop-1") && rec.method == HttpMethod.Patch -> {
+                    val body = Json.parseToJsonElement(rec.body.orEmpty()).jsonObject
+                    val nextTitle = body["operations"]?.jsonArray?.firstOrNull()?.jsonObject?.get("title")?.jsonPrimitive?.content ?: "Morning review"
+                    val nextStatus = body["status"]?.jsonPrimitive?.content ?: ScheduleProposal.STATUS_STAGED
+                    currentProposalJson = """
+                        {
+                          "id": "prop-1",
+                          "title": "Friday Plan",
+                          "target_date": "2026-11-28",
+                          "status": "$nextStatus",
+                          "operations": [
+                            {
+                              "op_id": "op-1",
+                              "kind": "create_event",
+                              "title": "$nextTitle",
+                              "start_at": "2026-11-28T03:00:00Z",
+                              "end_at": "2026-11-28T04:00:00Z",
+                              "selected": true
+                            }
+                          ]
+                        }
+                    """.trimIndent()
+                    HttpStatusCode.OK to """{"proposal":$currentProposalJson}"""
+                }
+                rec.path.endsWith("/api/plugins/motherbase-calendar/proposals/prop-1") && rec.method == HttpMethod.Delete ->
+                    HttpStatusCode.OK to """{"deleted":true,"proposal_id":"prop-1"}"""
+                else -> defaultRespond(rec)
+            }
+        })
+        try {
+            h.vm.bind(gateway, isVisible = true)
+            withTimeout(5_000) { h.vm.state.first { !it.loading && it.proposals.isNotEmpty() } }
+
+            h.vm.updateProposal(
+                "prop-1",
+                UpdateProposalRequest(
+                    status = ScheduleProposal.STATUS_STAGED,
+                    operations = listOf(
+                        ProposalOperationPatch(
+                            opId = "op-1",
+                            title = "Adjusted review",
+                            startAt = "2026-11-28T03:00:00Z",
+                            endAt = "2026-11-28T04:00:00Z",
+                        ),
+                    ),
+                ),
+            )
+            withTimeout(5_000) {
+                h.vm.state.first {
+                    it.proposalStatuses["prop-1"] == ScheduleProposal.STATUS_STAGED &&
+                        it.updatedProposals["prop-1"]?.operations?.firstOrNull()?.title == "Adjusted review"
+                }
+            }
+
+            h.vm.deleteProposal("prop-1")
+            withTimeout(5_000) { h.vm.state.first { "prop-1" in it.deletedProposalIds } }
+            assertTrue(h.requests.any { it.path.endsWith("/proposals/prop-1") && it.method == HttpMethod.Patch })
+            assertTrue(h.requests.any { it.path.endsWith("/proposals/prop-1") && it.method == HttpMethod.Delete })
+
+            h.socket.push("""{"jsonrpc":"2.0","method":"event","params":{"type":"plugin.motherbase-calendar.calendar.proposal_deleted","payload":{"proposal_id":"prop-2"}}}""")
+            withTimeout(5_000) { h.vm.state.first { "prop-2" in it.deletedProposalIds } }
         } finally {
             h.connection.stop()
             h.vm.stopForTest()

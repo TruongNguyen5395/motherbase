@@ -11,10 +11,12 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -22,6 +24,7 @@ import com.composeunstyled.theme.ColorScheme
 import dev.hermeskotlin.core.calendar.EventAttendee
 import dev.hermeskotlin.core.calendar.ScheduleOperation
 import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.chat.ChatMessage
 import dev.hermeskotlin.core.chat.OFFER_CHOICES_TOOL
 import dev.hermeskotlin.core.chat.ReplyInteraction
@@ -310,5 +313,67 @@ class ReplyInteractionUiTest {
         onNodeWithTag("proposal_discard_button").performClick()
         waitForIdle()
         assertTrue(discarded)
+    }
+
+    @Test
+    fun revertedScheduleProposalAllowsEditRestageAndDelete() = runDesktopComposeUiTest {
+        var restaged = false
+        var deleted = false
+        var savedUpdate: UpdateProposalRequest? = null
+        val proposal = ScheduleProposal(
+            id = "prop-rev",
+            title = "Friday Plan",
+            targetDate = "2026-11-27",
+            status = ScheduleProposal.STATUS_REVERTED,
+            operations = listOf(
+                ScheduleOperation(
+                    opId = "op-1",
+                    kind = "create_event",
+                    title = "Deep Work",
+                    startAt = "2026-11-27T02:00:00Z",
+                    endAt = "2026-11-27T03:00:00Z",
+                ),
+            ),
+        )
+
+        setContent {
+            HermesTheme(ColorScheme.Dark) {
+                CompositionLocalProvider(LocalDesktopLayout provides true) {
+                    ProvideAppWords {
+                        Box(Modifier.width(340.dp)) {
+                            ReplyInteractionCard(
+                                replyKey = "sched-rev",
+                                interaction = ReplyInteraction.ScheduleProposal(proposal),
+                                sendEnabled = true,
+                                onSend = {},
+                                onFill = {},
+                                onUpdateProposal = { _, req -> savedUpdate = req },
+                                onRestageProposal = { restaged = true },
+                                onDeleteProposal = { deleted = true },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        waitForIdle()
+
+        onNodeWithText("Reverted").assertIsDisplayed()
+        onNodeWithTag("proposal_restage_button").performClick()
+        waitForIdle()
+        assertTrue(restaged)
+
+        onNodeWithTag("proposal_op_edit_0").performClick()
+        waitForIdle()
+        onNodeWithText("Edit item").assertIsDisplayed()
+        onNode(hasSetTextAction()).performTextInput(" v2")
+        onNodeWithText("Save changes").performClick()
+        waitForIdle()
+        assertEquals(ScheduleProposal.STATUS_STAGED, savedUpdate?.status)
+        assertTrue(savedUpdate?.operations?.singleOrNull()?.title?.contains("Deep Work") == true)
+
+        onNodeWithTag("proposal_delete_button").performClick()
+        waitForIdle()
+        assertTrue(deleted)
     }
 }

@@ -46,14 +46,17 @@ import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Send
 import com.composables.icons.lucide.Square
 import com.composables.icons.lucide.SquareCheck
+import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.TriangleAlert
 import com.composables.icons.lucide.X
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledButton
 import com.composeunstyled.UnstyledIcon
 import com.composeunstyled.theme.Theme
+import dev.hermeskotlin.core.calendar.ProposalOperationPatch
 import dev.hermeskotlin.core.calendar.ScheduleOperation
 import dev.hermeskotlin.core.calendar.ScheduleProposal as CalendarScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.calendar.calendarZonedFromIso
 import dev.hermeskotlin.core.calendar.formatClockCompact
 import dev.hermeskotlin.core.chat.ReplyInteraction
@@ -71,6 +74,7 @@ import dev.hermeskotlin.designsystem.components.Button
 import dev.hermeskotlin.designsystem.components.ButtonSize
 import dev.hermeskotlin.designsystem.components.ButtonVariant
 import dev.hermeskotlin.designsystem.components.DropdownMenu
+import dev.hermeskotlin.designsystem.components.IconButton
 import dev.hermeskotlin.designsystem.components.MenuChoice
 import dev.hermeskotlin.designsystem.components.MinTouchTarget
 import dev.hermeskotlin.designsystem.components.Tooltip
@@ -91,6 +95,7 @@ import dev.hermeskotlin.designsystem.textTertiary
 import dev.hermeskotlin.designsystem.typography
 import dev.hermeskotlin.designsystem.warning
 import dev.hermeskotlin.designsystem.warningSoft
+import dev.hermeskotlin.ui.calendar.ScheduleProposalOperationEditorDialog
 import dev.hermeskotlin.ui.isDesktop
 import dev.hermeskotlin.ui.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -111,7 +116,12 @@ internal fun ReplyInteractionCard(
     onApplyProposal: ((proposalId: String, selectedOpIds: List<String>, force: Boolean) -> Unit)? = null,
     onDiscardProposal: ((proposalId: String) -> Unit)? = null,
     onRevertProposal: ((proposalId: String) -> Unit)? = null,
+    onUpdateProposal: ((proposalId: String, request: UpdateProposalRequest) -> Unit)? = null,
+    onRestageProposal: ((proposalId: String) -> Unit)? = null,
+    onDeleteProposal: ((proposalId: String) -> Unit)? = null,
     appliedProposalStatuses: Map<String, String> = emptyMap(),
+    updatedProposals: Map<String, CalendarScheduleProposal> = emptyMap(),
+    deletedProposalIds: Set<String> = emptySet(),
 ) {
     val containerShape = RoundedCornerShape(Theme[radii][radiusLarge])
     Column(
@@ -150,34 +160,46 @@ internal fun ReplyInteractionCard(
                     onFill(formatActionCardReply(option, interaction.params, selected))
                 },
             )
-            is ReplyInteraction.ScheduleProposal -> ScheduleProposalContent(
-                cardKey = replyKey,
-                proposal = interaction.proposal,
-                overrideStatus = appliedProposalStatuses[interaction.proposal.id],
-                enabled = sendEnabled,
-                onApply = { selectedIds, force ->
-                    val pid = interaction.proposal.id
-                    if (pid.isNotBlank() && onApplyProposal != null) {
-                        onApplyProposal(pid, selectedIds, force)
-                    } else {
-                        onSend("Apply schedule proposal: ${interaction.proposal.title} (${selectedIds.size} items)")
-                    }
-                },
-                onDiscard = {
-                    val pid = interaction.proposal.id
-                    if (pid.isNotBlank() && onDiscardProposal != null) {
-                        onDiscardProposal(pid)
-                    } else {
-                        onSend("Discard schedule proposal: ${interaction.proposal.title}")
-                    }
-                },
-                onRevert = {
-                    val pid = interaction.proposal.id
-                    if (pid.isNotBlank() && onRevertProposal != null) {
-                        onRevertProposal(pid)
-                    }
-                },
-            )
+            is ReplyInteraction.ScheduleProposal -> {
+                val pid = interaction.proposal.id
+                val resolvedProposal = updatedProposals[pid] ?: interaction.proposal
+                val isDeleted = pid.isNotBlank() && pid in deletedProposalIds
+                ScheduleProposalContent(
+                    cardKey = replyKey,
+                    proposal = resolvedProposal,
+                    overrideStatus = appliedProposalStatuses[pid],
+                    enabled = sendEnabled,
+                    isDeleted = isDeleted,
+                    onApply = { selectedIds, force ->
+                        if (pid.isNotBlank() && onApplyProposal != null) {
+                            onApplyProposal(pid, selectedIds, force)
+                        } else {
+                            onSend("Apply schedule proposal: ${resolvedProposal.title} (${selectedIds.size} items)")
+                        }
+                    },
+                    onDiscard = {
+                        if (pid.isNotBlank() && onDiscardProposal != null) {
+                            onDiscardProposal(pid)
+                        } else {
+                            onSend("Discard schedule proposal: ${resolvedProposal.title}")
+                        }
+                    },
+                    onRevert = {
+                        if (pid.isNotBlank() && onRevertProposal != null) {
+                            onRevertProposal(pid)
+                        }
+                    },
+                    onUpdate = if (pid.isNotBlank() && onUpdateProposal != null) { req ->
+                        onUpdateProposal(pid, req)
+                    } else null,
+                    onRestage = if (pid.isNotBlank() && onRestageProposal != null) {
+                        { onRestageProposal(pid) }
+                    } else null,
+                    onDelete = if (pid.isNotBlank() && onDeleteProposal != null) {
+                        { onDeleteProposal(pid) }
+                    } else null,
+                )
+            }
         }
     }
 }
@@ -573,8 +595,9 @@ private fun MultiChoiceOptionRow(
 }
 
 /**
- * Interactive staged schedule proposal card allowing selective item toggling, external-attendee
- * notification warnings, conflict banners, and explicit `Apply` / `Discard` / `Revert` confirmation.
+ * Interactive staged schedule proposal card allowing selective item toggling, direct item editing,
+ * re-staging/deleting resolved proposals, external-attendee warnings, conflict banners, and explicit
+ * `Apply` / `Discard` / `Revert` confirmation.
  */
 @Composable
 internal fun ScheduleProposalContent(
@@ -582,17 +605,25 @@ internal fun ScheduleProposalContent(
     proposal: CalendarScheduleProposal,
     overrideStatus: String? = null,
     enabled: Boolean = true,
+    use24Hour: Boolean = true,
+    isDeleted: Boolean = false,
     onApply: (selectedOpIds: List<String>, force: Boolean) -> Unit,
     onDiscard: () -> Unit,
     onRevert: () -> Unit,
+    onUpdate: ((UpdateProposalRequest) -> Unit)? = null,
+    onRestage: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
 ) {
     val effectiveStatus = overrideStatus ?: proposal.status
     val isStaged = effectiveStatus == CalendarScheduleProposal.STATUS_STAGED
+    val isApplied = effectiveStatus == CalendarScheduleProposal.STATUS_APPLIED
+    val isEditable = !isApplied && !isDeleted && onUpdate != null
     val selectedOps = remember(cardKey, proposal.id, proposal.operations) {
         mutableStateMapOf<String, Boolean>().apply {
             proposal.operations.forEach { put(it.opId, it.selected) }
         }
     }
+    var editingOp by remember(cardKey, proposal.id) { mutableStateOf<ScheduleOperation?>(null) }
     val chosenOps = proposal.operations.filter { selectedOps[it.opId] != false }
     val attendeeCount = chosenOps.sumOf { it.attendees.size }
     val hasConflicts = chosenOps.any { it.conflicts.isNotEmpty() }
@@ -612,21 +643,26 @@ internal fun ScheduleProposalContent(
             Text(
                 proposal.title,
                 style = Theme[typography][bodySmall].copy(fontWeight = FontWeight.SemiBold),
-                color = Theme[colors][textColor],
+                color = if (isDeleted) Theme[colors][textTertiary] else Theme[colors][textColor],
+                maxLines = if (isDeleted) 1 else 2,
+                overflow = TextOverflow.Ellipsis,
             )
-            proposal.summary?.takeIf { it.isNotBlank() }?.let { summary ->
-                Text(
-                    summary,
-                    style = Theme[typography][caption],
-                    color = Theme[colors][textSecondary],
-                    modifier = Modifier.padding(top = 1.dp),
-                )
+            if (!isDeleted) {
+                proposal.summary?.takeIf { it.isNotBlank() }?.let { summary ->
+                    Text(
+                        summary,
+                        style = Theme[typography][caption],
+                        color = Theme[colors][textSecondary],
+                        modifier = Modifier.padding(top = 1.dp),
+                    )
+                }
             }
         }
-        val statusBadge = when (effectiveStatus) {
-            CalendarScheduleProposal.STATUS_APPLIED -> stringResource(Res.string.cal_proposal_applied) to (Theme[colors][successSoft] to Theme[colors][success])
-            CalendarScheduleProposal.STATUS_DISCARDED -> stringResource(Res.string.cal_proposal_discarded) to (Theme[colors][surface2] to Theme[colors][textTertiary])
-            CalendarScheduleProposal.STATUS_REVERTED -> stringResource(Res.string.cal_proposal_reverted) to (Theme[colors][surface2] to Theme[colors][textTertiary])
+        val statusBadge = when {
+            isDeleted -> stringResource(Res.string.cal_proposal_deleted) to (Theme[colors][surface2] to Theme[colors][textTertiary])
+            effectiveStatus == CalendarScheduleProposal.STATUS_APPLIED -> stringResource(Res.string.cal_proposal_applied) to (Theme[colors][successSoft] to Theme[colors][success])
+            effectiveStatus == CalendarScheduleProposal.STATUS_DISCARDED -> stringResource(Res.string.cal_proposal_discarded) to (Theme[colors][surface2] to Theme[colors][textTertiary])
+            effectiveStatus == CalendarScheduleProposal.STATUS_REVERTED -> stringResource(Res.string.cal_proposal_reverted) to (Theme[colors][surface2] to Theme[colors][textTertiary])
             else -> null
         }
         if (statusBadge != null) {
@@ -641,7 +677,18 @@ internal fun ScheduleProposalContent(
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             )
         }
+        if (isStaged && !isDeleted && onDelete != null) {
+            IconButton(
+                Lucide.Trash2,
+                contentDescription = stringResource(Res.string.cal_proposal_delete),
+                onClick = onDelete,
+                enabled = enabled,
+                modifier = Modifier.testTag("proposal_delete_button"),
+            )
+        }
     }
+
+    if (isDeleted) return
 
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         proposal.operations.forEachIndexed { idx, op ->
@@ -656,15 +703,17 @@ internal fun ScheduleProposalContent(
                     .background(rowBg, rowShape)
                     .border(1.dp, rowBorder, rowShape)
                     .then(
-                        if (isStaged && enabled) {
-                            Modifier.handCursor().clickable(role = Role.Checkbox) {
+                        when {
+                            isStaged && enabled -> Modifier.handCursor().clickable(role = Role.Checkbox) {
                                 selectedOps[op.opId] = !checked
                             }
-                        } else {
-                            Modifier
+                            isEditable && enabled -> Modifier.handCursor().clickable(role = Role.Button) {
+                                editingOp = op
+                            }
+                            else -> Modifier
                         },
                     )
-                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                    .padding(start = 10.dp, end = if (isEditable) 4.dp else 10.dp, top = 7.dp, bottom = 7.dp)
                     .testTag("proposal_op_row_$idx"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -685,7 +734,7 @@ internal fun ScheduleProposalContent(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    val timeLabel = formatProposalOpWindow(op)
+                    val timeLabel = formatProposalOpWindow(op, use24Hour)
                     val meta = listOfNotNull(timeLabel, op.calendarName, op.reason).joinToString(" · ")
                     if (meta.isNotBlank()) {
                         Text(
@@ -714,6 +763,15 @@ internal fun ScheduleProposalContent(
                             )
                         }
                     }
+                }
+                if (isEditable) {
+                    IconButton(
+                        Lucide.Pencil,
+                        contentDescription = stringResource(Res.string.cal_proposal_edit_item),
+                        onClick = { editingOp = op },
+                        enabled = enabled,
+                        modifier = Modifier.testTag("proposal_op_edit_$idx"),
+                    )
                 }
             }
         }
@@ -767,7 +825,7 @@ internal fun ScheduleProposalContent(
                 modifier = Modifier.testTag("proposal_apply_button"),
             )
         }
-    } else if (effectiveStatus == CalendarScheduleProposal.STATUS_APPLIED) {
+    } else if (isApplied) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
@@ -782,13 +840,105 @@ internal fun ScheduleProposalContent(
                 modifier = Modifier.testTag("proposal_revert_button"),
             )
         }
+    } else if (onRestage != null || onUpdate != null || onDelete != null) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onDelete != null) {
+                Button(
+                    text = stringResource(Res.string.cal_proposal_delete),
+                    onClick = onDelete,
+                    variant = ButtonVariant.Ghost,
+                    size = ButtonSize.Small,
+                    enabled = enabled,
+                    leadingIcon = Lucide.Trash2,
+                    modifier = Modifier.testTag("proposal_delete_button"),
+                )
+            }
+            if (onRestage != null || onUpdate != null) {
+                Button(
+                    text = stringResource(Res.string.cal_proposal_restage),
+                    onClick = {
+                        if (onRestage != null) {
+                            onRestage()
+                        } else {
+                            onUpdate?.invoke(UpdateProposalRequest(status = CalendarScheduleProposal.STATUS_STAGED))
+                        }
+                    },
+                    variant = ButtonVariant.Outline,
+                    size = ButtonSize.Small,
+                    enabled = enabled,
+                    leadingIcon = Lucide.RotateCcw,
+                    modifier = Modifier.testTag("proposal_restage_button"),
+                )
+            }
+        }
+    }
+
+    if (onUpdate != null) {
+        ScheduleProposalOperationEditorDialog(
+            operation = editingOp,
+            canRemove = proposal.operations.size > 1,
+            use24Hour = use24Hour,
+            busy = !enabled,
+            onDismiss = { editingOp = null },
+            onSave = { patch ->
+                val targetOp = editingOp ?: return@ScheduleProposalOperationEditorDialog
+                val patches = proposal.operations.map { op ->
+                    if (op.opId == targetOp.opId) {
+                        patch.copy(selected = selectedOps[op.opId] != false)
+                    } else {
+                        op.toPatch(selected = selectedOps[op.opId] != false)
+                    }
+                }
+                onUpdate(
+                    UpdateProposalRequest(
+                        status = if (isStaged) null else CalendarScheduleProposal.STATUS_STAGED,
+                        operations = patches,
+                    ),
+                )
+                editingOp = null
+            },
+            onRemove = {
+                val targetOp = editingOp ?: return@ScheduleProposalOperationEditorDialog
+                val remaining = proposal.operations
+                    .filterNot { it.opId == targetOp.opId }
+                    .map { op -> op.toPatch(selected = selectedOps[op.opId] != false) }
+                if (remaining.isNotEmpty()) {
+                    onUpdate(
+                        UpdateProposalRequest(
+                            status = if (isStaged) null else CalendarScheduleProposal.STATUS_STAGED,
+                            operations = remaining,
+                        ),
+                    )
+                }
+                editingOp = null
+            },
+        )
     }
 }
 
-private fun formatProposalOpWindow(op: ScheduleOperation): String? {
+private fun ScheduleOperation.toPatch(selected: Boolean): ProposalOperationPatch = ProposalOperationPatch(
+    opId = opId,
+    kind = kind,
+    title = title,
+    allDay = allDay,
+    startAt = startAt,
+    endAt = endAt,
+    startDate = startDate,
+    endDate = endDate,
+    timezone = timezone,
+    calendarId = calendarId,
+    reason = reason,
+    selected = selected,
+)
+
+private fun formatProposalOpWindow(op: ScheduleOperation, use24Hour: Boolean = true): String? {
     if (op.allDay) return op.startDate
     val s = op.startAt?.let { calendarZonedFromIso(it, op.timezone) } ?: return null
     val e = op.endAt?.let { calendarZonedFromIso(it, op.timezone) }
-    val startStr = "${s.date.iso} ${formatClockCompact(s.minuteOfDay, use24Hour = true)}"
-    return if (e != null) "$startStr – ${formatClockCompact(e.minuteOfDay, use24Hour = true)}" else startStr
+    val startStr = "${s.date.iso} ${formatClockCompact(s.minuteOfDay, use24Hour = use24Hour)}"
+    return if (e != null) "$startStr – ${formatClockCompact(e.minuteOfDay, use24Hour = use24Hour)}" else startStr
 }

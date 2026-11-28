@@ -17,6 +17,8 @@ import dev.hermeskotlin.core.threads.ChatThread
 import dev.hermeskotlin.core.threads.ThreadsRepository
 import dev.hermeskotlin.core.bots.BotsApi
 import dev.hermeskotlin.core.calendar.CalendarApi
+import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.chat.ChatState
 import dev.hermeskotlin.core.chat.ComposeDraft
 import dev.hermeskotlin.core.chat.ControlAction
@@ -269,6 +271,12 @@ class ChatViewModel(
 
     override val appliedProposalStatuses: StateFlow<Map<String, String>>
         get() = proposalCoordinator.statuses
+
+    override val updatedScheduleProposals: StateFlow<Map<String, ScheduleProposal>>
+        get() = proposalCoordinator.updatedProposals
+
+    override val deletedScheduleProposalIds: StateFlow<Set<String>>
+        get() = proposalCoordinator.deletedProposalIds
 
     val proposalConflict: StateFlow<PendingProposalConflict?>
         get() = proposalCoordinator.pendingConflict
@@ -1094,6 +1102,21 @@ class ChatViewModel(
     override fun revertScheduleProposal(proposalId: String, force: Boolean) {
         val url = proposalGatewayUrl() ?: return
         proposalCoordinator.revert(url, proposalId, force)
+    }
+
+    override fun updateScheduleProposal(proposalId: String, request: UpdateProposalRequest) {
+        val url = proposalGatewayUrl() ?: return
+        proposalCoordinator.update(url, proposalId, request)
+    }
+
+    override fun restageScheduleProposal(proposalId: String) {
+        val url = proposalGatewayUrl() ?: return
+        proposalCoordinator.restage(url, proposalId)
+    }
+
+    override fun deleteScheduleProposal(proposalId: String) {
+        val url = proposalGatewayUrl() ?: return
+        proposalCoordinator.delete(url, proposalId)
     }
 
     fun dismissProposalConflict() = proposalCoordinator.dismissConflict()

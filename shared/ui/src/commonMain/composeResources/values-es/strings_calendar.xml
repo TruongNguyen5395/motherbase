@@ -131,4 +131,14 @@
     <string name="cal_agent_choose_pet">Elegir mascota</string>
     <string name="cal_agent_session_reset_done">Nueva sesión del agente de calendario iniciada.</string>
     <string name="cal_back_to_calendar">Volver al Calendario</string>
+    <string name="cal_proposal_staged_summary">%1$d propuesta(s) pendiente(s)</string>
+    <string name="cal_proposal_show">Mostrar</string>
+    <string name="cal_proposal_hide">Ocultar</string>
+    <string name="cal_proposal_edit_item">Editar elemento</string>
+    <string name="cal_proposal_save_item">Guardar cambios</string>
+    <string name="cal_proposal_remove_item">Quitar elemento</string>
+    <string name="cal_proposal_restage">Reactivar</string>
+    <string name="cal_proposal_delete">Eliminar</string>
+    <string name="cal_proposal_deleted">Eliminado</string>
+    <string name="cal_proposal_item_title">Título</string>
 </resources>

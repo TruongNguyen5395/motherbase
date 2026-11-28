@@ -9,6 +9,8 @@ import dev.hermeskotlin.core.calendar.CreateTimeBlockRequest
 import dev.hermeskotlin.core.calendar.DispatchCalendarTask
 import dev.hermeskotlin.core.calendar.DispatchTimeBlock
 import dev.hermeskotlin.core.calendar.FreeSlot
+import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.calendar.UpdateTimeBlockRequest
 import dev.hermeskotlin.core.calendar.calendarDateFromIso
 import dev.hermeskotlin.core.calendar.calendarNowZoned
@@ -177,6 +179,8 @@ data class TasksUiState(
     val schedulingTaskDraft: TaskBlockDraft? = null,
     val calendarMutating: Boolean = false,
     val proposalStatuses: Map<String, String> = emptyMap(),
+    val updatedProposals: Map<String, ScheduleProposal> = emptyMap(),
+    val deletedProposalIds: Set<String> = emptySet(),
     val busyProposalIds: Set<String> = emptySet(),
     val pendingProposalConflict: PendingProposalConflict? = null,
 ) {
@@ -316,6 +320,12 @@ class TasksViewModel(
         }
         viewModelScope.launch {
             proposalCoordinator.statuses.collect { map -> _state.update { it.copy(proposalStatuses = map) } }
+        }
+        viewModelScope.launch {
+            proposalCoordinator.updatedProposals.collect { map -> _state.update { it.copy(updatedProposals = map) } }
+        }
+        viewModelScope.launch {
+            proposalCoordinator.deletedProposalIds.collect { ids -> _state.update { it.copy(deletedProposalIds = ids) } }
         }
         viewModelScope.launch {
             proposalCoordinator.busyProposalIds.collect { ids -> _state.update { it.copy(busyProposalIds = ids) } }
@@ -2578,6 +2588,7 @@ class TasksViewModel(
                 ScheduleProposalCoordinator.EVENT_CHANGED,
                 ScheduleProposalCoordinator.EVENT_SYNCED,
                 ScheduleProposalCoordinator.EVENT_PROPOSAL_UPDATED,
+                ScheduleProposalCoordinator.EVENT_PROPOSAL_DELETED,
             )
         ) {
             boundGateway?.let { gw -> viewModelScope.launch { refreshTaskTimeBlocksSilently(gw) } }
@@ -3177,6 +3188,21 @@ class TasksViewModel(
     fun revertScheduleProposal(proposalId: String) {
         val gw = boundGateway ?: return
         proposalCoordinator.revert(gw.gatewayUrl, proposalId, force = true)
+    }
+
+    fun updateScheduleProposal(proposalId: String, request: UpdateProposalRequest) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.update(gw.gatewayUrl, proposalId, request)
+    }
+
+    fun restageScheduleProposal(proposalId: String) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.restage(gw.gatewayUrl, proposalId)
+    }
+
+    fun deleteScheduleProposal(proposalId: String) {
+        val gw = boundGateway ?: return
+        proposalCoordinator.delete(gw.gatewayUrl, proposalId)
     }
 
     fun dismissProposalConflict() = proposalCoordinator.dismissConflict()

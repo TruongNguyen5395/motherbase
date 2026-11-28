@@ -69,6 +69,7 @@ import com.composables.icons.lucide.CalendarClock
 import com.composables.icons.lucide.CalendarDays
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.Circle
 import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Clock
@@ -84,6 +85,7 @@ import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.Target
+import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.X
 import com.composeunstyled.Text
 import com.composeunstyled.UnstyledIcon
@@ -97,6 +99,7 @@ import dev.hermeskotlin.core.calendar.CalendarLayoutEngine
 import dev.hermeskotlin.core.calendar.DispatchCalendarTask
 import dev.hermeskotlin.core.calendar.DispatchTimeBlock
 import dev.hermeskotlin.core.calendar.ScheduleProposal
+import dev.hermeskotlin.core.calendar.UpdateProposalRequest
 import dev.hermeskotlin.core.calendar.calendarAddMonths
 import dev.hermeskotlin.core.calendar.calendarDateFromIso
 import dev.hermeskotlin.core.calendar.calendarZonedFromIso
@@ -189,7 +192,11 @@ import dev.hermeskotlin.ui.resources.cal_plan_my_day
 import dev.hermeskotlin.ui.resources.cal_plugin_missing
 import dev.hermeskotlin.ui.resources.cal_previous
 import dev.hermeskotlin.ui.resources.cal_proposal_apply
+import dev.hermeskotlin.ui.resources.cal_proposal_delete
 import dev.hermeskotlin.ui.resources.cal_proposal_heading
+import dev.hermeskotlin.ui.resources.cal_proposal_hide
+import dev.hermeskotlin.ui.resources.cal_proposal_show
+import dev.hermeskotlin.ui.resources.cal_proposal_staged_summary
 import dev.hermeskotlin.ui.resources.cal_read_only
 import dev.hermeskotlin.ui.resources.cal_scheduled_tasks
 import dev.hermeskotlin.ui.resources.cal_set_task_target
@@ -407,6 +414,9 @@ internal fun CalendarPage(
         onApplyProposal = viewModel::applyProposal,
         onDiscardProposal = viewModel::discardProposal,
         onRevertProposal = { id -> viewModel.revertProposal(id) },
+        onUpdateProposal = viewModel::updateProposal,
+        onRestageProposal = viewModel::restageProposal,
+        onDeleteProposal = viewModel::deleteProposal,
         onDismissConflict = viewModel::dismissProposalConflict,
         onForceApplyConflict = viewModel::confirmForceApplyProposal,
         onOpenConnectDialog = viewModel::openConnectDialog,
@@ -494,6 +504,9 @@ internal fun CalendarPageContent(
     onApplyProposal: (String, List<String>, Boolean) -> Unit = { _, _, _ -> },
     onDiscardProposal: (String) -> Unit = {},
     onRevertProposal: (String) -> Unit = {},
+    onUpdateProposal: (String, UpdateProposalRequest) -> Unit = { _, _ -> },
+    onRestageProposal: (String) -> Unit = {},
+    onDeleteProposal: (String) -> Unit = {},
     onDismissConflict: () -> Unit = {},
     onForceApplyConflict: () -> Unit = {},
     onOpenConnectDialog: () -> Unit = {},
@@ -537,11 +550,21 @@ internal fun CalendarPageContent(
 
     val modals = LocalOpenModals.current
 
-    val effectiveProposals = remember(state.proposals, state.proposalStatuses) {
-        state.proposals.map { prop ->
-            val override = state.proposalStatuses[prop.id]
-            if (override != null && override != prop.status) prop.copy(status = override) else prop
-        }
+    val effectiveProposals = remember(
+        state.proposals,
+        state.updatedProposals,
+        state.deletedProposalIds,
+        state.proposalStatuses,
+    ) {
+        state.proposals
+            .asSequence()
+            .filterNot { it.id in state.deletedProposalIds }
+            .map { base ->
+                val latest = state.updatedProposals[base.id] ?: base
+                val override = state.proposalStatuses[base.id]
+                if (override != null && override != latest.status) latest.copy(status = override) else latest
+            }
+            .toList()
     }
     val stagedCount = remember(effectiveProposals) {
         effectiveProposals.count { it.status == ScheduleProposal.STATUS_STAGED }
@@ -651,6 +674,7 @@ internal fun CalendarPageContent(
             val wideLeft = maxWidth >= 900.dp
             val wideRight = maxWidth >= 1120.dp
             val compactToolbar = maxWidth < 640.dp
+            val rootMaxHeight = maxHeight
             val agentCurrentlyVisible = rightTab == CalendarRightTab.AGENT &&
                 if (wideRight) rightRailDockedOpen else rightSheetOpen
 
@@ -895,7 +919,11 @@ internal fun CalendarPageContent(
                             onApplyProposal = onApplyProposal,
                             onDiscardProposal = onDiscardProposal,
                             onRevertProposal = onRevertProposal,
+                            onUpdateProposal = onUpdateProposal,
+                            onRestageProposal = onRestageProposal,
+                            onDeleteProposal = onDeleteProposal,
                             onAnswerRequest = onAnswerAgentRequest,
+                            defaultProposalsExpanded = true,
                             modifier = Modifier.width(360.dp).fillMaxHeight(),
                         )
                     }
@@ -931,6 +959,7 @@ internal fun CalendarPageContent(
             }
 
             if (!wideRight) {
+                val sheetHeight = (rootMaxHeight * 0.82f).coerceIn(320.dp.coerceAtMost(rootMaxHeight * 0.85f), 860.dp)
                 BottomSheet(visible = rightSheetOpen, onDismiss = { rightSheetOpen = false }) {
                     CalendarRightPanel(
                         state = state,
@@ -972,8 +1001,12 @@ internal fun CalendarPageContent(
                         onApplyProposal = onApplyProposal,
                         onDiscardProposal = onDiscardProposal,
                         onRevertProposal = onRevertProposal,
+                        onUpdateProposal = onUpdateProposal,
+                        onRestageProposal = onRestageProposal,
+                        onDeleteProposal = onDeleteProposal,
                         onAnswerRequest = onAnswerAgentRequest,
-                        modifier = Modifier.fillMaxWidth().height(540.dp),
+                        defaultProposalsExpanded = false,
+                        modifier = Modifier.fillMaxWidth().height(sheetHeight).testTag("calendar_right_sheet_content"),
                     )
                 }
             }
@@ -1549,7 +1582,11 @@ private fun CalendarRightPanel(
     onApplyProposal: (String, List<String>, Boolean) -> Unit,
     onDiscardProposal: (String) -> Unit,
     onRevertProposal: (String) -> Unit,
+    onUpdateProposal: (String, UpdateProposalRequest) -> Unit,
+    onRestageProposal: (String) -> Unit,
+    onDeleteProposal: (String) -> Unit,
     onAnswerRequest: (InputRequest, JsonObject) -> Unit,
+    defaultProposalsExpanded: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.background(Theme[colors][sidebar])) {
@@ -1611,7 +1648,11 @@ private fun CalendarRightPanel(
                 onApplyProposal = onApplyProposal,
                 onDiscardProposal = onDiscardProposal,
                 onRevertProposal = onRevertProposal,
+                onUpdateProposal = onUpdateProposal,
+                onRestageProposal = onRestageProposal,
+                onDeleteProposal = onDeleteProposal,
                 onAnswerRequest = onAnswerRequest,
+                defaultProposalsExpanded = defaultProposalsExpanded,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
         }
@@ -1833,13 +1874,21 @@ private fun CalendarAgentPanel(
     onApplyProposal: (String, List<String>, Boolean) -> Unit,
     onDiscardProposal: (String) -> Unit,
     onRevertProposal: (String) -> Unit,
+    onUpdateProposal: (String, UpdateProposalRequest) -> Unit,
+    onRestageProposal: (String) -> Unit,
+    onDeleteProposal: (String) -> Unit,
     onAnswerRequest: (InputRequest, JsonObject) -> Unit,
+    defaultProposalsExpanded: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val promptState = rememberTextFieldState("")
     val quickScroll = rememberScrollState()
     val proposalsScroll = rememberScrollState()
     val agentBot = state.agentBot
+    val stagedProposals = remember(effectiveProposals) {
+        effectiveProposals.filter { it.status == ScheduleProposal.STATUS_STAGED }.take(4)
+    }
+    var proposalsExpanded by remember(defaultProposalsExpanded) { mutableStateOf(defaultProposalsExpanded) }
 
     Column(modifier) {
         Row(
@@ -1922,34 +1971,83 @@ private fun CalendarAgentPanel(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Theme[colors][stroke]))
 
-        val stagedOrApplied = effectiveProposals.take(4)
-        if (stagedOrApplied.isNotEmpty()) {
-            Column(
+        if (stagedProposals.isNotEmpty()) {
+            Row(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 220.dp)
-                    .verticalScroll(proposalsScroll)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .background(Theme[colors][surface2])
+                    .clickable(role = Role.Button) { proposalsExpanded = !proposalsExpanded }
+                    .handCursor()
+                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
+                    .testTag("calendar_proposals_toggle"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                stagedOrApplied.forEach { prop ->
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(Theme[colors][surface], RoundedCornerShape(10.dp))
-                            .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(10.dp))
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ScheduleProposalContent(
-                            cardKey = "cal-rail-${prop.id}",
-                            proposal = prop,
-                            overrideStatus = state.proposalStatuses[prop.id],
-                            enabled = prop.id !in state.busyProposalIds,
-                            onApply = { opIds, force -> onApplyProposal(prop.id, opIds, force) },
-                            onDiscard = { onDiscardProposal(prop.id) },
-                            onRevert = { onRevertProposal(prop.id) },
-                        )
+                UnstyledIcon(
+                    Lucide.Calendar,
+                    contentDescription = null,
+                    tint = Theme[colors][accentText],
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    stringResource(Res.string.cal_proposal_staged_summary, stagedProposals.size),
+                    style = Theme[typography][caption].copy(fontWeight = FontWeight.SemiBold),
+                    color = Theme[colors][textColor],
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (stagedProposals.size == 1) {
+                    val onlyId = stagedProposals.first().id
+                    IconButton(
+                        Lucide.Trash2,
+                        contentDescription = stringResource(Res.string.cal_proposal_delete),
+                        onClick = { onDeleteProposal(onlyId) },
+                        enabled = onlyId !in state.busyProposalIds,
+                        modifier = Modifier.testTag("calendar_proposals_clear_top"),
+                    )
+                }
+                IconButton(
+                    if (proposalsExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                    contentDescription = stringResource(
+                        if (proposalsExpanded) Res.string.cal_proposal_hide else Res.string.cal_proposal_show,
+                    ),
+                    onClick = { proposalsExpanded = !proposalsExpanded },
+                )
+            }
+            if (proposalsExpanded) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = if (defaultProposalsExpanded) 280.dp else 220.dp)
+                        .verticalScroll(proposalsScroll)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    stagedProposals.forEach { prop ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Theme[colors][surface], RoundedCornerShape(10.dp))
+                                .border(1.dp, Theme[colors][strokeStrong], RoundedCornerShape(10.dp))
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            ScheduleProposalContent(
+                                cardKey = "cal-rail-${prop.id}",
+                                proposal = prop,
+                                overrideStatus = state.proposalStatuses[prop.id],
+                                enabled = prop.id !in state.busyProposalIds,
+                                use24Hour = state.use24Hour,
+                                isDeleted = prop.id in state.deletedProposalIds,
+                                onApply = { opIds, force -> onApplyProposal(prop.id, opIds, force) },
+                                onDiscard = { onDiscardProposal(prop.id) },
+                                onRevert = { onRevertProposal(prop.id) },
+                                onUpdate = { req -> onUpdateProposal(prop.id, req) },
+                                onRestage = { onRestageProposal(prop.id) },
+                                onDelete = { onDeleteProposal(prop.id) },
+                            )
+                        }
                     }
                 }
             }
@@ -1975,9 +2073,14 @@ private fun CalendarAgentPanel(
             onSelectInteraction = onAskAgent,
             onFillInteraction = { text -> promptState.setTextAndPlaceCursorAtEnd(text) },
             appliedProposalStatuses = state.proposalStatuses,
+            updatedProposals = state.updatedProposals,
+            deletedProposalIds = state.deletedProposalIds,
             onApplyProposal = onApplyProposal,
             onDiscardProposal = onDiscardProposal,
             onRevertProposal = onRevertProposal,
+            onUpdateProposal = onUpdateProposal,
+            onRestageProposal = onRestageProposal,
+            onDeleteProposal = onDeleteProposal,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
 

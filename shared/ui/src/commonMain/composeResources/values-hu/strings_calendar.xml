@@ -131,4 +131,14 @@
     <string name="cal_agent_choose_pet">Kedvenc választása</string>
     <string name="cal_agent_session_reset_done">Új naptárügynök-munkamenet elindítva.</string>
     <string name="cal_back_to_calendar">Vissza a Naptárhoz</string>
+    <string name="cal_proposal_staged_summary">%1$d függőben lévő javaslat</string>
+    <string name="cal_proposal_show">Megjelenítés</string>
+    <string name="cal_proposal_hide">Elrejtés</string>
+    <string name="cal_proposal_edit_item">Elem szerkesztése</string>
+    <string name="cal_proposal_save_item">Módosítások mentése</string>
+    <string name="cal_proposal_remove_item">Elem eltávolítása</string>
+    <string name="cal_proposal_restage">Újra előkészítés</string>
+    <string name="cal_proposal_delete">Törlés</string>
+    <string name="cal_proposal_deleted">Törölve</string>
+    <string name="cal_proposal_item_title">Cím</string>
 </resources>
