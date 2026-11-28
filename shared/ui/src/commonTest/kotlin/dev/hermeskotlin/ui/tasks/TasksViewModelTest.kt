@@ -2470,7 +2470,8 @@ class TasksViewModelTest {
                         sessionPatches.any { it.first == "sess-done-1" && it.second.contains(""""archived":false""") }
                 }
             }
-            assertEquals(1, reopened.completedTotal)
+            // Active filter ("proj-arch" + "ops" + "timber") narrowed completedTotal to 1; reopening removes it -> 0.
+            assertEquals(0, reopened.completedTotal)
 
             h.vm.clearCompletedFilters()
             withTimeout(5_000) { h.vm.state.first { !it.completedLoading && it.completedQuery.isEmpty() && it.completedProjectFilter == null && it.completedBotFilter == null } }
